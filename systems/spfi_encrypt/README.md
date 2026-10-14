@@ -12,11 +12,18 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 
 | Item | Status |
 | --- | --- |
-| Composer file | present, core versions checked by `tools/check_pins.py` |
-| Generated top level (`hdl/`) | open: generated with the HDL export of the Composer |
+| Composer file | present, core versions checked by `tools/check_pins.py`; the checks of the Composer report one error and one warning, see [Open points](#open-points) |
+| Generated top level (`hdl/`) | open: generated with the HDL export of the Composer once the error is resolved |
 | System testbench (`sim/`) | open |
 | AMD VCK190 target (`targets/vck190/`) | open |
 | Hardware test ([sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
+
+## Open points
+
+| Check of the Composer | Instance | Finding | Consequence |
+| --- | --- | --- | --- |
+| Error `known_defect` | `rmap0` | In the pinned version of OpenRMAP, `omap_core` with 32-bit data and `AxiMaxBeats_g` below 4 gives every AXI transaction of an RMAP command that it splits into several transactions the address of the first word. With `AxiMaxBeats_g = 1`, as in `rmap0`, this applies to every command of more than one 32-bit word: a read repeats the first word, a write writes all words to the first register. Commands of one 32-bit register are not affected. The correction is in progress in OpenRMAP. | A key load with one command per key and every other command of several words fails without an error status. The system moves to the corrected version of OpenRMAP; the generated top level follows with it. |
+| Warning `with_block` | `ofb0` with `pa0` | `ofb0` leaves its reset before the transceivers of `pa0` are ready, so the lane initialisation can start against a transmitter that is still in reset. The Composer cannot couple the lane reset of the adapter to the reset of the core yet. | The coupling follows with a version of OpenFibre in which `ofb_core` takes the ready state of the transmitters. |
 
 ## Blocks
 

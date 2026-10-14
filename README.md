@@ -15,6 +15,13 @@ generated top levels, the testbenches and the board targets follow.
 | --- | --- | --- | --- | --- |
 | [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | open | open | AMD VCK190 (open) |
 
+Open points of spfi_encrypt, from the checks of the Composer (details in its
+[README](systems/spfi_encrypt/README.md#open-points)):
+
+- Error `known_defect`: the RMAP target `rmap0` reads or writes wrong data in commands of several words with the
+  pinned version of OpenRMAP. The correction is in progress in OpenRMAP; the top level is generated after it.
+- Warning `with_block`: the SpaceFibre port `ofb0` leaves its reset before the transceivers of `pa0` are ready.
+
 ## Layout
 
 | Path | Content |
