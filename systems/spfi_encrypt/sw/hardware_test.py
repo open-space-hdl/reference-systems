@@ -72,6 +72,7 @@ class System:
         self.node = f.instance_of_block("openspp/spp_core")
         self.rmap = f.instance_of_block("openrmap/omap_core")
         self.port = f.instance_of_block("openfibre/ofb_core")
+        self.lanes = f.generic(self.port, "NumLanes_g")
         self.ecc = f.instance_of_block("olo/olo_ft_ecc_monitor_axi")
         self.windows = f.decoder_windows(f.instance_of_block("olo/olo_axi_lite_decoder"))
         self.chunk_bytes = f.generic(f.instances_of("opencrypto/ocr_framer")[0], "ChunkBytes_g")
@@ -221,12 +222,12 @@ def loaded_slot(fixed: int, counter: int) -> list[int]:
 
 
 def tc01_link(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-01: the link is up with four lanes, the SpaceFibre port answers over RMAP."""
+    """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP."""
     base = ctx.system.base(ctx.system.port)
     check(regs.read(base + OFB.ID) == OFB.REGMAP_ID, "ID of the SpaceFibre port")
     state = OFB.get("DL_STATUS", "LINK_STATE", regs.read(base + OFB.DL_STATUS))
     check(state == LINK_INITIALISED, f"DL_STATUS.LINK_STATE = {state}")
-    for lane in range(4):
+    for lane in range(ctx.system.lanes):
         state = OFB.get("LANE_STATUS", "STATE", regs.read(base + OFB.LANE_STATUS(lane)))
         check(state == LANE_ACTIVE, f"LANE_STATUS({lane}).STATE = {state}")
 

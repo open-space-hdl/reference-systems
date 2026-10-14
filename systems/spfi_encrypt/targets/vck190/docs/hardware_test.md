@@ -78,10 +78,13 @@ ones. `--packets` sets the number of Space Packets of TC-RS-HW-06 (default 40), 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
 
+`<PREFIX>_REGMAP_ID` is the identification of the register map in the header `cores/<core>/sw/<prefix>_regs.h` of
+the pinned core; the script reads it from there.
+
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | ID 0x0FB10007, link initialised (`DL_STATUS.LINK_STATE` = 3), all four lanes active (`LANE_STATUS.STATE` = 7) |
-| TC-RS-HW-02 Identification | Read the identification register of every register window | `spp0` 0x53505001, `ocr0` to `ocr3` 0x4F435201, `edac0` `INFO` 0x00001008 (8 channels, 16-bit counters), `rmap0` 0x4F4D4101, `ofb0` 0x0FB10007 |
+| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | `ID` = `OFB_REGMAP_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all four lanes active (`LANE_STATUS.STATE` = 7) |
+| TC-RS-HW-02 Identification | Read the identification register of every register window | `ID` of `spp0` = `SPP_REGMAP_ID`, of `ocr0` to `ocr3` = `OCR_REGMAP_ID`, of `rmap0` = `OMAP_REGMAP_ID`, of `ofb0` = `OFB_REGMAP_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters) |
 | TC-RS-HW-03 RMAP | Verified writes of `IRQ_ENA` of `edac0` and read back; a read with a wrong key | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read `ID`, `GENERICS`, `GENERICS2` and `RELEASE_BYTES` of `ocr0` with one command of 16 bytes and with single reads; load the test slot with the key in one write of 32 bytes and `IV_FIXED`, `IV_COUNT_LO` and `IV_COUNT_HI` in one write of 12 bytes, then `KEY_LOAD`; select the slot in `SLOT_QUERY` and read `SLOT_STATUS` to `SLOT_COUNT_HI` with one command of 16 bytes and with single reads | Both reads of 16 bytes give the words of the single reads; the slot is valid with generated IVs (`SLOT_STATUS` 0x3) and holds the written fixed field and invocation counter |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i); slot 0 of every AES-GCM core loaded as in TC-RS-HW-04 with the key and IV values of its channel and queried; counters cleared | Table entries read back, no table overrun; `STATUS.BUSY` of every core returns to 0; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |

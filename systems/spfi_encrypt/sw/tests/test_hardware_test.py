@@ -85,7 +85,7 @@ class SystemModel(Transport):
         self.regs = {port + ht.OFB.ID: ht.OFB.REGMAP_ID, port + ht.OFB.DL_STATUS: ht.LINK_INITIALISED,
                      node + ht.SPP.ID: ht.SPP.REGMAP_ID, s.base(s.rmap) + ht.OMAP.ID: ht.OMAP.REGMAP_ID,
                      s.base(s.ecc) + ht.EDAC_INFO: s.ecc_info}
-        for lane in range(4):
+        for lane in range(s.lanes):
             self.regs[port + ht.OFB.LANE_STATUS(lane)] = ht.LANE_ACTIVE
         for ch in s.channels:
             core = s.base(ch.core)
@@ -213,7 +213,7 @@ def test_system_facts_from_the_composer_file():
                               "ocr3": 0x50000, "rmap0": 0x60000, "ofb0": 0x70000}
     assert [(c.port, c.framer, c.core, c.output_apid, c.slot, c.key_slots) for c in SYSTEM.channels] == [
         (k, f"frm{k}", f"ocr{k}", k, 0, 4) for k in range(4)]
-    assert (SYSTEM.chunk_bytes, SYSTEM.rx_buffer_bytes, SYSTEM.ecc_info) == (4096, 8192, 0x1008)
+    assert (SYSTEM.chunk_bytes, SYSTEM.rx_buffer_bytes, SYSTEM.ecc_info, SYSTEM.lanes) == (4096, 8192, 0x1008, 4)
 
 
 def test_procedure_passes_against_the_model():
