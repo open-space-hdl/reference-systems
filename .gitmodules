@@ -1,0 +1,15 @@
+[submodule "cores/open-logic-ft"]
+	path = cores/open-logic-ft
+	url = https://github.com/open-space-hdl/open-logic-ft.git
+[submodule "cores/openrmap"]
+	path = cores/openrmap
+	url = https://github.com/open-space-hdl/openrmap.git
+[submodule "cores/openspp"]
+	path = cores/openspp
+	url = https://github.com/open-space-hdl/openspp.git
+[submodule "cores/openfibre"]
+	path = cores/openfibre
+	url = https://github.com/open-space-hdl/openfibre.git
+[submodule "cores/opencrypto"]
+	path = cores/opencrypto
+	url = https://github.com/open-space-hdl/opencrypto.git
