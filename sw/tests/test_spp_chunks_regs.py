@@ -88,7 +88,7 @@ def test_reassemble():
 
 def test_register_map_from_header():
     ocr = RegisterMap(CORES / "opencrypto" / "sw" / "ocr_regs.h", "OCR")
-    assert ocr.REGMAP_ID == 0x4F435201
+    assert ocr.REGMAP_ID >> 8 == 0x4F4352                 # "OCR", then the version of the register map
     assert ocr.KEY_LOAD == 0x06C
     assert ocr.KEY(3) == 0x04C
     assert ocr.field("KEY_LOAD", "START", 1) == 1 << 31
