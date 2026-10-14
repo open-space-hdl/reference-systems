@@ -46,6 +46,11 @@ EDAC_INFO, EDAC_IRQ_ENA, EDAC_CNT = 0x00, 0x0C, 0x10
 LANE_ACTIVE = 7           # LANE_STATUS.STATE of an active lane (OpenFibre register map)
 LINK_INITIALISED = 3      # DL_STATUS.LINK_STATE of an initialised link
 
+# Registers of the AES-GCM core that the test accesses with one command each
+OCR_INFO = ("ID", "GENERICS", "GENERICS2", "RELEASE_BYTES")
+OCR_IV = ("IV_FIXED", "IV_COUNT_LO", "IV_COUNT_HI")
+OCR_SLOT = ("SLOT_STATUS", "SLOT_FIXED", "SLOT_COUNT_LO", "SLOT_COUNT_HI")
+
 
 @dataclass(frozen=True)
 class Channel:
@@ -56,6 +61,7 @@ class Channel:
     core: str
     output_apid: int
     slot: int
+    key_slots: int
 
 
 class System:
@@ -78,7 +84,8 @@ class System:
             core = instance_of(f.connection_from(f"{framer}.M_Out")["to"])
             send = f.connection_from(f"{core}.M_Out")
             self.channels.append(Channel(port=port, framer=framer, core=core, output_apid=send["sideband"]["apid"],
-                                         slot=f.tie_off(f"{framer}_Cfg_Slot_s", "slot")))
+                                         slot=f.tie_off(f"{framer}_Cfg_Slot_s", "slot"),
+                                         key_slots=f.generic(core, "NumKeys_g")))
 
     def base(self, instance: str) -> int:
         return self.windows[instance]
@@ -112,6 +119,18 @@ def check(condition: bool, text: str) -> None:
         raise TestFailed(text)
 
 
+def hex_words(words: list[int]) -> str:
+    return " ".join(f"{w:08X}" for w in words)
+
+
+def consecutive(regmap: RegisterMap, names: tuple[str, ...]) -> int:
+    """Address of the first of several registers that one command accesses; they must follow each other."""
+    addresses = [getattr(regmap, name) for name in names]
+    if addresses != list(range(addresses[0], addresses[0] + 4 * len(addresses), 4)):
+        raise ValueError(f"the registers {', '.join(names)} are not consecutive")
+    return addresses[0]
+
+
 class Registers:
     """Register access of the system over RMAP."""
 
@@ -131,17 +150,25 @@ class Registers:
         return rmap.parse_reply(reply, target or self.target, tid, read=read)
 
     def read(self, address: int) -> int:
+        return self.read_block(address, 1)[0]
+
+    def read_block(self, address: int, words: int) -> list[int]:
+        """Reads consecutive registers with one command (incrementing address)."""
         tid = self.next_tid()
-        reply = self.command(rmap.read_command(self.target, address, 4, tid), tid, read=True)
-        check(reply.ok, f"read 0x{address:08X}: {rmap.status_text(reply.status)}")
+        reply = self.command(rmap.read_command(self.target, address, 4 * words, tid), tid, read=True)
+        check(reply.ok, f"read of {4 * words} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
         # the first byte of the data is the lowest address: little-endian byte lanes of the AXI4 bus
-        return int.from_bytes(reply.data, "little")
+        return [int.from_bytes(reply.data[i:i + 4], "little") for i in range(0, 4 * words, 4)]
 
     def write(self, address: int, value: int) -> None:
+        self.write_block(address, [value])
+
+    def write_block(self, address: int, words: list[int]) -> None:
+        """Writes consecutive registers with one verified command (incrementing address)."""
+        data = b"".join(w.to_bytes(4, "little") for w in words)
         tid = self.next_tid()
-        reply = self.command(rmap.write_command(self.target, address, value.to_bytes(4, "little"), tid), tid,
-                             read=False)
-        check(reply.ok, f"write 0x{address:08X}: {rmap.status_text(reply.status)}")
+        reply = self.command(rmap.write_command(self.target, address, data, tid), tid, read=False)
+        check(reply.ok, f"write of {len(data)} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
 
     def wait(self, address: int, mask: int, value: int, timeout: float = 1.0) -> int:
         end = time.monotonic() + timeout
@@ -161,7 +188,36 @@ class Context:
     keys: list[bytes]
     fixed: list[int]
     counter: list[int]
+    test_key: bytes
+    test_fixed: int
+    test_counter: int
     chunks: int = 0
+
+
+def load_slot(regs: Registers, core: int, key: bytes, fixed: int, counter: int, slot: int) -> None:
+    """Loads a key slot with generated IVs (OpenCrypto user guide, programming sequence): the key words with one
+    command, the fixed field and the first invocation counter with one command, then KEY_LOAD."""
+    busy = OCR.field("STATUS", "BUSY", 1)
+    regs.wait(core + OCR.STATUS, busy, 0)
+    # key byte 4 n in bits 31:24 of KEY n
+    regs.write_block(core + OCR.KEY(0), [int.from_bytes(key[i:i + 4], "big") for i in range(0, len(key), 4)])
+    regs.write_block(core + consecutive(OCR, OCR_IV), [fixed, counter & 0xFFFFFFFF, counter >> 32])
+    regs.write(core + OCR.KEY_LOAD, OCR.field("KEY_LOAD", "START", 1) | OCR.field("KEY_LOAD", "IV_GEN", 1)
+               | OCR.field("KEY_LOAD", "SLOT", slot))
+    regs.wait(core + OCR.STATUS, busy, 0)
+
+
+def query_slot(regs: Registers, core: int, slot: int) -> list[int]:
+    """SLOT_STATUS, SLOT_FIXED, SLOT_COUNT_LO and SLOT_COUNT_HI of a key slot, read with one command."""
+    regs.write(core + OCR.SLOT_QUERY, slot)
+    regs.wait(core + OCR.SLOT_STATUS, OCR.field("SLOT_STATUS", "PENDING", 1), 0)
+    return regs.read_block(core + consecutive(OCR, OCR_SLOT), len(OCR_SLOT))
+
+
+def loaded_slot(fixed: int, counter: int) -> list[int]:
+    """What query_slot gives for a slot loaded with generated IVs that has not encrypted yet."""
+    status = OCR.field("SLOT_STATUS", "VALID", 1) | OCR.field("SLOT_STATUS", "IV_GEN", 1)
+    return [status, fixed, counter & 0xFFFFFFFF, counter >> 32]
 
 
 def tc01_link(regs: Registers, ctx: Context) -> None:
@@ -200,8 +256,32 @@ def tc03_rmap(regs: Registers, ctx: Context) -> None:
     check(reply.status == 3, f"wrong key gives status {reply.status} ({rmap.status_text(reply.status)})")
 
 
-def tc04_configure(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-04: input APID i goes to receive port i; the key slot of every AES-GCM core is loaded with its own
+def tc04_multi_word(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-04: commands of several words: a read gives the words of single reads, the words of a write arrive
+    in their registers."""
+    ch = ctx.system.channels[0]
+    core = ctx.system.base(ch.core)
+    # read: identification and generics of the AES-GCM core (constants) with one command and word by word
+    single = [regs.read(core + getattr(OCR, name)) for name in OCR_INFO]
+    block = regs.read_block(core + consecutive(OCR, OCR_INFO), len(OCR_INFO))
+    check(block == single, f"read of {4 * len(block)} bytes at {ch.core}.ID gives {hex_words(block)}, single "
+          f"reads {hex_words(single)}")
+    # write: a key slot that the framer does not use (its own slot if the core has only one; TC-RS-HW-05 loads it
+    # again), loaded with the key in one command and with the fixed field and the invocation counter in one command.
+    # The key cannot be read back; the fixed field and the counter come back through the slot query.
+    slot = (ch.slot + 1) % ch.key_slots
+    load_slot(regs, core, ctx.test_key, ctx.test_fixed, ctx.test_counter, slot)
+    block = query_slot(regs, core, slot)
+    single = [regs.read(core + getattr(OCR, name)) for name in OCR_SLOT]
+    check(block == single, f"read of {4 * len(block)} bytes at {ch.core}.SLOT_STATUS gives {hex_words(block)}, "
+          f"single reads {hex_words(single)}")
+    expected = loaded_slot(ctx.test_fixed, ctx.test_counter)
+    check(single == expected, f"write of {4 * len(OCR_IV)} bytes at {ch.core}.IV_FIXED: slot {slot} holds "
+          f"{hex_words(single)}, expected {hex_words(expected)}")
+
+
+def tc05_configure(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-05: input APID i goes to receive port i; the key slot of every AES-GCM core is loaded with its own
     key and generated IVs."""
     s, setup = ctx.system, ctx.setup
     node = s.base(s.node)
@@ -218,27 +298,19 @@ def tc04_configure(regs: Registers, ctx: Context) -> None:
               f"receive APID table entry of APID 0x{apid:03X}: 0x{word:08X}")
     check(not regs.read(node + SPP.TABLE_STATUS) & SPP.field("TABLE_STATUS", "RX_OVERRUN", 1),
           "TABLE_STATUS.RX_OVERRUN")
-    busy = OCR.field("STATUS", "BUSY", 1)
     for k, ch in enumerate(s.channels):
         core = s.base(ch.core)
-        regs.wait(core + OCR.STATUS, busy, 0)
-        key = ctx.keys[k]
-        for n in range(len(key) // 4):
-            # key byte 4 n in bits 31:24 of KEY n
-            regs.write(core + OCR.KEY(n), int.from_bytes(key[4 * n:4 * n + 4], "big"))
-        regs.write(core + OCR.IV_FIXED, ctx.fixed[k])
-        regs.write(core + OCR.IV_COUNT_LO, ctx.counter[k] & 0xFFFFFFFF)
-        regs.write(core + OCR.IV_COUNT_HI, ctx.counter[k] >> 32)
-        regs.write(core + OCR.KEY_LOAD, OCR.field("KEY_LOAD", "START", 1) | OCR.field("KEY_LOAD", "IV_GEN", 1)
-                   | OCR.field("KEY_LOAD", "SLOT", ch.slot))
-        regs.wait(core + OCR.STATUS, busy, 0)
+        load_slot(regs, core, ctx.keys[k], ctx.fixed[k], ctx.counter[k], ch.slot)
+        state = query_slot(regs, core, ch.slot)
+        expected = loaded_slot(ctx.fixed[k], ctx.counter[k])
+        check(state == expected, f"{ch.core} slot {ch.slot} holds {hex_words(state)}, expected {hex_words(expected)}")
     counters = [node + SPP.RX_PACKETS, node + SPP.TX_PACKETS] + [s.base(c.core) + OCR.ENCRYPTIONS for c in s.channels]
     for address in counters:
         regs.write(address, 0)  # a write clears a counter
 
 
-def tc05_encryption(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-05: Space Packets of the input APIDs come back as authenticated chunks with the APID of their
+def tc06_encryption(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-06: Space Packets of the input APIDs come back as authenticated chunks with the APID of their
     channel; every chunk decrypts with the key of its channel and the chunks give the input packets."""
     s, setup = ctx.system, ctx.setup
     rng = random.Random(ctx.seed)
@@ -285,8 +357,8 @@ def tc05_encryption(regs: Registers, ctx: Context) -> None:
         check(packets_back == sent[k], f"APID {ch.output_apid}: decrypted packets differ from the input")
 
 
-def tc06_counters(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-06: counters match the traffic, no error and no memory error is counted."""
+def tc07_counters(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-07: counters match the traffic, no error and no memory error is counted."""
     s = ctx.system
     node = s.base(s.node)
     check(regs.read(node + SPP.RX_PACKETS) == ctx.packets, "RX_PACKETS of the Space Packet node")
@@ -303,7 +375,8 @@ def tc06_counters(regs: Registers, ctx: Context) -> None:
         check(regs.read(s.base(s.ecc) + EDAC_CNT + 4 * channel) == 0, f"ECC monitor counters of channel {channel}")
 
 
-TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_configure, tc05_encryption, tc06_counters]
+TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
+         tc07_counters]
 
 
 def make_context(seed: int, packets: int, setup: Setup = Setup(), system: System | None = None) -> Context:
@@ -313,9 +386,13 @@ def make_context(seed: int, packets: int, setup: Setup = Setup(), system: System
         raise ValueError("the input APIDs overlap the output APIDs of the system")
     rng = random.Random(seed)
     count = len(system.channels)
-    return Context(system=system, setup=setup, seed=seed, packets=packets,
-                   keys=[rng.randbytes(32) for _ in range(count)], fixed=[rng.getrandbits(32) for _ in range(count)],
-                   counter=[rng.getrandbits(32) for _ in range(count)])
+    keys = [rng.randbytes(32) for _ in range(count)]
+    fixed = [rng.getrandbits(32) for _ in range(count)]
+    counter = [rng.getrandbits(32) for _ in range(count)]
+    # the counter of TC-RS-HW-04 fills both counter words and stays far from its last value
+    return Context(system=system, setup=setup, seed=seed, packets=packets, keys=keys, fixed=fixed, counter=counter,
+                   test_key=rng.randbytes(32), test_fixed=rng.getrandbits(32),
+                   test_counter=rng.randrange(1 << 32, 1 << 63))
 
 
 def run(transport, ctx: Context) -> int:
@@ -339,7 +416,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
-    parser.add_argument("--packets", type=int, default=40, help="Space Packets sent in TC-RS-HW-05")
+    parser.add_argument("--packets", type=int, default=40, help="Space Packets sent in TC-RS-HW-06")
     args = parser.parse_args()
 
     from refsys.transport import StarSystemTransport
