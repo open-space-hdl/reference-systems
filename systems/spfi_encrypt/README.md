@@ -16,6 +16,7 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 | Generated top level (`hdl/`) | open: generated with the HDL export of the Composer |
 | System testbench (`sim/`) | open |
 | AMD VCK190 target (`targets/vck190/`) | open |
+| Hardware test ([sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 
 ## Blocks
 

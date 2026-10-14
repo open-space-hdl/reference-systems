@@ -65,6 +65,20 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 - A system testbench drives and observes the top-level ports of the system only, never internal signals. The far end
   of a link is an independent model or a second instance, never the receiver of the port under test.
 
+## Host software
+
+- The host software of the tests is Python 3.10 or later. `sw/refsys/` holds what all systems share (RMAP, Space
+  Packets, the chunks of OpenCrypto, the register maps from the C headers of the cores, the facts of a system file,
+  the transports); `systems/<system>/sw/` holds the tests of a system.
+- Register addresses and fields come from the generated headers of the cores (`cores/<core>/sw/<prefix>_regs.h`),
+  never from copied numbers, so that they follow the pinned versions of the cores. Register windows, connections and
+  constants of a system come from its Composer file, so that a test follows the system when it changes.
+- Packets are built and checked by the library, independent of the RTL of the cores. A transport carries complete
+  link packets, path addresses included; the transport of a test equipment imports the software of its vendor, which
+  the user installs on the test computer.
+- Every module and every system test has unit tests that run without hardware (`python -m pytest`); a system test
+  also runs against a software model of the system that names the documents of the cores it follows.
+
 ## Documentation
 
 - Write for the engineer who builds or uses the system. Decisions are stated as facts, with the reason from the

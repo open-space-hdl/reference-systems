@@ -48,6 +48,10 @@ jobs:
           python-version: "3.12"
       - name: Submodules match the Composer files
         run: python tools/check_pins.py
+      - name: Install Python packages
+        run: python -m pip install pycryptodome pytest
+      - name: Host software tests
+        run: python -m pytest -q
       - name: Markdown lint
         uses: DavidAnson/markdownlint-cli2-action@v24
         with:
