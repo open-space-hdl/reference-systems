@@ -83,7 +83,7 @@ the pinned core; the script reads it from there.
 
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | `ID` = `OFB_REGMAP_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all four lanes active (`LANE_STATUS.STATE` = 7) |
+| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | `ID` = `OFB_REGMAP_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7) |
 | TC-RS-HW-02 Identification | Read the identification register of every register window | `ID` of `spp0` = `SPP_REGMAP_ID`, of `ocr0` to `ocr3` = `OCR_REGMAP_ID`, of `rmap0` = `OMAP_REGMAP_ID`, of `ofb0` = `OFB_REGMAP_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters) |
 | TC-RS-HW-03 RMAP | Verified writes of `IRQ_ENA` of `edac0` and read back; a read with a wrong key | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read `ID`, `GENERICS`, `GENERICS2` and `RELEASE_BYTES` of `ocr0` with one command of 16 bytes and with single reads; load the test slot with the key in one write of 32 bytes and `IV_FIXED`, `IV_COUNT_LO` and `IV_COUNT_HI` in one write of 12 bytes, then `KEY_LOAD`; select the slot in `SLOT_QUERY` and read `SLOT_STATUS` to `SLOT_COUNT_HI` with one command of 16 bytes and with single reads | Both reads of 16 bytes give the words of the single reads; the slot is valid with generated IVs (`SLOT_STATUS` 0x3) and holds the written fixed field and invocation counter |
