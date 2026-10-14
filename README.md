@@ -24,7 +24,9 @@ generated top levels, the testbenches and the board targets follow.
 | `systems/<system>/sim/` | System testbench |
 | `systems/<system>/targets/<board>/` | Board top level, block design script, constraints, build script, hardware test |
 | `systems/<system>/docs/` | What the system does, address map, initialisation sequence |
+| `systems/<system>/sw/` | Host software of the system, for example its hardware test |
 | `cores/` | Submodules: Open Logic FT and every core, at the commits the system files pin |
+| `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, register maps, facts of a system file, transports |
 | `tools/` | Checks of the repository |
 | `run.py` | VUnit run script: compiles the libraries of all systems and runs their testbenches |
 
@@ -40,6 +42,7 @@ git -C cores/open-logic-ft submodule update --init 3rdParty/en_cl_fix
 python -m pip install -r requirements.txt
 python tools/check_pins.py        # the submodules match the system files
 python run.py --compile           # analyses Open Logic FT and the cores with GHDL
+python -m pytest                  # host software and system tests against their software models
 ```
 
 The submodules of the cores themselves (their own `open-logic` and `uvvm`) serve the tests of the cores and are not
