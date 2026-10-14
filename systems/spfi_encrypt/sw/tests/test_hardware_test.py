@@ -25,7 +25,7 @@ of a core that the model does not follow shows up when the test runs on hardware
 - ECC monitor: INFO with the channel count and the counter width (Open Logic FT, olo_ft_ecc_monitor_axi).
 
 By default the model is the system as its cores specify it. The model of the pinned cores adds the known defects of
-the pinned commits (PINNED_LIMITS); the test of the procedure against it is an expected failure while one is pinned.
+the pinned commits (PINNED); the test of the procedure against it is an expected failure while one is pinned.
 """
 
 import importlib.util
@@ -49,32 +49,33 @@ SYSTEM = ht.System()
 SYSTEM_FILE = SystemFile(ht.SYSTEM_DIR / "spfi_encrypt.composer.json")
 PINS = {source["id"]: source["commit"] for source in SYSTEM_FILE.data["sources"]}
 
-# Commits of OpenRMAP whose omap_core with AxiMaxBeats_g = 1 transfers wrong data in an RMAP command that needs more
-# than one AXI4-Lite transfer: a read of more than 4 bytes, a write of 10 bytes or more.
-OMAP_MULTI_TRANSFER_DEFECT = {
+# Commits of OpenRMAP whose omap_core with 32-bit data and AxiMaxBeats_g = 1 gives every AXI transaction of an RMAP
+# command the address of its first word: a read of several words repeats the first word, a write of several words
+# writes all of them to the first register, where the last one stays, and leaves the other registers unchanged.
+OMAP_FIRST_WORD_DEFECT = {
     "4ae4bfe31395ecbc31d5076796fd94bd7cb9de0e",
     "afb40c72afd5a7cc64e733c9ffcdfe78630d1125",
 }
-DEFECT_PINNED = (PINS["openrmap"] in OMAP_MULTI_TRANSFER_DEFECT
+DEFECT_PINNED = (PINS["openrmap"] in OMAP_FIRST_WORD_DEFECT
+                 and SYSTEM_FILE.generic(SYSTEM.rmap, "AxiDataWidth_g") == 32
                  and SYSTEM_FILE.generic(SYSTEM.rmap, "AxiMaxBeats_g") == 1)
 
-SPECIFIED = (None, None)                      # longest correct read and write: no limit
-PINNED_LIMITS = (4, 9) if DEFECT_PINNED else SPECIFIED
+SPECIFIED = (False, False)                    # reads and writes of several words as specified
+PINNED = (True, True) if DEFECT_PINNED else SPECIFIED
 
 
 class SystemModel(Transport):
     """spfi_encrypt as seen from the far end of its link.
 
-    limits: the longest read and the longest write (Data Length in bytes) that the RMAP target transfers correctly,
-    None for no limit. A longer command reads or writes wrong data: here every word of it carries the data of its
-    first word.
+    first_word: whether a read and whether a write of several words use the address of their first word for every
+    word, as with the defect of OMAP_FIRST_WORD_DEFECT.
     """
 
-    def __init__(self, setup: "ht.Setup", corrupt: bool = False, limits: tuple[int | None, int | None] = SPECIFIED):
+    def __init__(self, setup: "ht.Setup", corrupt: bool = False, first_word: tuple[bool, bool] = SPECIFIED):
         s = SYSTEM
         self.setup = setup
         self.corrupt = corrupt
-        self.read_limit, self.write_limit = limits
+        self.first_word_read, self.first_word_write = first_word
         self.key = 0x00                                   # Key_g
         port, node = s.base(s.port), s.base(s.node)
         self.regs = {port + ht.OFB.ID: ht.OFB.REGMAP_ID, port + ht.OFB.DL_STATUS: ht.LINK_INITIALISED,
@@ -106,18 +107,17 @@ class SystemModel(Transport):
         length = int.from_bytes(header[12 + ra:15 + ra], "big")
         write = bool(instr & 0x20)
         assert instr & 0x04 and address % 4 == 0 and length % 4 == 0  # incrementing, whole registers
-        limit = self.write_limit if write else self.read_limit
-        wrong = limit is not None and length > limit
+        first_word = self.first_word_write if write else self.first_word_read
         status = 0 if key == self.key else 3
         data = b""
         if write and status == 0:
             assert rmap.crc8(cmd[len(header):]) == 0
             values = cmd[len(header):len(header) + length]
             for n in range(0, length, 4):
-                self._write(address + n, int.from_bytes(values[0 if wrong else n:][:4], "little"))
+                self._write(address + (0 if first_word else n), int.from_bytes(values[n:n + 4], "little"))
         elif status == 0:
-            values = [self._read(address + n) for n in range(0, length, 4)]
-            data = b"".join((values[0] if wrong else v).to_bytes(4, "little") for v in values)
+            values = [self._read(address + (0 if first_word else n)) for n in range(0, length, 4)]
+            data = b"".join(v.to_bytes(4, "little") for v in values)
         out = bytes([ila, 0x01, instr & 0x3F, status, cmd[0], tid >> 8, tid & 0xFF])
         if not write:
             out += bytes([0]) + len(data).to_bytes(3, "big")
@@ -218,21 +218,21 @@ def test_procedure_passes_against_the_model():
 
 
 @pytest.mark.xfail(DEFECT_PINNED, raises=ht.TestFailed, strict=True,
-                   reason="omap_core of the pinned OpenRMAP with AxiMaxBeats_g = 1 transfers wrong data in commands "
-                          "of more than one AXI4-Lite transfer")
+                   reason="omap_core of the pinned OpenRMAP with AxiMaxBeats_g = 1 uses the address of the first "
+                          "word for every word of a command")
 def test_procedure_passes_against_the_pinned_cores():
-    ctx = run_all(SystemModel(ht.Setup(), limits=PINNED_LIMITS))
+    ctx = run_all(SystemModel(ht.Setup(), first_word=PINNED))
     assert ctx.chunks >= 24
 
 
-def test_procedure_detects_wrong_data_of_a_long_read():
+def test_procedure_detects_a_read_of_several_words_at_the_first_address():
     with pytest.raises(ht.TestFailed, match="read of 16 bytes at ocr0.ID"):
-        run_all(SystemModel(ht.Setup(), limits=(4, None)))
+        run_all(SystemModel(ht.Setup(), first_word=(True, False)))
 
 
-def test_procedure_detects_wrong_data_of_a_long_write():
+def test_procedure_detects_a_write_of_several_words_to_the_first_register():
     with pytest.raises(ht.TestFailed, match="write of 12 bytes at ocr0.IV_FIXED"):
-        run_all(SystemModel(ht.Setup(), limits=(None, 9)))
+        run_all(SystemModel(ht.Setup(), first_word=(False, True)))
 
 
 def test_procedure_detects_a_corrupted_chunk():
