@@ -18,8 +18,9 @@ generated top levels, the testbenches and the board targets follow.
 Open points of spfi_encrypt, from the checks of the Composer (details in its
 [README](systems/spfi_encrypt/README.md#open-points)):
 
-- Error `known_defect`: the RMAP target `rmap0` reads or writes wrong data in commands of several words with the
-  pinned version of OpenRMAP. The correction is in progress in OpenRMAP; the top level is generated after it.
+- Error `known_defect`: the RMAP target `rmap0` reads or writes wrong data in commands of several words, caused by
+  `olo_axi_master_simple` of the pinned Open Logic FT (up to 4.7.0-ft.4). Fix pending in Open Logic (4.7.0-ft.5);
+  the top level is generated after the move to it.
 - Warning `with_block`: the SpaceFibre port `ofb0` leaves its reset before the transceivers of `pa0` are ready.
 
 ## Layout

@@ -24,8 +24,8 @@ of a core that the model does not follow shows up when the test runs on hardware
   (user guide 4.6), one invocation per chunk, counter ENCRYPTIONS.
 - ECC monitor: INFO with the channel count and the counter width (Open Logic FT, olo_ft_ecc_monitor_axi).
 
-By default the model is the system as its cores specify it. The model of the pinned cores adds the known defects of
-the pinned commits (PINNED); the test of the procedure against it is an expected failure while one is pinned.
+By default the model is the system as its cores specify it. The model of the pinned versions adds their known defects
+(PINNED); the test of the procedure against it is an expected failure while a version with a defect is pinned.
 """
 
 import importlib.util
@@ -47,16 +47,20 @@ from refsys.transport import Transport, TransportError  # noqa: E402
 
 SYSTEM = ht.System()
 SYSTEM_FILE = SystemFile(ht.SYSTEM_DIR / "spfi_encrypt.composer.json")
-PINS = {source["id"]: source["commit"] for source in SYSTEM_FILE.data["sources"]}
+OLO_TAG = next(source["tag"] for source in SYSTEM_FILE.data["sources"] if source["id"] == "olo")
 
-# Commits of OpenRMAP whose omap_core with 32-bit data and AxiMaxBeats_g = 1 gives every AXI transaction of an RMAP
-# command the address of its first word: a read of several words repeats the first word, a write of several words
+
+def ft_version(tag: str) -> tuple[int, ...]:
+    base, _, ft = tag.partition("-ft.")
+    return tuple(int(part) for part in base.split(".")) + (int(ft),)
+
+
+# Open Logic FT up to this tag: olo_axi_master_simple gives every AXI transaction of a command that it splits the start
+# address of the command when AxiMaxBeats_g < AxiDataWidth_g / 8. The model reproduces the case of rmap0, omap_core
+# with 32-bit data and AxiMaxBeats_g = 1: a read of several words repeats the first word, a write of several words
 # writes all of them to the first register, where the last one stays, and leaves the other registers unchanged.
-OMAP_FIRST_WORD_DEFECT = {
-    "4ae4bfe31395ecbc31d5076796fd94bd7cb9de0e",
-    "afb40c72afd5a7cc64e733c9ffcdfe78630d1125",
-}
-DEFECT_PINNED = (PINS["openrmap"] in OMAP_FIRST_WORD_DEFECT
+OLO_FIRST_WORD_DEFECT_UNTIL = "4.7.0-ft.4"
+DEFECT_PINNED = (ft_version(OLO_TAG) <= ft_version(OLO_FIRST_WORD_DEFECT_UNTIL)
                  and SYSTEM_FILE.generic(SYSTEM.rmap, "AxiDataWidth_g") == 32
                  and SYSTEM_FILE.generic(SYSTEM.rmap, "AxiMaxBeats_g") == 1)
 
@@ -68,7 +72,7 @@ class SystemModel(Transport):
     """spfi_encrypt as seen from the far end of its link.
 
     first_word: whether a read and whether a write of several words use the address of their first word for every
-    word, as with the defect of OMAP_FIRST_WORD_DEFECT.
+    word, as with Open Logic FT up to OLO_FIRST_WORD_DEFECT_UNTIL.
     """
 
     def __init__(self, setup: "ht.Setup", corrupt: bool = False, first_word: tuple[bool, bool] = SPECIFIED):
@@ -218,8 +222,8 @@ def test_procedure_passes_against_the_model():
 
 
 @pytest.mark.xfail(DEFECT_PINNED, raises=ht.TestFailed, strict=True,
-                   reason="omap_core of the pinned OpenRMAP with AxiMaxBeats_g = 1 uses the address of the first "
-                          "word for every word of a command")
+                   reason="olo_axi_master_simple of the pinned Open Logic FT gives every word of a command of rmap0 "
+                          "the address of the first word")
 def test_procedure_passes_against_the_pinned_cores():
     ctx = run_all(SystemModel(ht.Setup(), first_word=PINNED))
     assert ctx.chunks >= 24
