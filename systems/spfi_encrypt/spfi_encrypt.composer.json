@@ -5,7 +5,7 @@
   "generator": {
     "name": "Open Space Composer",
     "version": "0.1.0-beta",
-    "catalog": "7f69dfab5b09"
+    "catalog": "e00f482bafb1"
   },
   "system": {
     "name": "spfi_encrypt",
@@ -17,48 +17,48 @@
       "id": "openrmap",
       "name": "OpenRMAP",
       "url": "https://github.com/open-space-hdl/openrmap",
-      "commit": "4ae4bfe31395ecbc31d5076796fd94bd7cb9de0e",
+      "commit": "afb40c72afd5a7cc64e733c9ffcdfe78630d1125",
       "library": "openrmap",
-      "fileList": "component_list.txt",
-      "fileListFormat": "modules",
-      "verifiedWith": "4.7.0-ft.2"
+      "fileList": "compile_order.txt",
+      "fileListFormat": "files",
+      "verifiedWith": "4.7.0-ft.4"
     },
     {
       "id": "openspp",
       "name": "OpenSPP",
       "url": "https://github.com/open-space-hdl/openspp",
-      "commit": "da4e97b7ad9e0e8ee1af234d18210cbfdcdac492",
+      "commit": "2d7ee8f92175d15e41d1e069f0db663de951d0c6",
       "library": "openspp",
-      "fileList": "component_list.txt",
-      "fileListFormat": "modules",
+      "fileList": "compile_order.txt",
+      "fileListFormat": "files",
       "verifiedWith": "4.7.0-ft.2"
     },
     {
       "id": "openfibre",
       "name": "OpenFibre",
       "url": "https://github.com/open-space-hdl/openfibre",
-      "commit": "35424172bd9761cfbacc2e0449a803ab6c60fe8c",
+      "commit": "bd4d80b1f05ee5fda67a97ff4c760952a25a79a7",
       "library": "openfibre",
-      "fileList": "component_list.txt",
-      "fileListFormat": "modules",
+      "fileList": "compile_order.txt",
+      "fileListFormat": "files",
       "verifiedWith": "4.7.0-ft.2"
     },
     {
       "id": "opencrypto",
       "name": "OpenCrypto",
       "url": "https://github.com/open-space-hdl/opencrypto",
-      "commit": "be947c7f842751422a0257324157f4ef638d5ee0",
+      "commit": "e03bc8cda75a660cc3e28bdc14d7f9409ddb0497",
       "library": "opencrypto",
-      "fileList": "component_list.txt",
-      "fileListFormat": "modules",
+      "fileList": "compile_order.txt",
+      "fileListFormat": "files",
       "verifiedWith": "4.7.0-ft.3"
     },
     {
       "id": "olo",
       "name": "Open Logic FT",
       "url": "https://github.com/open-space-hdl/open-logic-ft",
-      "tag": "4.7.0-ft.3",
-      "commit": "a3c86207790fa91d89e5f02a657f6345de31656e",
+      "tag": "4.7.0-ft.4",
+      "commit": "441bcd5d6f881eeeff359ba8bb5f51cce1f12824",
       "library": "olo",
       "fileList": "compile_order.txt",
       "fileListFormat": "files"
@@ -146,7 +146,7 @@
       "generics": {
         "DenseOutput_g": true,
         "ReleaseBuffer_g": true,
-        "ReleaseBytes_g": 4128,
+        "ReleaseBytes_g": 16384,
         "DataWidth_g": 128
       },
       "clocks": {
@@ -195,7 +195,7 @@
       "generics": {
         "DenseOutput_g": true,
         "ReleaseBuffer_g": true,
-        "ReleaseBytes_g": 4128,
+        "ReleaseBytes_g": 16384,
         "DataWidth_g": 128
       },
       "clocks": {
@@ -216,7 +216,7 @@
       "generics": {
         "DenseOutput_g": true,
         "ReleaseBuffer_g": true,
-        "ReleaseBytes_g": 4128,
+        "ReleaseBytes_g": 16384,
         "DataWidth_g": 128
       },
       "clocks": {
@@ -237,7 +237,7 @@
       "generics": {
         "DenseOutput_g": true,
         "ReleaseBuffer_g": true,
-        "ReleaseBytes_g": 4128,
+        "ReleaseBytes_g": 16384,
         "DataWidth_g": 128
       },
       "clocks": {
@@ -477,7 +477,7 @@
   ],
   "externals": [],
   "resolved": {
-    "catalog": "7f69dfab5b09",
+    "catalog": "e00f482bafb1",
     "entity": "spfi_encrypt",
     "ports": [
       {
@@ -2272,7 +2272,7 @@
             "name": "RefClk",
             "dir": "in",
             "type": "std_logic",
-            "actual": "pa0_RefClk_s"
+            "actual": "pa0_RefClk"
           },
           {
             "name": "LaneClk",
@@ -3001,8 +3001,8 @@
           },
           {
             "name": "ReleaseBytes_g",
-            "value": 4128,
-            "vhdl": "4128",
+            "value": 16384,
+            "vhdl": "16384",
             "default": false
           },
           {
@@ -4354,8 +4354,8 @@
           },
           {
             "name": "ReleaseBytes_g",
-            "value": 4128,
-            "vhdl": "4128",
+            "value": 16384,
+            "vhdl": "16384",
             "default": false
           },
           {
@@ -4987,8 +4987,8 @@
           },
           {
             "name": "ReleaseBytes_g",
-            "value": 4128,
-            "vhdl": "4128",
+            "value": 16384,
+            "vhdl": "16384",
             "default": false
           },
           {
@@ -5620,8 +5620,8 @@
           },
           {
             "name": "ReleaseBytes_g",
-            "value": 4128,
-            "vhdl": "4128",
+            "value": 16384,
+            "vhdl": "16384",
             "default": false
           },
           {
@@ -7525,10 +7525,6 @@
         "type": "std_logic_vector(15 downto 0)"
       },
       {
-        "name": "pa0_RefClk_s",
-        "type": "std_logic"
-      },
-      {
         "name": "pa0_Stat_Aligned_s",
         "type": "std_logic_vector(3 downto 0)"
       },
@@ -8422,11 +8418,11 @@
       },
       {
         "to": "edac0_In_Valid_s(0)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c15",
         "signal": "valid",
-        "reason": "frm0.Ecc[0] has no valid."
+        "reason": "frm0.Ecc[0] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_In_EccDed_s(1)",
@@ -8444,11 +8440,11 @@
       },
       {
         "to": "edac0_In_Valid_s(1)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c16",
         "signal": "valid",
-        "reason": "frm0.Ecc[1] has no valid."
+        "reason": "frm0.Ecc[1] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_S_AxiLite_ArAddr_s",
@@ -9539,11 +9535,11 @@
       },
       {
         "to": "edac0_In_Valid_s(2)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c33",
         "signal": "valid",
-        "reason": "frm1.Ecc[0] has no valid."
+        "reason": "frm1.Ecc[0] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_In_EccDed_s(3)",
@@ -9561,11 +9557,11 @@
       },
       {
         "to": "edac0_In_Valid_s(3)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c34",
         "signal": "valid",
-        "reason": "frm1.Ecc[1] has no valid."
+        "reason": "frm1.Ecc[1] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_In_EccDed_s(4)",
@@ -9583,11 +9579,11 @@
       },
       {
         "to": "edac0_In_Valid_s(4)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c35",
         "signal": "valid",
-        "reason": "frm2.Ecc[0] has no valid."
+        "reason": "frm2.Ecc[0] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_In_EccDed_s(5)",
@@ -9605,11 +9601,11 @@
       },
       {
         "to": "edac0_In_Valid_s(5)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c36",
         "signal": "valid",
-        "reason": "frm2.Ecc[1] has no valid."
+        "reason": "frm2.Ecc[1] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_In_EccDed_s(6)",
@@ -9627,11 +9623,11 @@
       },
       {
         "to": "edac0_In_Valid_s(6)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c37",
         "signal": "valid",
-        "reason": "frm3.Ecc[0] has no valid."
+        "reason": "frm3.Ecc[0] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "edac0_In_EccDed_s(7)",
@@ -9649,11 +9645,11 @@
       },
       {
         "to": "edac0_In_Valid_s(7)",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c38",
         "signal": "valid",
-        "reason": "frm3.Ecc[1] has no valid."
+        "reason": "frm3.Ecc[1] has no valid: events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor."
       },
       {
         "to": "dec0_S_AxiLite_ArAddr_s",
@@ -9776,11 +9772,11 @@
       },
       {
         "to": "rmap0_M_Axi_RLast_s",
-        "from": "'0'",
+        "from": "'1'",
         "kind": "constant",
         "connection": "c8",
         "signal": "RLast",
-        "reason": "dec0.S_AxiLite has no RLast."
+        "reason": "dec0.S_AxiLite has no RLast: an AXI4-Lite slave answers single transfers, so every read beat is the last; valid only with the single-transfer condition of the AXI4-Lite connection."
       },
       {
         "to": "spp0_S_AxiLite_ArAddr_s",
@@ -10321,12 +10317,6 @@
         "signal": "Gt_RxN"
       },
       {
-        "to": "pa0_RefClk_s",
-        "from": "pa0_RefClk",
-        "kind": "top",
-        "signal": "RefClk"
-      },
-      {
         "to": "ofb0_S_Bc_TData_s",
         "from": "(others => '0')",
         "kind": "tie-off",
@@ -10452,8 +10442,8 @@
       },
       {
         "kind": "vendor_scoped",
-        "file": "tools/vivado/all_constraints_amd.tcl",
-        "note": "AMD Vivado: source the script of Open Logic once for the scoped constraints of its clock crossings."
+        "file": "src/base/tcl/olo_base_constraints_amd.tcl",
+        "note": "AMD Vivado: source the script of Open Logic once. It reads the scoped constraints of olo_base_cc_reset, olo_base_cc_bits, olo_base_cc_simple, olo_base_reset_gen and olo_base_ram_sdp wherever the system uses them, also inside the cores. tools/vivado/all_constraints_amd.tcl would also read those of olo_intf_sync, which expect device pins at its input and stop the build (ERROR 18-513) where a block synchronises internal signals with it, as ofb_pa_gty does; a block that synchronises device pins declares its own false path for them."
       }
     ],
     "compile": [
@@ -10461,11 +10451,11 @@
         "library": "olo",
         "source": "olo",
         "url": "https://github.com/open-space-hdl/open-logic-ft",
-        "tag": "4.7.0-ft.3",
-        "commit": "a3c86207790fa91d89e5f02a657f6345de31656e",
+        "tag": "4.7.0-ft.4",
+        "commit": "441bcd5d6f881eeeff359ba8bb5f51cce1f12824",
         "fileList": "compile_order.txt",
         "fileListFormat": "files",
-        "note": "Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.3 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 and changes no other source, so the cores verified with 4.7.0-ft.2 use it unchanged.",
+        "note": "Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.4 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 (ft.3) and fixes the error reporting of olo_axi_master_simple and the write word count of olo_axi_master_full (ft.4); it changes no other source, so the cores verified with 4.7.0-ft.2 or 4.7.0-ft.3 use it unchanged.",
         "entities": [
           "olo_axi_lite_decoder",
           "olo_base_reset_gen",
@@ -10476,10 +10466,10 @@
         "library": "openrmap",
         "source": "openrmap",
         "url": "https://github.com/open-space-hdl/openrmap",
-        "commit": "4ae4bfe31395ecbc31d5076796fd94bd7cb9de0e",
-        "fileList": "component_list.txt",
-        "fileListFormat": "modules",
-        "verifiedWith": "4.7.0-ft.2",
+        "commit": "afb40c72afd5a7cc64e733c9ffcdfe78630d1125",
+        "fileList": "compile_order.txt",
+        "fileListFormat": "files",
+        "verifiedWith": "4.7.0-ft.4",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.",
         "entities": [
           "omap_core"
@@ -10489,9 +10479,9 @@
         "library": "openspp",
         "source": "openspp",
         "url": "https://github.com/open-space-hdl/openspp",
-        "commit": "da4e97b7ad9e0e8ee1af234d18210cbfdcdac492",
-        "fileList": "component_list.txt",
-        "fileListFormat": "modules",
+        "commit": "2d7ee8f92175d15e41d1e069f0db663de951d0c6",
+        "fileList": "compile_order.txt",
+        "fileListFormat": "files",
         "verifiedWith": "4.7.0-ft.2",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.",
         "entities": [
@@ -10503,11 +10493,11 @@
         "library": "openfibre",
         "source": "openfibre",
         "url": "https://github.com/open-space-hdl/openfibre",
-        "commit": "35424172bd9761cfbacc2e0449a803ab6c60fe8c",
-        "fileList": "component_list.txt",
-        "fileListFormat": "modules",
+        "commit": "bd4d80b1f05ee5fda67a97ff4c760952a25a79a7",
+        "fileList": "compile_order.txt",
+        "fileListFormat": "files",
         "verifiedWith": "4.7.0-ft.2",
-        "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. component_list.txt lists the technology-independent modules; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).",
+        "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. compile_order.txt lists the technology-independent sources; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).",
         "entities": [
           "ofb_core",
           "ofb_pa_gty"
@@ -10517,9 +10507,9 @@
         "library": "opencrypto",
         "source": "opencrypto",
         "url": "https://github.com/open-space-hdl/opencrypto",
-        "commit": "be947c7f842751422a0257324157f4ef638d5ee0",
-        "fileList": "component_list.txt",
-        "fileListFormat": "modules",
+        "commit": "e03bc8cda75a660cc3e28bdc14d7f9409ddb0497",
+        "fileList": "compile_order.txt",
+        "fileListFormat": "files",
         "verifiedWith": "4.7.0-ft.3",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.",
         "entities": [
@@ -10669,7 +10659,7 @@
     {
       "severity": "info",
       "rule": "signals",
-      "message": "rmap0.M_Axi has RLast, dec0.S_AxiLite does not: it is not passed on.",
+      "message": "rmap0.M_Axi has RLast, dec0.S_AxiLite does not: it is tied to '1' (an AXI4-Lite slave answers single transfers, so every read beat is the last; valid only with the single-transfer condition of the AXI4-Lite connection).",
       "connection": "c8"
     },
     {
@@ -10683,6 +10673,18 @@
       "rule": "signals",
       "message": "spp0.M_Rx[0] has user, frm0.S_In does not: it is not passed on.",
       "connection": "c11"
+    },
+    {
+      "severity": "error",
+      "rule": "known_defect",
+      "message": "rmap0: Known defect: commands longer than one AXI transaction return or write wrong data with AxiMaxBeats_g < 4; fix in progress in OpenRMAP.",
+      "instance": "rmap0"
+    },
+    {
+      "severity": "warning",
+      "rule": "with_block",
+      "message": "ofb0 with pa0: ofb_core leaves reset before the transceivers are ready: the lane initialisation can start against a transmitter that is still in reset, and the Composer cannot couple LaneRst of the adapter to the reset of the core yet.",
+      "instance": "ofb0"
     },
     {
       "severity": "info",
@@ -10710,10 +10712,10 @@
     }
   ],
   "agent": {
-    "brief": "# spfi_encrypt: build brief\n\nSpaceFibre node: an OpenFibre port with its AMD Versal GTY adapter carries RMAP on virtual channel 0 (an OpenRMAP target through an N-Char adapter) and Space Packets on virtual channel 1 (OpenSPP, directly on the channel). The assignment of the channels is a convention of this example, not of the cores: any channel carries any packets, and both ends of the link use the same assignment.\n\nThis brief was generated by the Open Space Composer from the system file `spfi_encrypt.composer.json` (catalog `7f69dfab5b09`).\nThe file holds the system as edited (`instances`, `connections`, `externals`), in `resolved` the netlist it resolves to and in `catalogSubset` the catalog entries of its blocks (interfaces, fields, clocks, generics).\nBuild a VHDL-2008 top level `spfi_encrypt` from `resolved` as described below; everything needed is in the file and in the listed repositories.\n\n## 1. Sources and libraries\n\nFetch every repository at the given version and compile one VHDL-2008 library per row, in this order:\n\n| Library | Repository | Version | Files | Entities used |\n| --- | --- | --- | --- | --- |\n| `olo` | https://github.com/open-space-hdl/open-logic-ft | tag `4.7.0-ft.3` (commit `a3c86207790fa91d89e5f02a657f6345de31656e`) | every file listed in `compile_order.txt`, in its order | `olo_axi_lite_decoder`, `olo_base_reset_gen`, `olo_ft_ecc_monitor_axi` |\n| `openrmap` | https://github.com/open-space-hdl/openrmap | commit `4ae4bfe31395ecbc31d5076796fd94bd7cb9de0e` | the `src/*.vhd` files of every module listed in `component_list.txt`, modules in the listed order | `omap_core` |\n| `openspp` | https://github.com/open-space-hdl/openspp | commit `da4e97b7ad9e0e8ee1af234d18210cbfdcdac492` | the `src/*.vhd` files of every module listed in `component_list.txt`, modules in the listed order | `spp_core`, `spp_nchar` |\n| `openfibre` | https://github.com/open-space-hdl/openfibre | commit `35424172bd9761cfbacc2e0449a803ab6c60fe8c` | the `src/*.vhd` files of every module listed in `component_list.txt`, modules in the listed order | `ofb_core`, `ofb_pa_gty` |\n| `opencrypto` | https://github.com/open-space-hdl/opencrypto | commit `be947c7f842751422a0257324157f4ef638d5ee0` | the `src/*.vhd` files of every module listed in `component_list.txt`, modules in the listed order | `ocr_core`, `ocr_framer` |\n\n- `olo`: Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.3 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 and changes no other source, so the cores verified with 4.7.0-ft.2 use it unchanged.\n- `openrmap`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openspp`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openfibre`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. component_list.txt lists the technology-independent modules; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).\n- `opencrypto`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- One `olo` library (Open Logic FT `4.7.0-ft.3`) serves the whole system. The cores were verified with the Open Logic FT tags `4.7.0-ft.2` (openrmap), `4.7.0-ft.2` (openspp), `4.7.0-ft.2` (openfibre), `4.7.0-ft.3` (opencrypto) (`verifiedWith`); their own `open-logic` submodules are not needed.\n- A `modules` file list names one module directory per line, relative to the repository root; blank lines and lines starting with `#` are ignored. The sources of a module are its `src/*.vhd` files. Inside a module the files have no given order: compile its packages (`*_pkg.vhd`) first and let the tool order the rest (GHDL `-i` and `-m`, Vivado and VUnit do), or analyse them in dependency order.\n- With GHDL: analyse Open Logic file by file (`ghdl -a --std=08 -frelaxed --work=olo <file>`), import the files of a core library (`ghdl -i --std=08 -frelaxed --work=<library> <files>`) and let `ghdl -m --std=08 -frelaxed <top>` find the order. `-frelaxed` is needed: Open Logic and the cores use constructs that GHDL accepts only relaxed (for example the shared variable of `olo_base_ram_sdp`).\n- With other tools follow the order of the table.\n\n## 2. Top-level entity\n\nEntity `spfi_encrypt`, ports in this order (`resolved.ports`; `domain` is the clock domain of the port):\n\n| Port | Direction | Type | Clock domain | Meaning |\n| --- | --- | --- | --- | --- |\n| `Rst` | in | `std_logic` |  | Asynchronous reset of the system, high-active |\n| `Clk_sys` | in | `std_logic` | System clock (`sys`) | Clock of the domain System clock (200 MHz) |\n| `pa0_Gt_TxP` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_p |\n| `pa0_Gt_TxN` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_n |\n| `pa0_Gt_RxP` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_p |\n| `pa0_Gt_RxN` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_n |\n| `pa0_RefClk` | in | `std_logic` |  | `pa0.Gt` refclk |\n\nExternal interfaces:\n\n- `pa0.Gt` (SpaceFibre serial lanes): Serial transceiver lanes and reference clock pins of a SpaceFibre physical adapter.\n\n## 3. Architecture\n\n1. Context clause (`resolved.context`): `library ieee;` `use ieee.std_logic_1164.all;` `library olo;` `library openrmap;` `library openspp;` `library openfibre;` `library opencrypto;`\n2. Declare every signal of `resolved.signals` (one per port of an instance, named `<instance>_<port>_s`, with the type of the port).\n3. Instantiate every entry of `resolved.instances` as `<id> : entity <library>.<entity>`: a generic map with the generics whose `default` is false (the value is the VHDL literal in `vhdl`), and a port map with the `actual` of every port. Leave out the ports with `useDefault` (they keep their VHDL `default`). Clocks and resets are port actuals on purpose: never assign a clock to another signal.\n4. Write every entry of `resolved.nets` as a concurrent assignment `<to> <= <from>;`. They connect the interfaces signal by signal (a packed data word bit by bit), set the side band constants and tie-offs, and connect the top-level ports.\n\n| Instance | Entity | Library | Origin | Clock domain | Why |\n| --- | --- | --- | --- | --- | --- |\n| `rmap0` | `omap_core` | `openrmap` | placed | sys |  |\n| `nchar0` | `spp_nchar` | `openspp` | placed | sys |  |\n| `ofb0` | `ofb_core` | `openfibre` | placed | sys |  |\n| `pa0` | `ofb_pa_gty` | `openfibre` | placed | sys |  |\n| `spp0` | `spp_core` | `openspp` | placed | sys |  |\n| `ocr0` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `dec0` | `olo_axi_lite_decoder` | `olo` | placed | sys |  |\n| `frm0` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `edac0` | `olo_ft_ecc_monitor_axi` | `olo` | placed | sys |  |\n| `frm1` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr1` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm2` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr2` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm3` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr3` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `auto_rst_sys` | `olo_base_reset_gen` | `olo` | inserted: reset | sys | Synchronous reset of System clock. |\n\nGenerics that differ from the VHDL default:\n\n- `rmap0`: `Initiator_g => false`, `Passthrough_g => false`, `AxiMaxBeats_g => 1`\n- `nchar0`: `DataWidth_g => 128`\n- `ofb0`: `NumVc_g => 2`, `NumLanes_g => 4`, `CoreClkFreq_g => 156.25e6`\n- `pa0`: none\n- `spp0`: `DataWidth_g => 128`, `NumTx_g => 4`, `NumRx_g => 4`, `TxBufferBytes_g => 8192`, `RxBufferBytes_g => 8192`, `ClkFreqHz_g => 200.0e6`\n- `ocr0`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 4128`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `dec0`: `Ports_g => 8`\n- `frm0`: `DataWidth_g => 128`\n- `edac0`: `Channels_g => 8`\n- `frm1`: `DataWidth_g => 128`\n- `ocr1`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 4128`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm2`: `DataWidth_g => 128`\n- `ocr2`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 4128`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm3`: `DataWidth_g => 128`\n- `ocr3`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 4128`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `auto_rst_sys`: `SyncTmr_g => true`\n\nConstants with a field map (`fields` of the net):\n\n- `spp0_S_Tx_User_s(55 downto 28) <= \"0000000000000000000000000001\"` (connection c27): 10:0 APID = 0x1; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(83 downto 56) <= \"0000000000000000000000000010\"` (connection c28): 10:0 APID = 0x2; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(111 downto 84) <= \"0000000000000000000000000011\"` (connection c29): 10:0 APID = 0x3; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(27 downto 0) <= \"0000000000000000000000000000\"` (connection c12): 10:0 APID = 0x0; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `frm0_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm1_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm2_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm3_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n\n## 4. Clocks and resets\n\n| Clock domain | Frequency | Clock | Reset generator |\n| --- | --- | --- | --- |\n| System clock (`sys`) | 200 MHz | top-level port `Clk_sys` | `auto_rst_sys` (olo_base_reset_gen, output `auto_rst_sys_RstOut_s`) |\n| pa0 Lane clock (`lane`) | 156.25 MHz | output `pa0.LaneClk` (signal `pa0_LaneClk_s`) | none: no block of the domain has a synchronous reset |\n\nReset ports (`reset` of the port):\n\n| Port | Reset | Actual | Why |\n| --- | --- | --- | --- |\n| `rmap0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `nchar0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ofb0.Rst` | asynchronous | `Rst` | Asynchronous reset; a reset generator per clock domain releases it synchronously, so all four clocks must run for the reset to complete. |\n| `pa0.Rst` | asynchronous | `Rst` | Asynchronous reset of the transceivers and their reset controller. |\n| `spp0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `dec0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `edac0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `auto_rst_sys.RstIn` | asynchronous | `Rst` | Asynchronous reset input (polarity from RstInPolarity_g). |\n\n`Rst` is the asynchronous system reset. A reset generator asserts the reset of its domain at once and releases it synchronously to the clock; a block with an asynchronous reset synchronises the release itself.\n\n## 5. Constraints\n\nEvery clock crossing is an Open Logic block. Between the clocks of a crossing a maximum delay applies in both directions, the period of the faster clock, data path only (Open Logic clock crossing principles). Do not declare these clocks as asynchronous clock groups: in Vivado `set_clock_groups -asynchronous` overrides the delay limits.\n\n- False path from `Rst`: Asynchronous reset input; the reset generators synchronise its release.\n- Maximum delay from the clock of `pa0.LaneClk` to the clock of `Clk_sys`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- Maximum delay from the clock of `Clk_sys` to the clock of `pa0.LaneClk`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- AMD Vivado: source the script of Open Logic once for the scoped constraints of its clock crossings. File `tools/vivado/all_constraints_amd.tcl` of Open Logic.\n\n## 6. Notes from the user guides\n\n**RMAP node** (`omap_core`, `rmap0`): https://openspacehdl.org/openrmap/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- M_RepData, M_Conf and M_User must be served when connected; a stalled output stalls the received packet stream and the link.\n- RMAP address bits above AxiAddrWidth_g must be zero in the windows.\n- With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'.\n\n**N-Char adapter** (`spp_nchar`, `nchar0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- A received end of packet marker without data characters is discarded.\n- A link packet that ends with a beat without valid bytes gets its marker after the bytes of the earlier beats; a link packet without any byte sends nothing.\n\n**SpaceFibre port** (`ofb_core`, `ofb0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- The VC ports have the link format of OpenSPP: spp_core with DataWidth_g = 32 x NumLanes_g connects to a VC port directly (M_Link_User(0) to S_Vc_TUser); the further user bits of OpenSPP (destination index) do not reach the SpaceFibre port.\n- Every VC carries any packets; which VC carries which traffic is a convention of the system that both ends of the link follow.\n- Enable the safe implementation of state machines in the synthesis tool (Vivado FSM_SAFE_STATE = default_state on the state registers, Synplify syn_encoding = safe).\n- Read ID (0x0FB10007) and GENERICS after the reset; start the link with LANE_CTRL = 0x63 at one end (LaneStart, AutoStart, TxEn, RxEn) and wait for DL_STATUS bits 1:0 = 3 (programming sequence of the user guide).\n- All four clocks must run for the reset to complete; CoreClk may be the lane clock (as in the VCK190 reference design).\n\n**SpaceFibre GTY adapter** (`ofb_pa_gty`, `pa0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- Vendor-specific (AMD Versal GTY). hdl/ofb_pa_gty/src/ofb_pa_gty.vhd is not in component_list.txt: add it to the library openfibre, and create the transceiver wizard instance ofb_gtw in the Vivado project with hdl/ofb_pa_gty/tcl/ofb_gtw.tcl (source the file, then ofb_gtw_create ofb_gtw 156.25 for a 156.25 MHz reference clock).\n- RefClk is the output O of the IBUFDS_GTE5 of the reference clock pins of the quad; place the buffer in the chip-level top, as hdl/ofb_vck190/src/ofb_vck190_top.vhd does.\n- Hold the reset of the core while LaneRst is high; the VCK190 reference design synchronises LaneRst to MgmtClk and ORs it with the power-on reset into Rst of the core.\n- The line rate is 6.25 Gbit/s with a 156.25 MHz reference clock, so LaneClk runs at 156.25 MHz.\n- Simulation needs the AMD transceiver models (unisim and the simulation files of the wizard); OpenFibre simulates the adapter with tools/run_xsim.py. Without them, the test bench model tb/ofb_tb_pa_model.vhd of OpenFibre (two adapters joined by a lane, one clock) stands in for the adapters of both ends of a link.\n\n**Space Packet node** (`spp_core`, `spp0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- After the reset the core initialises both APID tables (2048 clock cycles); packets are sent and delivered once the tables are ready.\n- Serve every receive port, or place a buffer behind a port whose user can stall for long.\n- TxBufferBytes_g holds the longest SDU of a port, RxBufferBytes_g the longest Space Packet.\n- Hold the side band (TUser) of a send port constant during an SDU.\n- A last beat without valid bytes (Keep all zero) ends an SDU or packet at the inputs; an SDU without any byte is rejected (0x02). The outputs never carry a beat without valid bytes.\n- The user supplies the packet secondary header at the start of the Octet String and keeps the secondary header flag of an APID static.\n\n**AES-GCM core** (`ocr_core`, `ocr0`, `ocr1`, `ocr2`, `ocr3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen with SyncTmr_g = true.\n- After the reset the key table erases every slot (NumKeys_g cycles, STATUS.BUSY = '1'); no key survives a reset.\n- One context per message, in the order of the messages; the core pairs the n-th context with the n-th message.\n- Load every key slot in use through the registers before sending contexts (programming sequence of the user guide).\n- Without the release buffer, discard every decrypted message whose last beat carries the error flag or whose status is not OK.\n- Save the invocation counter of every slot with generated IVs regularly ahead of the operational value (GCM 9.1).\n\n**AXI4-Lite decoder** (`olo_axi_lite_decoder`, `dec0`): https://openspacehdl.org/open-logic-ft/doc/axi/olo_axi_lite_decoder.html\n\n- Connects one AXI4-Lite master to several register files, each in an equal address window.\n\n**Chunk framer** (`ocr_framer`, `frm0`, `frm1`, `frm2`, `frm3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- The slot Cfg_Slot is loaded for generated IVs and stays unchanged while the framer holds chunks.\n- Every chunk consumes one invocation of the slot; save the counter regularly (GCM 9.1).\n- A receiver decrypts every chunk on its own (IV bytes 0 to 11, AAD bytes 12 to 15, tag the last 16 bytes), orders the chunks by the invocation counter and finds the packet boundaries in the positions.\n\n**EDAC monitor with registers** (`olo_ft_ecc_monitor_axi`, `edac0`): https://openspacehdl.org/open-logic-ft/doc/ft/olo_ft_ecc_monitor_axi.html\n\n- EDAC monitor with an AXI4-Lite register file and an interrupt.\n\n## 7. Initialisation by software\n\nRegister addresses are byte addresses of the AXI4-Lite port of the block; write registers as 32-bit words and wait for the write response before a read that depends on it.\n\n**`rmap0`** (RMAP node, `omap_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x4F4D4101.\n2. None needed: with the default generics the target accepts every command to the logical address 0xFE with the key 0x00 on the whole address space (WinInit_g). A flight configuration narrows the logical addresses (TGT_LA 0x010), the key (TGT_KEY) and the windows (WIN_BASE, WIN_LAST, WIN_CTRL), see the register map.\n\n**`ofb0`** (SpaceFibre port, `ofb_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x0FB10007.\n2. Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn); the reset value 0x62 (AutoStart) starts when the far end sends.\n3. Wait for LANE_STATUS (0x104 + 0x20 i) bits 3:0 = 7 (Active) of the lanes and DL_STATUS (0x010) bits 1:0 = 3 (link initialised); VC_HAS_CREDIT (0x030) shows the VCs that may send.\n\n**`spp0`** (Space Packet node, `spp_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x53505001.\n2. After the reset wait until TABLE_STATUS (0x040) bits 1:0 (TX_BUSY, RX_BUSY) are 0: the core initialises both APID tables (2048 clock cycles).\n3. Nothing else is needed: with TxPathDefault_g and RxPathDefault_g every APID has an enabled path to destination 0 and to receive port 0, destination 0 has the Target Logical Address 0xFE (DEST_CTRL 0x400) and the own address is Tla_g. A flight configuration writes the APID tables (TX_TABLE_APID 0x030 and TX_TABLE_ENTRY 0x034, RX_TABLE_APID 0x038 and RX_TABLE_ENTRY 0x03C) and the destinations (DEST_CTRL 0x400 + 0x20 n).\n\n**`ocr0`** (AES-GCM core, `ocr_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm0`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`frm1`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr1`** (AES-GCM core, `ocr_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm2`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr2`** (AES-GCM core, `ocr_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm3`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr3`** (AES-GCM core, `ocr_core`) (its register port `S_AxiLite` is not connected: without it the block runs with its reset values):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n## 8. Checks\n\n- Note: ofb0.M_Vc[0] has 1 user bit, nchar0.S_Link 5: bit 0 is connected, bits 4 to 1 are tied to zero at nchar0.S_Link.\n- Note: spp0.M_Link has 5 user bits, ofb0.S_Vc[1] 1: bit 0 is connected, bits 4 to 1 are not used.\n- Note: spp0.M_Rx[1] has user, frm1.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[2] has user, frm2.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[3] has user, frm3.S_In does not: it is not passed on.\n- Note: ocr1.M_Out has user; spp0.S_Tx[1] gets the side band constants of c27 instead.\n- Note: ocr2.M_Out has user; spp0.S_Tx[2] gets the side band constants of c28 instead.\n- Note: ocr3.M_Out has user; spp0.S_Tx[3] gets the side band constants of c29 instead.\n- Note: rmap0.M_Axi has AwLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has WLast, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has RLast, dec0.S_AxiLite does not: it is not passed on.\n- Note: ocr0.M_Out has user; spp0.S_Tx[0] gets the side band constants of c12 instead.\n- Note: spp0.M_Rx[0] has user, frm0.S_In does not: it is not passed on.\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n\n## 9. Verification\n\nA smoke testbench `spfi_encrypt_tb` (VHDL-2008, no extra libraries):\n\n1. Instantiate `spfi_encrypt` and drive `Clk_sys` at 200 MHz.\n2. Hold `Rst` at '1' for 16 cycles of the slowest clock (200 MHz), then '0'.\n3. Keep every external input idle: stream inputs with valid at '0', ready inputs of external outputs at '1', bus requests idle, pins at '0'.\n4. Run for at least 100 us (the blocks initialise their tables after the reset) and stop the simulation: it must end without failed assertions, and the handshake outputs of the top level (valid, ready) and the line outputs must not be 'U' or 'X' after the reset. Data outputs may stay undefined while their valid is '0'.\n5. Where an AXI4-Lite port is external, read the ID register of the block (section 7) and compare it with the documented value.\n\nWith GHDL: analyse the libraries of section 1, then `ghdl -i --std=08 -frelaxed spfi_encrypt.vhd spfi_encrypt_tb.vhd`, `ghdl -m --std=08 -frelaxed spfi_encrypt_tb` and `ghdl -r --std=08 -frelaxed spfi_encrypt_tb --stop-time=100us --assert-level=error --ieee-asserts=disable` (`--ieee-asserts=disable` silences the warnings of the numeric package about metavalues before the reset).\n\nOptional end-to-end test, after the initialisation of section 7:\n\n- SpaceFibre port (`ofb_core`): Connect two nodes (in a simulation without the transceiver models: two cores joined by tb/ofb_tb_pa_model.vhd of OpenFibre), start the link at one end and send a packet on a virtual channel; it arrives on the same virtual channel at the other end.\n- Space Packet node (`spp_core`): Send one SDU on a send port (APID 0x123, for example) and expect it on receive port 0 with the same APID in user bits 10:0, once the APID tables are ready.\n- AES-GCM core (`ocr_core`): Load the key slot, send a packet and check the output: with generated IVs the first 4 bytes of every message are IV_FIXED, the next 8 the invocation counter; decrypt it with AES-GCM in the test bench (or a second core) and compare.\n\nVendor-specific blocks need the simulation libraries of their vendor: `pa0` (ofb_pa_gty, AMD Versal GTY); see their notes in section 6.\n"
+    "brief": "# spfi_encrypt: build brief\n\nSpaceFibre node: an OpenFibre port with its AMD Versal GTY adapter carries RMAP on virtual channel 0 (an OpenRMAP target through an N-Char adapter) and Space Packets on virtual channel 1 (OpenSPP, directly on the channel). The assignment of the channels is a convention of this example, not of the cores: any channel carries any packets, and both ends of the link use the same assignment.\n\nThis brief was generated by the Open Space Composer from the system file `spfi_encrypt.composer.json` (catalog `e00f482bafb1`).\nThe file holds the system as edited (`instances`, `connections`, `externals`), in `resolved` the netlist it resolves to and in `catalogSubset` the catalog entries of its blocks (interfaces, fields, clocks, generics).\nBuild a VHDL-2008 top level `spfi_encrypt` from `resolved` as described below; everything needed is in the file and in the listed repositories.\n\n**The system has 1 open error (section 8). Fix it in the Composer before building.**\n\n## 1. Sources and libraries\n\nFetch every repository at the given version and compile one VHDL-2008 library per row, in this order:\n\n| Library | Repository | Version | Files | Entities used |\n| --- | --- | --- | --- | --- |\n| `olo` | https://github.com/open-space-hdl/open-logic-ft | tag `4.7.0-ft.4` (commit `441bcd5d6f881eeeff359ba8bb5f51cce1f12824`) | every file listed in `compile_order.txt`, in its order | `olo_axi_lite_decoder`, `olo_base_reset_gen`, `olo_ft_ecc_monitor_axi` |\n| `openrmap` | https://github.com/open-space-hdl/openrmap | commit `afb40c72afd5a7cc64e733c9ffcdfe78630d1125` | every file listed in `compile_order.txt`, in its order | `omap_core` |\n| `openspp` | https://github.com/open-space-hdl/openspp | commit `2d7ee8f92175d15e41d1e069f0db663de951d0c6` | every file listed in `compile_order.txt`, in its order | `spp_core`, `spp_nchar` |\n| `openfibre` | https://github.com/open-space-hdl/openfibre | commit `bd4d80b1f05ee5fda67a97ff4c760952a25a79a7` | every file listed in `compile_order.txt`, in its order | `ofb_core`, `ofb_pa_gty` |\n| `opencrypto` | https://github.com/open-space-hdl/opencrypto | commit `e03bc8cda75a660cc3e28bdc14d7f9409ddb0497` | every file listed in `compile_order.txt`, in its order | `ocr_core`, `ocr_framer` |\n\n- `olo`: Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.4 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 (ft.3) and fixes the error reporting of olo_axi_master_simple and the write word count of olo_axi_master_full (ft.4); it changes no other source, so the cores verified with 4.7.0-ft.2 or 4.7.0-ft.3 use it unchanged.\n- `openrmap`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openspp`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openfibre`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. compile_order.txt lists the technology-independent sources; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).\n- `opencrypto`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- One `olo` library (Open Logic FT `4.7.0-ft.4`) serves the whole system. The cores were verified with the Open Logic FT tags `4.7.0-ft.4` (openrmap), `4.7.0-ft.2` (openspp), `4.7.0-ft.2` (openfibre), `4.7.0-ft.3` (opencrypto) (`verifiedWith`); their own `open-logic` submodules are not needed.\n- With GHDL: analyse Open Logic file by file (`ghdl -a --std=08 -frelaxed --work=olo <file>`), import the files of a core library (`ghdl -i --std=08 -frelaxed --work=<library> <files>`) and let `ghdl -m --std=08 -frelaxed <top>` find the order. `-frelaxed` is needed: Open Logic and the cores use constructs that GHDL accepts only relaxed (for example the shared variable of `olo_base_ram_sdp`).\n- With other tools follow the order of the table.\n\n## 2. Top-level entity\n\nEntity `spfi_encrypt`, ports in this order (`resolved.ports`; `domain` is the clock domain of the port):\n\n| Port | Direction | Type | Clock domain | Meaning |\n| --- | --- | --- | --- | --- |\n| `Rst` | in | `std_logic` |  | Asynchronous reset of the system, high-active |\n| `Clk_sys` | in | `std_logic` | System clock (`sys`) | Clock of the domain System clock (200 MHz) |\n| `pa0_Gt_TxP` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_p |\n| `pa0_Gt_TxN` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_n |\n| `pa0_Gt_RxP` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_p |\n| `pa0_Gt_RxN` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_n |\n| `pa0_RefClk` | in | `std_logic` |  | `pa0.Gt` refclk |\n\nExternal interfaces:\n\n- `pa0.Gt` (SpaceFibre serial lanes): Serial transceiver lanes and reference clock pins of a SpaceFibre physical adapter.\n\n## 3. Architecture\n\n1. Context clause (`resolved.context`): `library ieee;` `use ieee.std_logic_1164.all;` `library olo;` `library openrmap;` `library openspp;` `library openfibre;` `library opencrypto;`\n2. Declare every signal of `resolved.signals` (one per port of an instance, named `<instance>_<port>_s`, with the type of the port).\n3. Instantiate every entry of `resolved.instances` as `<id> : entity <library>.<entity>`: a generic map with the generics whose `default` is false (the value is the VHDL literal in `vhdl`), and a port map with the `actual` of every port. Leave out the ports with `useDefault` (they keep their VHDL `default`). Clocks and resets are port actuals on purpose: never assign a clock to another signal.\n4. Write every entry of `resolved.nets` as a concurrent assignment `<to> <= <from>;`. They connect the interfaces signal by signal (a packed data word bit by bit), set the side band constants and tie-offs, and connect the top-level ports.\n\n| Instance | Entity | Library | Origin | Clock domain | Why |\n| --- | --- | --- | --- | --- | --- |\n| `rmap0` | `omap_core` | `openrmap` | placed | sys |  |\n| `nchar0` | `spp_nchar` | `openspp` | placed | sys |  |\n| `ofb0` | `ofb_core` | `openfibre` | placed | sys |  |\n| `pa0` | `ofb_pa_gty` | `openfibre` | placed | sys |  |\n| `spp0` | `spp_core` | `openspp` | placed | sys |  |\n| `ocr0` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `dec0` | `olo_axi_lite_decoder` | `olo` | placed | sys |  |\n| `frm0` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `edac0` | `olo_ft_ecc_monitor_axi` | `olo` | placed | sys |  |\n| `frm1` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr1` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm2` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr2` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm3` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr3` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `auto_rst_sys` | `olo_base_reset_gen` | `olo` | inserted: reset | sys | Synchronous reset of System clock. |\n\nGenerics that differ from the VHDL default:\n\n- `rmap0`: `Initiator_g => false`, `Passthrough_g => false`, `AxiMaxBeats_g => 1`\n- `nchar0`: `DataWidth_g => 128`\n- `ofb0`: `NumVc_g => 2`, `NumLanes_g => 4`, `CoreClkFreq_g => 156.25e6`\n- `pa0`: none\n- `spp0`: `DataWidth_g => 128`, `NumTx_g => 4`, `NumRx_g => 4`, `TxBufferBytes_g => 8192`, `RxBufferBytes_g => 8192`, `ClkFreqHz_g => 200.0e6`\n- `ocr0`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `dec0`: `Ports_g => 8`\n- `frm0`: `DataWidth_g => 128`\n- `edac0`: `Channels_g => 8`\n- `frm1`: `DataWidth_g => 128`\n- `ocr1`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm2`: `DataWidth_g => 128`\n- `ocr2`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm3`: `DataWidth_g => 128`\n- `ocr3`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `auto_rst_sys`: `SyncTmr_g => true`\n\nConstants with a field map (`fields` of the net):\n\n- `spp0_S_Tx_User_s(55 downto 28) <= \"0000000000000000000000000001\"` (connection c27): 10:0 APID = 0x1; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(83 downto 56) <= \"0000000000000000000000000010\"` (connection c28): 10:0 APID = 0x2; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(111 downto 84) <= \"0000000000000000000000000011\"` (connection c29): 10:0 APID = 0x3; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(27 downto 0) <= \"0000000000000000000000000000\"` (connection c12): 10:0 APID = 0x0; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `frm0_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm1_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm2_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm3_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n\n## 4. Clocks and resets\n\n| Clock domain | Frequency | Clock | Reset generator |\n| --- | --- | --- | --- |\n| System clock (`sys`) | 200 MHz | top-level port `Clk_sys` | `auto_rst_sys` (olo_base_reset_gen, output `auto_rst_sys_RstOut_s`) |\n| pa0 Lane clock (`lane`) | 156.25 MHz | output `pa0.LaneClk` (signal `pa0_LaneClk_s`) | none: no block of the domain has a synchronous reset |\n\nReset ports (`reset` of the port):\n\n| Port | Reset | Actual | Why |\n| --- | --- | --- | --- |\n| `rmap0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `nchar0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ofb0.Rst` | asynchronous | `Rst` | Asynchronous reset; a reset generator per clock domain releases it synchronously, so all four clocks must run for the reset to complete. |\n| `pa0.Rst` | asynchronous | `Rst` | Asynchronous reset of the transceivers and their reset controller. |\n| `spp0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `dec0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `edac0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `auto_rst_sys.RstIn` | asynchronous | `Rst` | Asynchronous reset input (polarity from RstInPolarity_g). |\n\n`Rst` is the asynchronous system reset. A reset generator asserts the reset of its domain at once and releases it synchronously to the clock; a block with an asynchronous reset synchronises the release itself.\n\n## 5. Constraints\n\nEvery clock crossing is an Open Logic block. Between the clocks of a crossing a maximum delay applies in both directions, the period of the faster clock, data path only (Open Logic clock crossing principles). Do not declare these clocks as asynchronous clock groups: in Vivado `set_clock_groups -asynchronous` overrides the delay limits.\n\n- False path from `Rst`: Asynchronous reset input; the reset generators synchronise its release.\n- Maximum delay from the clock of `pa0.LaneClk` to the clock of `Clk_sys`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- Maximum delay from the clock of `Clk_sys` to the clock of `pa0.LaneClk`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- AMD Vivado: source the script of Open Logic once. It reads the scoped constraints of olo_base_cc_reset, olo_base_cc_bits, olo_base_cc_simple, olo_base_reset_gen and olo_base_ram_sdp wherever the system uses them, also inside the cores. tools/vivado/all_constraints_amd.tcl would also read those of olo_intf_sync, which expect device pins at its input and stop the build (ERROR 18-513) where a block synchronises internal signals with it, as ofb_pa_gty does; a block that synchronises device pins declares its own false path for them. File `src/base/tcl/olo_base_constraints_amd.tcl` of Open Logic.\n\n## 6. Notes from the user guides\n\n**RMAP node** (`omap_core`, `rmap0`): https://openspacehdl.org/openrmap/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- M_RepData, M_Conf and M_User must be served when connected; a stalled output stalls the received packet stream and the link.\n- RMAP address bits above AxiAddrWidth_g must be zero in the windows.\n- With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'. Known defect of the pinned version (fix in progress in OpenRMAP): with AxiMaxBeats_g < 4, commands longer than one AXI transaction return or write wrong data.\n\n**N-Char adapter** (`spp_nchar`, `nchar0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- A received end of packet marker without data characters is discarded.\n- A link packet that ends with a beat without valid bytes gets its marker after the bytes of the earlier beats; a link packet without any byte sends nothing.\n\n**SpaceFibre port** (`ofb_core`, `ofb0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- The VC ports have the link format of OpenSPP: spp_core with DataWidth_g = 32 x NumLanes_g connects to a VC port directly (M_Link_User(0) to S_Vc_TUser); the further user bits of OpenSPP (destination index) do not reach the SpaceFibre port.\n- Every VC carries any packets; which VC carries which traffic is a convention of the system that both ends of the link follow.\n- Enable the safe implementation of state machines in the synthesis tool (Vivado FSM_SAFE_STATE = default_state on the state registers, Synplify syn_encoding = safe).\n- Read ID (0x0FB10007) and GENERICS after the reset; start the link with LANE_CTRL = 0x63 at one end (LaneStart, AutoStart, TxEn, RxEn) and wait for DL_STATUS bits 1:0 = 3 (programming sequence of the user guide).\n- All four clocks must run for the reset to complete; CoreClk may be the lane clock (as in the VCK190 reference design).\n\n**SpaceFibre GTY adapter** (`ofb_pa_gty`, `pa0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- Vendor-specific (AMD Versal GTY). hdl/ofb_pa_gty/src/ofb_pa_gty.vhd is not in component_list.txt: add it to the library openfibre, and create the transceiver wizard instance ofb_gtw in the Vivado project with hdl/ofb_pa_gty/tcl/ofb_gtw.tcl (source the file, then ofb_gtw_create ofb_gtw 156.25 for a 156.25 MHz reference clock).\n- RefClk is the output O of the IBUFDS_GTE5 of the reference clock pins of the quad; place the buffer in the chip-level top, as hdl/ofb_vck190/src/ofb_vck190_top.vhd does.\n- Hold the reset of the core while LaneRst is high; the VCK190 reference design synchronises LaneRst to MgmtClk and ORs it with the power-on reset into Rst of the core.\n- The line rate is 6.25 Gbit/s with a 156.25 MHz reference clock, so LaneClk runs at 156.25 MHz.\n- Simulation needs the AMD transceiver models (unisim and the simulation files of the wizard); OpenFibre simulates the adapter with tools/run_xsim.py. Without them, the test bench model tb/ofb_tb_pa_model.vhd of OpenFibre (two adapters joined by a lane, one clock) stands in for the adapters of both ends of a link.\n\n**Space Packet node** (`spp_core`, `spp0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- After the reset the core initialises both APID tables (2048 clock cycles); packets are sent and delivered once the tables are ready.\n- Serve every receive port, or place a buffer behind a port whose user can stall for long.\n- TxBufferBytes_g holds the longest SDU of a port, RxBufferBytes_g the longest Space Packet.\n- Hold the side band (TUser) of a send port constant during an SDU.\n- A last beat without valid bytes (Keep all zero) ends an SDU or packet at the inputs; an SDU without any byte is rejected (0x02). The outputs never carry a beat without valid bytes.\n- The user supplies the packet secondary header at the start of the Octet String and keeps the secondary header flag of an APID static.\n\n**AES-GCM core** (`ocr_core`, `ocr0`, `ocr1`, `ocr2`, `ocr3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen with SyncTmr_g = true.\n- After the reset the key table erases every slot (NumKeys_g cycles, STATUS.BUSY = '1'); no key survives a reset.\n- One context per message, in the order of the messages; the core pairs the n-th context with the n-th message.\n- Load every key slot in use through the registers before sending contexts (programming sequence of the user guide).\n- Without the release buffer, discard every decrypted message whose last beat carries the error flag or whose status is not OK.\n- Save the invocation counter of every slot with generated IVs regularly ahead of the operational value (GCM 9.1).\n\n**AXI4-Lite decoder** (`olo_axi_lite_decoder`, `dec0`): https://openspacehdl.org/open-logic-ft/doc/axi/olo_axi_lite_decoder.html\n\n- Connects one AXI4-Lite master to several register files, each in an equal address window.\n\n**Chunk framer** (`ocr_framer`, `frm0`, `frm1`, `frm2`, `frm3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- The slot Cfg_Slot is loaded for generated IVs and stays unchanged while the framer holds chunks.\n- Every chunk consumes one invocation of the slot; save the counter regularly (GCM 9.1).\n- A receiver decrypts every chunk on its own (IV bytes 0 to 11, AAD bytes 12 to 15, tag the last 16 bytes), orders the chunks by the invocation counter and finds the packet boundaries in the positions.\n\n**EDAC monitor with registers** (`olo_ft_ecc_monitor_axi`, `edac0`): https://openspacehdl.org/open-logic-ft/doc/ft/olo_ft_ecc_monitor_axi.html\n\n- EDAC monitor with an AXI4-Lite register file and an interrupt.\n\n## 7. Initialisation by software\n\nRegister addresses are byte addresses of the AXI4-Lite port of the block; write registers as 32-bit words and wait for the write response before a read that depends on it.\n\n**`rmap0`** (RMAP node, `omap_core`) through `dec0.M_AxiLite[6]` (connection c39):\n\n1. Read ID (0x000): it reads 0x4F4D4101.\n2. None needed: with the default generics the target accepts every command to the logical address 0xFE with the key 0x00 on the whole address space (WinInit_g). A flight configuration narrows the logical addresses (TGT_LA 0x010), the key (TGT_KEY) and the windows (WIN_BASE, WIN_LAST, WIN_CTRL), see the register map.\n\n**`ofb0`** (SpaceFibre port, `ofb_core`) through `dec0.M_AxiLite[7]` (connection c40):\n\n1. Read ID (0x000): it reads 0x0FB10007.\n2. Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn); the reset value 0x62 (AutoStart) starts when the far end sends.\n3. Wait for LANE_STATUS (0x104 + 0x20 i) bits 3:0 = 7 (Active) of the lanes and DL_STATUS (0x010) bits 1:0 = 3 (link initialised); VC_HAS_CREDIT (0x030) shows the VCs that may send.\n\n**`spp0`** (Space Packet node, `spp_core`) through `dec0.M_AxiLite[0]` (connection c9):\n\n1. Read ID (0x000): it reads 0x53505001.\n2. After the reset wait until TABLE_STATUS (0x040) bits 1:0 (TX_BUSY, RX_BUSY) are 0: the core initialises both APID tables (2048 clock cycles).\n3. Nothing else is needed: with TxPathDefault_g and RxPathDefault_g every APID has an enabled path to destination 0 and to receive port 0, destination 0 has the Target Logical Address 0xFE (DEST_CTRL 0x400) and the own address is Tla_g. A flight configuration writes the APID tables (TX_TABLE_APID 0x030 and TX_TABLE_ENTRY 0x034, RX_TABLE_APID 0x038 and RX_TABLE_ENTRY 0x03C) and the destinations (DEST_CTRL 0x400 + 0x20 n).\n\n**`ocr0`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[1]` (connection c10):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm0`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`frm1`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr1`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[3]` (connection c30):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm2`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr2`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[4]` (connection c31):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm3`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr3`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[5]` (connection c32):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n## 8. Checks\n\n- Error: rmap0: Known defect: commands longer than one AXI transaction return or write wrong data with AxiMaxBeats_g < 4; fix in progress in OpenRMAP.\n- Warning: ofb0 with pa0: ofb_core leaves reset before the transceivers are ready: the lane initialisation can start against a transmitter that is still in reset, and the Composer cannot couple LaneRst of the adapter to the reset of the core yet.\n- Note: ofb0.M_Vc[0] has 1 user bit, nchar0.S_Link 5: bit 0 is connected, bits 4 to 1 are tied to zero at nchar0.S_Link.\n- Note: spp0.M_Link has 5 user bits, ofb0.S_Vc[1] 1: bit 0 is connected, bits 4 to 1 are not used.\n- Note: spp0.M_Rx[1] has user, frm1.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[2] has user, frm2.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[3] has user, frm3.S_In does not: it is not passed on.\n- Note: ocr1.M_Out has user; spp0.S_Tx[1] gets the side band constants of c27 instead.\n- Note: ocr2.M_Out has user; spp0.S_Tx[2] gets the side band constants of c28 instead.\n- Note: ocr3.M_Out has user; spp0.S_Tx[3] gets the side band constants of c29 instead.\n- Note: rmap0.M_Axi has AwLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has WLast, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has RLast, dec0.S_AxiLite does not: it is tied to '1' (an AXI4-Lite slave answers single transfers, so every read beat is the last; valid only with the single-transfer condition of the AXI4-Lite connection).\n- Note: ocr0.M_Out has user; spp0.S_Tx[0] gets the side band constants of c12 instead.\n- Note: spp0.M_Rx[0] has user, frm0.S_In does not: it is not passed on.\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n\n## 9. Verification\n\nA smoke testbench `spfi_encrypt_tb` (VHDL-2008, no extra libraries):\n\n1. Instantiate `spfi_encrypt` and drive `Clk_sys` at 200 MHz.\n2. Hold `Rst` at '1' for 16 cycles of the slowest clock (200 MHz), then '0'.\n3. Keep every external input idle: stream inputs with valid at '0', ready inputs of external outputs at '1', bus requests idle, pins at '0'.\n4. Run for at least 100 us (the blocks initialise their tables after the reset) and stop the simulation: it must end without failed assertions, and the handshake outputs of the top level (valid, ready) and the line outputs must not be 'U' or 'X' after the reset. Data outputs may stay undefined while their valid is '0'.\n5. Where an AXI4-Lite port is external, read the ID register of the block (section 7) and compare it with the documented value.\n\nWith GHDL: analyse the libraries of section 1, then `ghdl -i --std=08 -frelaxed spfi_encrypt.vhd spfi_encrypt_tb.vhd`, `ghdl -m --std=08 -frelaxed spfi_encrypt_tb` and `ghdl -r --std=08 -frelaxed spfi_encrypt_tb --stop-time=100us --assert-level=error --ieee-asserts=disable` (`--ieee-asserts=disable` silences the warnings of the numeric package about metavalues before the reset).\n\nOptional end-to-end test, after the initialisation of section 7:\n\n- SpaceFibre port (`ofb_core`): Connect two nodes (in a simulation without the transceiver models: two cores joined by tb/ofb_tb_pa_model.vhd of OpenFibre), start the link at one end and send a packet on a virtual channel; it arrives on the same virtual channel at the other end.\n- Space Packet node (`spp_core`): Send one SDU on a send port (APID 0x123, for example) and expect it on receive port 0 with the same APID in user bits 10:0, once the APID tables are ready.\n- AES-GCM core (`ocr_core`): Load the key slot, send a packet and check the output: with generated IVs the first 4 bytes of every message are IV_FIXED, the next 8 the invocation counter; decrypt it with AES-GCM in the test bench (or a second core) and compare.\n\nVendor-specific blocks need the simulation libraries of their vendor: `pa0` (ofb_pa_gty, AMD Versal GTY); see their notes in section 6.\n"
   },
   "catalogSubset": {
-    "id": "7f69dfab5b09",
+    "id": "e00f482bafb1",
     "note": "Catalog entries of the blocks of this system and of their interface types, as the Composer used them: ports, generics, clocks, resets, interfaces with their signals, clocks, fields and directions, presets, rules, notes and the initialisation by software.",
     "types": [
       {
@@ -10721,6 +10723,7 @@
         "name": "SpaceWire packets (N-Char)",
         "family": "SpaceWire",
         "kind": "stream",
+        "needsLast": true,
         "color": "#D9480F",
         "description": "Packets as N-Char stream, one data character per beat; a beat with Last is the end of packet marker (data bit 0: '0' EOP, '1' EEP).",
         "signals": {
@@ -10749,6 +10752,7 @@
         "name": "Packet link",
         "family": "Packets",
         "kind": "stream",
+        "needsLast": true,
         "color": "#2B8A3E",
         "description": "Network packets on a wide stream: byte 0 of a beat in data bits 7:0, keep contiguous from byte 0 and partial only on the last beat, last marks the end of the packet, user bit 0 on the last beat is the error end of packet (EEP). Further user bits carry a destination index where the source provides one.",
         "signals": {
@@ -10783,6 +10787,7 @@
         "name": "Byte stream",
         "family": "Packets",
         "kind": "stream",
+        "needsLast": true,
         "color": "#0C8599",
         "description": "Byte stream with keep and last and no side band: byte 0 of a beat in data bits 7:0, keep contiguous from byte 0 and partial only on the last beat of a packet.",
         "signals": {
@@ -10791,7 +10796,9 @@
           },
           "keep": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "1",
+            "absentWhy": "every byte of a beat is valid"
           },
           "last": {
             "dir": "out"
@@ -10819,6 +10826,7 @@
         "name": "Space Packet send port",
         "family": "Space Packets",
         "kind": "stream",
+        "needsLast": true,
         "color": "#087F5B",
         "description": "Send port of OpenSPP: one SDU (Octet String Service) or one Space Packet (Packet Service) per stream packet, with the per-SDU side band (APID, packet type, secondary header flag, packet name) in user.",
         "signals": {
@@ -10859,6 +10867,7 @@
         "name": "Space Packet receive port",
         "family": "Space Packets",
         "kind": "stream",
+        "needsLast": true,
         "color": "#5C940D",
         "description": "Receive port of OpenSPP: one SDU or Space Packet per stream packet, with APID, flags, loss indicator and the user application value in user.",
         "signals": {
@@ -11002,7 +11011,9 @@
           },
           "ready": {
             "dir": "in",
-            "optional": true
+            "optional": true,
+            "absent": "1",
+            "absentWhy": "a sink without ready takes every beat"
           }
         },
         "fields": "out"
@@ -11026,7 +11037,9 @@
           },
           "ready": {
             "dir": "in",
-            "optional": true
+            "optional": true,
+            "absent": "1",
+            "absentWhy": "a sink without ready takes every beat"
           }
         }
       },
@@ -11088,6 +11101,7 @@
         "name": "AES-GCM messages",
         "family": "Encryption",
         "kind": "stream",
+        "needsLast": true,
         "color": "#D6336C",
         "description": "Messages of the AES-GCM core with the section (IV, AAD, DATA, TAG) of every beat in user.",
         "signals": {
@@ -11108,7 +11122,9 @@
           },
           "ready": {
             "dir": "in",
-            "optional": true
+            "optional": true,
+            "absent": "1",
+            "absentWhy": "a sink without ready takes every beat"
           }
         },
         "accepts": [
@@ -11132,7 +11148,9 @@
           },
           "ready": {
             "dir": "in",
-            "optional": true
+            "optional": true,
+            "absent": "1",
+            "absentWhy": "a sink without ready takes every beat"
           }
         },
         "fields": "out"
@@ -11160,15 +11178,21 @@
           },
           "AwLock": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "0",
+            "absentWhy": "normal access"
           },
           "AwCache": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "0",
+            "absentWhy": "device access, not bufferable"
           },
           "AwProt": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "0",
+            "absentWhy": "unprivileged, secure data access"
           },
           "AwValid": {
             "dir": "out"
@@ -11214,15 +11238,21 @@
           },
           "ArLock": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "0",
+            "absentWhy": "normal access"
           },
           "ArCache": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "0",
+            "absentWhy": "device access, not bufferable"
           },
           "ArProt": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "0",
+            "absentWhy": "unprivileged, secure data access"
           },
           "ArValid": {
             "dir": "out"
@@ -11237,7 +11267,9 @@
             "dir": "in"
           },
           "RLast": {
-            "dir": "in"
+            "dir": "in",
+            "absent": "1",
+            "absentWhy": "an AXI4-Lite slave answers single transfers, so every read beat is the last; valid only with the single-transfer condition of the AXI4-Lite connection"
           },
           "RValid": {
             "dir": "in"
@@ -11347,7 +11379,9 @@
           },
           "valid": {
             "dir": "out",
-            "optional": true
+            "optional": true,
+            "absent": "1",
+            "absentWhy": "events without valid are valid in every cycle, as the default of In_Valid of olo_ft_ecc_monitor"
           }
         }
       },
@@ -11414,7 +11448,7 @@
           "Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.",
           "M_RepData, M_Conf and M_User must be served when connected; a stalled output stalls the received packet stream and the link.",
           "RMAP address bits above AxiAddrWidth_g must be zero in the windows.",
-          "With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'."
+          "With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'. Known defect of the pinned version (fix in progress in OpenRMAP): with AxiMaxBeats_g < 4, commands longer than one AXI transaction return or write wrong data."
         ],
         "rules": [
           {
@@ -11437,6 +11471,13 @@
               "M_Pkt"
             ],
             "message": "The RMAP node normally runs on the user clock of its SpaceWire port; an asynchronous FIFO was inserted instead."
+          },
+          {
+            "kind": "known_defect",
+            "generic": "AxiMaxBeats_g",
+            "below": 4,
+            "when": "Target_g",
+            "message": "Known defect: commands longer than one AXI transaction return or write wrong data with AxiMaxBeats_g < 4; fix in progress in OpenRMAP."
           }
         ],
         "idRegister": {
@@ -13012,6 +13053,12 @@
             "kind": "generic_multiple",
             "generic": "VcInDepth_g",
             "of": "64 * NumLanes_g"
+          },
+          {
+            "kind": "with_block",
+            "block": "openfibre/ofb_pa_gty",
+            "severity": "warning",
+            "message": "ofb_core leaves reset before the transceivers are ready: the lane initialisation can start against a transmitter that is still in reset, and the Composer cannot couple LaneRst of the adapter to the reset of the core yet."
           }
         ],
         "constraints": [
@@ -13919,6 +13966,9 @@
             "label": "Serial lanes",
             "description": "Serial transmit and receive pairs of the quad and the reference clock from its IBUFDS_GTE5.",
             "externalOnly": true,
+            "clockSignals": [
+              "refclk"
+            ],
             "signals": {
               "tx_p": "Gt_TxP",
               "tx_n": "Gt_TxN",
