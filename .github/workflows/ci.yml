@@ -46,10 +46,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.12"
+      - name: Install Python packages
+        run: python -m pip install vsg==3.27 pycryptodome pytest
       - name: Submodules match the Composer files
         run: python tools/check_pins.py
-      - name: Install Python packages
-        run: python -m pip install pycryptodome pytest
+      - name: VHDL lint (VSG)
+        run: python lint/lint.py
       - name: Host software tests
         run: python -m pytest -q
       - name: Markdown lint

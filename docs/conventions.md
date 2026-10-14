@@ -34,8 +34,11 @@ system uses their interfaces as documented in their user guides, and a missing f
 Hand-written VHDL exists only in the board top levels (`targets/`) and in the testbenches (`sim/`).
 
 - The [Open Logic coding conventions](../cores/open-logic-ft/doc/Conventions.md) apply, as in the cores: port names
-  `<Interface>_<Signal>`, generics `_g`, constants `_c`, signals of an architecture `_s` where the generated top level
-  uses them, four spaces of indentation, VHDL-2008.
+  `<Interface>_<Signal>`, generics `_g`, constants `_c`, four spaces of indentation, VHDL-2008. The port names of the
+  generated system (`Clk_<domain>`, `<instance>_<interface>_<signal>`) do not follow this pattern; a port map of the
+  system switches the VSG rule `port_map_002` off for its lines.
+- VSG 3.27 with the Open Logic configuration in `lint/config` reports no errors and no warnings for the hand-written
+  files: `python lint/lint.py`. Safe automatic fixes: `python lint/lint.py --fix`.
 - A board top level is named `<system>_<board>_top` (for example `spfi_encrypt_vck190_top`). It instantiates the
   generated system entity and adds only what the board needs: clock and reset sources, I/O and transceiver buffers,
   the processor or block design of the board. It does not change the function of the system.
