@@ -62,6 +62,9 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 - GHDL is the default simulator, QuestaSim (`python run.py --questa`) the second one. Blocks that need vendor
   libraries (for example the AMD Versal GTY adapter of OpenFibre) are simulated with the vendor simulator or replaced
   by the behavioural models that the cores provide.
+- Every GHDL simulation gets its own copy of the `ghdl.sim_flags` option, and `run.py` stops when a GHDL command
+  carries other generics than those of its test: VUnit 5.0.0.dev7 appends the generics to a list that configurations
+  added after `set_sim_option` share, so that a test could inherit generics of earlier tests.
 - A system testbench drives and observes the top-level ports of the system only, never internal signals. The far end
   of a link is an independent model or a second instance, never the receiver of the port under test.
 
