@@ -60,7 +60,9 @@ alone takes about 8 GB of memory.
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
 board top level and the constraints, and runs synthesis, implementation and the device image. `-tclargs rtl` only
-creates the project and elaborates the design, a check of the sources in about ten minutes. In this step the
+creates the project and elaborates the design, a check of the sources in about ten minutes; it writes
+`results/invalid_constraints.xdc` of the elaborated design, so that a constraint that does not apply shows up before
+a synthesis. In this step the
 transceiver wizard instance is a black box, so its clocks and constraints are missing: the critical warning
 Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at `i_pa0/LaneClk`) are
 expected there. The critical warning Constraints 18-513 at the false path from `Rst` in `spfi_encrypt.xdc` comes from
@@ -83,6 +85,7 @@ The script writes the results to `results/` in the project directory:
 | `timing_summary.rpt` | Timing of all clocks | WNS and WHS at least 0 ns (`clk_pl_0` 200 MHz, lane clock 156.25 MHz); no pulse width violation |
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
 | `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers |
+| `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
 | `build_info.txt` | Vivado version, part, commits of the repository and of its submodules | The commits of the offline package or of the clone |
 
 Expected messages: Vivado 12-4739 from the scoped constraints of `olo_base_ram_sdp` (retimed registers), TIMING-9 and
@@ -167,7 +170,7 @@ Keep for every build and every test run, with the date:
 | Item | Source |
 | --- | --- |
 | Commits of the repository and of the submodules | `results/build_info.txt` |
-| Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt` |
+| Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | LEDs after programming (section 5), version of the STAR-System software |
 | Test run | Command line (profile, seed, packets) and the complete output of the script, for example redirected into a file |
 

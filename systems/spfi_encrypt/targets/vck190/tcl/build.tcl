@@ -14,8 +14,9 @@
 #   all (default: all, device image included)
 #
 # The results of a complete build go to <project>/results: the device image, the reports (timing summary,
-# utilisation, methodology, DRC) and build_info.txt with the Vivado version and the commits of the repository and
-# of its submodules.
+# utilisation, methodology, DRC), the constraints that do not apply (invalid_constraints.xdc) and build_info.txt
+# with the Vivado version and the commits of the repository and of its submodules. The step rtl writes
+# invalid_constraints.xdc of the elaborated design.
 #
 # The environment variable RS_VIVADO_OUT selects another project directory. On Windows the device image step
 # compiles the platform loader firmware in a deep directory below the project; with a project path of more than
@@ -115,6 +116,9 @@ set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]
 if {$step eq "project"} { return }
 if {$step eq "rtl"} {
     synth_design -rtl -name rtl_1
+    # Constraints that do not apply to the elaborated design: a dropped constraint shows up before a synthesis
+    file mkdir $results
+    write_xdc -force -constraints invalid [file join $results invalid_constraints.xdc]
     return
 }
 
@@ -139,6 +143,8 @@ report_utilization -hierarchical -hierarchical_depth 3 -file [file join $results
 report_timing_summary -file [file join $results timing_summary.rpt]
 report_methodology -file [file join $results methodology.rpt]
 report_drc -file [file join $results drc.rpt]
+# Constraints that do not apply to the implemented design (expected: none, the file holds only its header)
+write_xdc -force -constraints invalid [file join $results invalid_constraints.xdc]
 foreach pdi [glob -nocomplain [file join [get_property DIRECTORY [get_runs impl_1]] *.pdi]] {
     file copy -force $pdi $results
 }
