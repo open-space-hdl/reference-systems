@@ -77,8 +77,9 @@ def build(hdl: Path) -> tuple[Path, list[str]]:
     return export, libraries
 
 
-def elaborate(export: Path, libraries: list[str]) -> None:
-    xsim.elaborate(export, f"{TB_LIBRARY}.spfi_encrypt_tb", libraries, far_end_generics(), SNAPSHOT)
+def elaborate(export: Path, libraries: list[str], again: bool = False) -> None:
+    xsim.elaborate(export, f"{TB_LIBRARY}.spfi_encrypt_tb", libraries, far_end_generics(), SNAPSHOT, trace=True,
+                   again=again)
 
 
 def simulate(export: Path, libraries: list[str], name: str, profile: str, seed: int, tests: list[str] | None) -> int:
@@ -102,7 +103,7 @@ def simulate(export: Path, libraries: list[str], name: str, profile: str, seed: 
         if xsim.model_error(log) and attempt < xsim.MODEL_ATTEMPTS:
             print(f"{name}: power-up error of the transceiver model ({xsim.MODEL_ERROR}), attempt {attempt} of "
                   f"{xsim.MODEL_ATTEMPTS}, {time.time() - start:.0f} s; elaborating again", flush=True)
-            elaborate(export, libraries)
+            elaborate(export, libraries, again=True)
             continue
         break
     for f in export.iterdir():

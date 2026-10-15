@@ -29,6 +29,8 @@ Exit code of check: 0 when every selected test case passes.
 """
 
 import argparse
+import contextlib
+import io
 import json
 import sys
 from collections import deque
@@ -176,7 +178,9 @@ def write(directory: Path, profile: str, seed: int, tests: list[str] | None, pac
     selected = ht.select_tests(tests)
     recorder = Recorder(SystemModel(ctx.setup), ctx.system, ctx.setup)
     link_start(recorder, ctx.system)
-    results = ht.run(recorder, ctx, selected, RecordingRegisters)
+    # the run against the model is not a result of the simulation: its output is not shown
+    with contextlib.redirect_stdout(io.StringIO()):
+        results = ht.run(recorder, ctx, selected, RecordingRegisters)
     if len(results) != len(selected) or any(error for _, error in results):
         raise RuntimeError("the procedure does not pass against the model of the system")
     recorder.line("end")
@@ -291,7 +295,9 @@ def check(directory: Path) -> int:
     results = ht.run(replay, ctx, selected, PollingRegisters)
     problems = []
     kinds = {kind for _, kind, _, _ in events}
-    if "end" not in kinds and "timeout" not in kinds:
+    if not events:
+        problems.append("the bench recorded no event: the simulation did not start (see the log of the simulator)")
+    elif "end" not in kinds and "timeout" not in kinds:
         problems.append("the simulation did not reach the end of the stimulus")
     if "link" not in {op["kind"] for op in vectors["ops"]} or not any(
             kind == "mibp" for _, kind, _, _ in events):

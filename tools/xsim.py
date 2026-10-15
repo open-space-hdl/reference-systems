@@ -118,8 +118,8 @@ def compile_order(path: Path) -> list[tuple[str, Path]]:
 
 
 def compile_all(export: Path, files: list[tuple[str, Path]]) -> None:
-    """Compiles the wizard sources once and the VHDL files in their order, one xvhdl call per run of files of one
-    library; the VHDL files are compiled again when one of them changed."""
+    """Compiles the wizard sources once and the VHDL files in their order (one project file: the file list is too
+    long for a command line on Windows); the VHDL files are compiled again when one of them changed."""
     if not (export / ".ip_compiled").exists():
         run([tool("xvlog"), "--incr", "--relax", "-prj", "vlog.prj"], export, "compile_ip.log")
         (export / ".ip_compiled").touch()
@@ -130,18 +130,16 @@ def compile_all(export: Path, files: list[tuple[str, Path]]) -> None:
     stamp = export / ".hdl_compiled"
     if stamp.exists() and stamp.read_text() == digest.hexdigest():
         return
-    runs: list[tuple[str, list[str]]] = []
-    for library, path in files:
-        if runs and runs[-1][0] == library:
-            runs[-1][1].append(str(path))
-        else:
-            runs.append((library, [str(path)]))
-    for k, (library, paths) in enumerate(runs):
-        run([tool("xvhdl"), "--2008", "--relax", "-work", library] + paths, export, f"compile_{k:02d}_{library}.log")
+    prj = export / "hdl.prj"
+    prj.write_text("".join(f'vhdl2008 {library} "{path.as_posix()}"\n' for library, path in files), encoding="utf-8")
+    run([tool("xvhdl"), "--relax", "-prj", prj.name], export, "compile_hdl.log")
     stamp.write_text(digest.hexdigest())
 
 
-def elaborate(export: Path, top: str, libraries: list[str], generics: dict[str, object], snapshot: str) -> None:
+def elaborate(export: Path, top: str, libraries: list[str], generics: dict[str, object], snapshot: str,
+              trace: bool = False, again: bool = False) -> None:
+    """Elaborates the snapshot unless it exists for the same options and compiled sources (again: always).
+    trace: the snapshot can write the changes of signals to a VCD file (probes of simulate)."""
     libs = []
     for library in libraries + ip_libraries(export) + list(VENDOR_LIBRARIES):
         libs += ["-L", library]
@@ -149,9 +147,17 @@ def elaborate(export: Path, top: str, libraries: list[str], generics: dict[str, 
     for name, value in generics.items():
         gens += ["--generic_top", f"{name}={value}"]
     # options in a file: the batch wrapper of xelab splits arguments at "="
-    opts = ["--relax", "--mt", "4"] + libs + gens + ["--snapshot", snapshot, top, "xil_defaultlib.glbl"]
-    (export / f"elaborate_{snapshot}.opt").write_text(" ".join(opts) + "\n", encoding="utf-8")
+    opts = ["--relax", "--mt", "4"] + (["--debug", "wave"] if trace else []) + libs + gens
+    opts += ["--snapshot", snapshot, top, "xil_defaultlib.glbl"]
+    text = " ".join(opts) + "\n"
+    stamp = export / f".elaborated_{snapshot}"
+    digest = hashlib.sha1((text + (export / ".hdl_compiled").read_text()).encode()).hexdigest()
+    if not again and stamp.exists() and stamp.read_text() == digest and (export / "xsim.dir" / snapshot).is_dir():
+        return
+    (export / f"elaborate_{snapshot}.opt").write_text(text, encoding="utf-8")
+    stamp.unlink(missing_ok=True)
     run([tool("xelab"), "-f", f"elaborate_{snapshot}.opt"], export, f"elaborate_{snapshot}.log")
+    stamp.write_text(digest)
 
 
 def simulate(export: Path, snapshot: str, log: str, on_line: Callable[[str, float], None] | None = None,
@@ -165,7 +171,7 @@ def simulate(export: Path, snapshot: str, log: str, on_line: Callable[[str, floa
     cmd = [tool("xsim"), snapshot, "-log", log]
     if probes:
         script = export / f"{snapshot}_probes.tcl"
-        lines = [f"open_vcd {vcd}"]
+        lines = [f'if {{[catch {{open_vcd {vcd}}} msg]}} {{puts "probes: $msg"}}']
         lines += [f'if {{[catch {{log_vcd [get_objects {p}]}} msg]}} {{puts "probe {p}: $msg"}}' for p in probes]
         lines += ["run all", "close_vcd", "quit"]
         script.write_text("\n".join(lines) + "\n", encoding="utf-8")
