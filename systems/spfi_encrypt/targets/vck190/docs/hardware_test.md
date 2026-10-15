@@ -125,7 +125,7 @@ file of the system, and the register maps from the headers of the cores:
 | --- | --- |
 | RMAP target `rmap0` | Logical address 0xFE, key 0x00, the whole register map accessible (reset values) |
 | Initiator logical address | 0xFE |
-| Register windows | `spp0` 0x0000_0000, `ocr0` 0x0001_0000, `edac0` 0x0002_0000, `ocr1` to `ocr3` 0x0003_0000 to 0x0005_0000, `rmap0` 0x0006_0000, `ofb0` 0x0007_0000 |
+| Register windows (`SPFI_ENCRYPT_<BANK>_BASE`) | `spp0` 0x0000_0000, `ocr0` 0x0001_0000, `edac0` 0x0002_0000, `ocr1` to `ocr3` 0x0003_0000 to 0x0005_0000, `rmap0` 0x0006_0000, `ofb0` 0x0007_0000 |
 | Input APIDs | 0x010 + i for encryption channel i: the receive APID table of `spp0` routes APID 0x010 + i to receive port i; every other APID keeps the reset path to receive port 0 |
 | Keys | One 256-bit key per AES-GCM core in slot 0, the slot its framer uses, with generated IVs: fixed field and first invocation counter per channel; keys and IV values are derived from the seed of the script |
 | Test slot | Slot 1 of `ocr0`, which its framer does not use, holds a further key and IV values for the commands of several words |
@@ -150,18 +150,20 @@ simulation with the profile `sim`.
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
 
-`<PREFIX>_REGMAP_ID` is the identification of the register map in the header `cores/<core>/sw/<prefix>_regs.h` of
-the pinned core; the script reads it from there.
+The script reads the base address and the identification of every register bank and the channels of the ECC
+monitor `edac0` from `systems/spfi_encrypt/hdl/spfi_encrypt_regs.h`, which the Composer exports with the top level
+(`SPFI_ENCRYPT_<BANK>_BASE`, `SPFI_ENCRYPT_<BANK>_ID`, `SPFI_ENCRYPT_EDAC0_CH_<MEMORY>`), and the register offsets
+and fields from the headers of the cores (`cores/<core>/sw/<prefix>_regs.h`).
 
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | `ID` = `OFB_REGMAP_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7) |
-| TC-RS-HW-02 Identification | Read the identification register of every register window | `ID` of `spp0` = `SPP_REGMAP_ID`, of `ocr0` to `ocr3` = `OCR_REGMAP_ID`, of `rmap0` = `OMAP_REGMAP_ID`, of `ofb0` = `OFB_REGMAP_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters) |
+| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | `ID` = `SPFI_ENCRYPT_OFB0_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7) |
+| TC-RS-HW-02 Identification | Read the identification register of every register window | `ID` of every register bank with an identification (`spp0`, `ocr0` to `ocr3`, `rmap0`, `ofb0`) = its `SPFI_ENCRYPT_<BANK>_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters) |
 | TC-RS-HW-03 RMAP | Verified writes of `IRQ_ENA` of `edac0` and read back; a read with a wrong key | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read `ID`, `GENERICS`, `GENERICS2` and `RELEASE_BYTES` of `ocr0` with one command of 16 bytes and with single reads; load the test slot with the key in one write of 32 bytes and `IV_FIXED`, `IV_COUNT_LO` and `IV_COUNT_HI` in one write of 12 bytes, then `KEY_LOAD`; select the slot in `SLOT_QUERY` and read `SLOT_STATUS` to `SLOT_COUNT_HI` with one command of 16 bytes and with single reads | Both reads of 16 bytes give the words of the single reads; the slot is valid with generated IVs (`SLOT_STATUS` 0x3) and holds the written fixed field and invocation counter |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i); slot 0 of every AES-GCM core loaded as in TC-RS-HW-04 with the key and IV values of its channel and queried; counters cleared | Table entries read back, no table overrun; `STATUS.BUSY` of every core returns to 0; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
 | TC-RS-HW-06 Encryption | Space Packets on the four input APIDs: first 1 byte, one byte less than, equal to and one byte more than a chunk of 4096 bytes, and 8186 bytes (a Space Packet of 8192 bytes, the size of the receive buffer of `spp0`), then random lengths | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
-| TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and every ECC counter is 0 |
+| TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and the ECC counters of every channel of `edac0` (`SPFI_ENCRYPT_EDAC0_CH_FRM0_ECC_0` to `FRM3_ECC_1`) are 0 |
 
 ## 9. Records
 

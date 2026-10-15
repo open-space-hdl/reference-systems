@@ -10,9 +10,10 @@ virtual channel 0 therefore carry a SpaceWire path address (ECSS-E-ST-50-12C Rev
 character 3 selects port 1 at the routing switch, which discards it; the replies of the system carry the path
 address 1, which the routing switch uses to deliver them to channel 0 (Reply Address of the RMAP commands).
 
-The register windows, the encryption channels (receive port, framer, AES-GCM core, send port with its APID) and the
-key slots come from the Composer file of the system, the register maps from the headers of the cores. The set-up
-and the procedure are described with the board target.
+The register banks (base address and identification of every block) and the channels of the ECC monitor come from
+the header that the Composer exports with the top level (hdl/spfi_encrypt_regs.h), the encryption channels (receive
+port, framer, AES-GCM core, send port with its APID) and the key slots from the Composer file of the system, the
+register maps from the headers of the cores. The set-up and the procedure are described with the board target.
 
 Usage: python systems/spfi_encrypt/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
        [--packets N] [--test TC-RS-HW-nn ...]
@@ -40,6 +41,8 @@ SPP = RegisterMap(CORES / "openspp" / "sw" / "spp_regs.h", "SPP")
 OCR = RegisterMap(CORES / "opencrypto" / "sw" / "ocr_regs.h", "OCR")
 OFB = RegisterMap(CORES / "openfibre" / "sw" / "ofb_regs.h", "OFB")
 OMAP = RegisterMap(CORES / "openrmap" / "sw" / "omap_regs.h", "OMAP")
+# register banks of the system and channels of its ECC monitor, exported by the Composer
+BANKS = RegisterMap(SYSTEM_DIR / "hdl" / "spfi_encrypt_regs.h", "SPFI_ENCRYPT")
 
 # olo_ft_ecc_monitor_axi (register map of its Open Logic documentation): INFO, IRQ_ENA, counters of channel ch
 EDAC_INFO, EDAC_IRQ_ENA, EDAC_CNT = 0x00, 0x0C, 0x10
@@ -92,11 +95,17 @@ class System:
         self.rmap_vc = vcs[f.instance_of_block("openspp/spp_nchar")]
         self.spp_vc = vcs[self.node]
         self.ecc = f.instance_of_block("olo/olo_ft_ecc_monitor_axi")
-        self.windows = f.decoder_windows(f.instance_of_block("olo/olo_axi_lite_decoder"))
+        banks = BANKS.constants()
+        self.windows = {n.removesuffix("_BASE").lower(): v for n, v in banks.items() if n.endswith("_BASE")}
+        self.ids = {n.removesuffix("_ID").lower(): v for n, v in banks.items() if n.endswith("_ID")}
+        channel = f"{self.ecc.upper()}_CH_"
+        # names of the channels of the ECC monitor in channel order, for example FRM0_ECC_0
+        self.ecc_names = [n.removeprefix(channel) for n, _ in sorted(
+            ((n, v) for n, v in banks.items() if n.startswith(channel)), key=lambda item: item[1])]
         self.chunk_bytes = f.generic(f.instances_of("opencrypto/ocr_framer")[0], "ChunkBytes_g")
         self.rx_buffer_bytes = f.generic(self.node, "RxBufferBytes_g")
-        self.ecc_channels = f.generic(self.ecc, "Channels_g")
-        self.ecc_info = self.ecc_channels | (f.generic(self.ecc, "CounterWidth_g") << 8)
+        self.ecc_channels = len(self.ecc_names)
+        self.ecc_info = f.generic(self.ecc, "Channels_g") | (f.generic(self.ecc, "CounterWidth_g") << 8)
         self.channels = []
         for port in range(f.generic(self.node, "NumRx_g")):
             framer = instance_of(f.connection_from(f"{self.node}.M_Rx[{port}]")["to"])
@@ -242,7 +251,7 @@ def loaded_slot(fixed: int, counter: int) -> list[int]:
 def tc01_link(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP."""
     base = ctx.system.base(ctx.system.port)
-    check(regs.read(base + OFB.ID) == OFB.REGMAP_ID, "ID of the SpaceFibre port")
+    check(regs.read(base + OFB.ID) == ctx.system.ids[ctx.system.port], "ID of the SpaceFibre port")
     state = OFB.get("DL_STATUS", "LINK_STATE", regs.read(base + OFB.DL_STATUS))
     check(state == LINK_INITIALISED, f"DL_STATUS.LINK_STATE = {state}")
     for lane in range(ctx.system.lanes):
@@ -253,8 +262,9 @@ def tc01_link(regs: Registers, ctx: Context) -> None:
 def tc02_identification(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-02: every register window answers with the identification of its block."""
     s = ctx.system
-    expected = [(s.node, SPP.ID, SPP.REGMAP_ID), (s.ecc, EDAC_INFO, s.ecc_info), (s.rmap, OMAP.ID, OMAP.REGMAP_ID),
-                (s.port, OFB.ID, OFB.REGMAP_ID)] + [(c.core, OCR.ID, OCR.REGMAP_ID) for c in s.channels]
+    # the identification register of a block in its own register map, its value in the exported header
+    offsets = {s.node: SPP.ID, s.rmap: OMAP.ID, s.port: OFB.ID} | {c.core: OCR.ID for c in s.channels}
+    expected = [(name, offsets[name], value) for name, value in s.ids.items()] + [(s.ecc, EDAC_INFO, s.ecc_info)]
     check(sorted(name for name, _, _ in expected) == sorted(s.windows), f"register windows {sorted(s.windows)}")
     for name, offset, value in expected:
         word = regs.read(s.base(name) + offset)
@@ -399,8 +409,9 @@ def tc07_counters(regs: Registers, ctx: Context) -> None:
                      "ERR_ECC", "ERR_OVERFLOW"):
             check(regs.read(core + getattr(OCR, name)) == 0, f"{ch.core} {name}")
     check(encryptions == ctx.chunks, f"{encryptions} encryptions, {ctx.chunks} chunks")
-    for channel in range(s.ecc_channels):
-        check(regs.read(s.base(s.ecc) + EDAC_CNT + 4 * channel) == 0, f"ECC monitor counters of channel {channel}")
+    for channel, name in enumerate(s.ecc_names):
+        check(regs.read(s.base(s.ecc) + EDAC_CNT + 4 * channel) == 0,
+              f"ECC monitor counters of channel {channel} ({name})")
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
