@@ -13,7 +13,7 @@ checks of both, its system testbench and its first board target.
 
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
-| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | testbench of the hardware test cases, first run pending | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model | AMD VCK190 (board top, constraints, build script; not built yet) |
 
 Open point of spfi_encrypt, from the checks of the Composer (details in its
 [README](systems/spfi_encrypt/README.md#open-points)):
