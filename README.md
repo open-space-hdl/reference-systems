@@ -8,19 +8,16 @@ board top level per target with its constraints and build script, and a hardware
 
 ## Status
 
-Work in progress. The repository holds the first system, its core versions and the checks of these versions. The
-generated top levels, the testbenches and the board targets follow.
+Work in progress. The repository holds the first system with its generated top level, its core versions and the
+checks of both, and its first board target. The system testbench follows.
 
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
-| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | open | open | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | open | AMD VCK190 (board top, constraints, build script; not built yet) |
 
-Open points of spfi_encrypt, from the checks of the Composer (details in its
+Open point of spfi_encrypt, from the checks of the Composer (details in its
 [README](systems/spfi_encrypt/README.md#open-points)):
 
-- Error `known_defect`: the RMAP target `rmap0` reads or writes wrong data in commands of several words, caused by
-  `olo_axi_master_simple` of the pinned Open Logic FT (up to 4.7.0-ft.4). Fix pending in Open Logic (4.7.0-ft.5);
-  the top level is generated after the move to it.
 - Warning `with_block`: the SpaceFibre port `ofb0` leaves its reset before the transceivers of `pa0` are ready.
 
 ## Layout
@@ -35,7 +32,7 @@ Open points of spfi_encrypt, from the checks of the Composer (details in its
 | `systems/<system>/sw/` | Host software of the system, for example its hardware test |
 | `cores/` | Submodules: Open Logic FT and every core, at the commits the system files pin |
 | `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, register maps, facts of a system file, transports |
-| `tools/` | Checks of the repository, the Vivado reader of the Composer compile order |
+| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order |
 | `lint/` | VSG configuration and lint script of the hand-written VHDL |
 | `run.py` | VUnit run script: compiles the libraries of all systems and runs their testbenches |
 
@@ -65,9 +62,17 @@ needed here: a system compiles all cores against one Open Logic FT library, the 
 2. Its section `sources` pins every core and Open Logic FT. All systems of the repository use the same versions,
    since they share `cores/`: either pin the versions that are already there, or move all systems to new versions in
    the same change (see [Core versions](docs/conventions.md#core-versions)).
-3. Generate the top level with the Composer into `systems/<system>/hdl/`.
+3. Generate the top level into `systems/<system>/hdl/` with the command line tool of the Composer at the commit of
+   `tools/composer_ref.txt`:
+
+   ```shell
+   git clone https://github.com/open-space-hdl/open-space-hdl.github.io.git .composer
+   git -C .composer checkout $(cat tools/composer_ref.txt)
+   python tools/check_hdl.py --composer .composer --write
+   ```
+
 4. Add the system to the table in [Status](#status), write its `README.md`, then its testbench and targets.
-5. `python tools/check_pins.py` and `python run.py --compile` pass.
+5. `python tools/check_pins.py`, `python tools/check_hdl.py --composer .composer` and `python run.py --compile` pass.
 
 ## License
 

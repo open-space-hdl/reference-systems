@@ -12,17 +12,16 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 
 | Item | Status |
 | --- | --- |
-| Composer file | present, core versions checked by `tools/check_pins.py`; the checks of the Composer report one error and one warning, see [Open points](#open-points) |
-| Generated top level (`hdl/`) | open: generated with the HDL export of the Composer once the error is resolved |
+| Composer file | present, core versions checked by `tools/check_pins.py`; the checks of the Composer report one warning, see [Open points](#open-points) |
+| Generated top level (`hdl/`) | generated with the command line tool of the Composer (`tools/composer_ref.txt`); the CI checks that it is the export of the Composer file |
 | System testbench (`sim/`) | open |
-| [AMD VCK190 target](targets/vck190/README.md) | board top, constraints and build script; not built yet, the build needs the generated top level |
+| [AMD VCK190 target](targets/vck190/README.md) | board top, constraints and build script; not built yet |
 | Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 
 ## Open points
 
 | Check of the Composer | Instance | Finding | Consequence |
 | --- | --- | --- | --- |
-| Error `known_defect` | `rmap0` | `olo_axi_master_simple` of Open Logic FT up to 4.7.0-ft.4, the AXI master of `omap_core`, truncates the address increment between the transactions of a command to the width of its beat counter. A command that it splits into several transactions is therefore wrong whenever `AxiMaxBeats_g` is below `AxiDataWidth_g` / 8 (1, 2 or 3 with 32-bit data). With `AxiMaxBeats_g = 1`, as in `rmap0`, every RMAP command of more than one 32-bit word is affected: a read repeats the first word, a write writes all words to the first register, and a write with an unaligned start also changes up to 3 bytes before its start address. Commands of one 32-bit register are not affected. Fix pending in Open Logic (4.7.0-ft.5). | A key load with one command per key and every other command of several words fails without an error status. The system moves to Open Logic FT 4.7.0-ft.5 and to the core versions built on it; the generated top level follows with them. |
 | Warning `with_block` | `ofb0` with `pa0` | `ofb0` leaves its reset before the transceivers of `pa0` are ready, so the lane initialisation can start against a transmitter that is still in reset. The Composer cannot couple the lane reset of the adapter to the reset of the core yet. | The coupling follows with a version of OpenFibre in which `ofb_core` takes the ready state of the transmitters. |
 
 ## Blocks

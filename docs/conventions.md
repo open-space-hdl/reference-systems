@@ -12,6 +12,10 @@ system uses their interfaces as documented in their user guides, and a missing f
   level entity. It is lower case with underscores (for example `spfi_encrypt`).
 - `systems/<system>/hdl/` holds the VHDL top level that the Composer generates from the file. It is regenerated after
   every change of the file and committed together with it; it is never edited by hand.
+- The top levels are exported with the command line tool of the Composer (`tools/composer_hdl.mjs` of the website
+  repository) at the commit in `tools/composer_ref.txt`. `python tools/check_hdl.py --composer <checkout>` exports
+  every system again and checks that `hdl/` equals the export; the CI runs it. A new version of the Composer updates
+  `tools/composer_ref.txt` and the exports of all systems in one change.
 - Each system has a `README.md` with its function, blocks, clocks, top-level ports and status, and `docs/` with the
   address map and the initialisation sequence once its top level exists.
 
