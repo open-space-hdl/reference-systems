@@ -26,6 +26,9 @@ class Transport:
         channel; reception is armed before the first packet leaves."""
         raise NotImplementedError
 
+    def begin(self, name: str) -> None:
+        """Marks the start of a test case; a simulation records the time at which it starts."""
+
     def close(self) -> None:
         pass
 
