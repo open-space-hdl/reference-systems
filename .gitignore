@@ -19,3 +19,6 @@ __pycache__/
 *.jou
 *.log
 vivado_out/
+
+# Composer checkout of tools/check_hdl.py
+.composer/
