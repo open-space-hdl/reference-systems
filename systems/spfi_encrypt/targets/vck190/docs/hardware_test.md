@@ -61,8 +61,8 @@ creates the project and elaborates the design, a check of the sources in a few m
 On Windows the project path must not be longer than about 40 characters: the device image step compiles the platform
 loader firmware in a deep directory below the project, and with a longer path `write_device_image` fails ("opening
 dependency file ... No such file or directory"). Set the environment variable `RS_VIVADO_OUT` to a short directory
-(for example `C:/rs`) before starting Vivado; without it the project is `vivado_out/spfi_encrypt_vck190` in the
-repository.
+inside a working directory (for example `C:/git/rs`) before starting Vivado; without it the project is
+`vivado_out/spfi_encrypt_vck190` in the repository.
 
 The script writes the results to `results/` in the project directory:
 

@@ -18,7 +18,7 @@
 # The environment variable RS_VIVADO_OUT selects another project directory. On Windows the device image step
 # compiles the platform loader firmware in a deep directory below the project; with a project path of more than
 # about 40 characters the compiler exceeds the Windows path length limit and write_device_image fails ("opening
-# dependency file ... No such file or directory"). Use a short path there, for example RS_VIVADO_OUT=C:/rs.
+# dependency file ... No such file or directory"). Use a short path there, for example RS_VIVADO_OUT=C:/git/rs.
 #
 # Documentation: systems/spfi_encrypt/targets/vck190/README.md
 #---------------------------------------------------------------------------------------------------
@@ -36,7 +36,7 @@ if {[info exists env(RS_VIVADO_OUT)] && $env(RS_VIVADO_OUT) ne ""} {
 }
 if {$tcl_platform(platform) eq "windows" && [string length $out] > 40} {
     puts "WARNING: project path $out has more than 40 characters, write_device_image may fail on Windows (path\
-        length limit); set RS_VIVADO_OUT to a short directory, for example C:/rs"
+        length limit); set RS_VIVADO_OUT to a short directory, for example C:/git/rs"
 }
 set step [expr {[llength $argv] > 0 ? [lindex $argv 0] : "all"}]
 if {$step ni {project rtl synth impl all}} { error "unknown step $step (project, rtl, synth, impl, all)" }

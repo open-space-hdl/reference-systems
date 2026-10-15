@@ -75,7 +75,8 @@ vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-t
 The project is `vivado_out/spfi_encrypt_vck190` in the repository, or the directory in the environment variable
 `RS_VIVADO_OUT`. On Windows the project path must not be longer than about 40 characters: the device image step
 compiles the platform loader firmware in a deep directory below the project, and with a longer path
-`write_device_image` fails; use a short directory, for example `RS_VIVADO_OUT=C:/rs`.
+`write_device_image` fails; use a short directory inside a working directory, for example
+`RS_VIVADO_OUT=C:/git/rs`.
 
 `results/` in the project directory holds the device image, the timing summary, the utilisation (flat and per
 block), the methodology and DRC reports and `build_info.txt` with the Vivado version and the commits of the

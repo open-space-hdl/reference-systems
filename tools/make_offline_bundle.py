@@ -144,7 +144,7 @@ def main() -> int:
               "  vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl", "",
               "On Windows keep the project path at most about 40 characters long, otherwise write_device_image fails",
               "while it compiles the platform loader firmware: set RS_VIVADO_OUT to a short directory (for example",
-              "C:/rs) before starting Vivado. The results are written to <project>/results."]
+              "C:/git/rs) before starting Vivado. The results are written to <project>/results."]
     (out / "README.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"Bundles and README.txt in {out}; offline clone checked: {REPO} {ref_sha[:12]}, "
           f"{len(links)} submodules, {NESTED[2]}")
