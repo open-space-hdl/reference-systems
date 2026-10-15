@@ -8,7 +8,12 @@
 #
 # Usage (from the repository root, with the submodules in cores/ checked out):
 #   vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
-#   <step>: project (create the project only), synth, impl, all (default: all, device image included)
+#   <step>: project (create the project only), rtl (project and RTL elaboration of the design), synth, impl,
+#   all (default: all, device image included)
+#
+# The results of a complete build go to <project>/results: the device image, the reports (timing summary,
+# utilisation, methodology, DRC) and build_info.txt with the Vivado version and the commits of the repository and
+# of its submodules.
 #
 # The environment variable RS_VIVADO_OUT selects another project directory. On Windows the device image step
 # compiles the platform loader firmware in a deep directory below the project; with a project path of more than
@@ -34,6 +39,11 @@ if {$tcl_platform(platform) eq "windows" && [string length $out] > 40} {
         length limit); set RS_VIVADO_OUT to a short directory, for example C:/rs"
 }
 set step [expr {[llength $argv] > 0 ? [lindex $argv 0] : "all"}]
+if {$step ni {project rtl synth impl all}} { error "unknown step $step (project, rtl, synth, impl, all)" }
+if {![string match 2025.2* [version -short]]} {
+    puts "WARNING: the build is made for Vivado 2025.2, this is [version -short]"
+}
+set results [file join $out results]
 
 # Frequency of the clock domain sys of the Composer file (port Clk_sys of the system)
 set clk_sys_mhz 200
@@ -101,18 +111,46 @@ update_compile_order -fileset sources_1
 set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]
 
 if {$step eq "project"} { return }
+if {$step eq "rtl"} {
+    synth_design -rtl -name rtl_1
+    return
+}
 
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
 if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} { error "synthesis failed" }
 if {$step eq "synth"} { return }
 
-launch_runs impl_1 -to_step write_device_image -jobs 8
+if {$step eq "impl"} {
+    launch_runs impl_1 -jobs 8
+} else {
+    launch_runs impl_1 -to_step write_device_image -jobs 8
+}
 wait_on_run impl_1
 if {[get_property PROGRESS [get_runs impl_1]] ne "100%"} { error "implementation failed" }
+
+# Results: reports of the implemented design, the device image and what was built
+file mkdir $results
 open_run impl_1
-report_utilization -file [file join $out utilization.rpt]
-report_utilization -hierarchical -hierarchical_depth 3 -file [file join $out utilization_hierarchical.rpt]
-report_timing_summary -file [file join $out timing_summary.rpt]
-report_methodology -file [file join $out methodology.rpt]
-report_drc -file [file join $out drc.rpt]
+report_utilization -file [file join $results utilization.rpt]
+report_utilization -hierarchical -hierarchical_depth 3 -file [file join $results utilization_hierarchical.rpt]
+report_timing_summary -file [file join $results timing_summary.rpt]
+report_methodology -file [file join $results methodology.rpt]
+report_drc -file [file join $results drc.rpt]
+foreach pdi [glob -nocomplain [file join [get_property DIRECTORY [get_runs impl_1]] *.pdi]] {
+    file copy -force $pdi $results
+}
+set fh [open [file join $results build_info.txt] w]
+puts $fh "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+puts $fh "Vivado [version -short], part [get_property PART [current_project]]"
+if {[catch {exec git -C $root log -1 --format=%H} commit]} { set commit "unknown (git not available)" }
+puts $fh "repository $commit"
+if {![catch {exec git -C $root submodule status} status]} {
+    puts $fh "submodules:\n$status"
+}
+set nested [file join $root cores open-logic-ft]
+if {![catch {exec git -C $nested submodule status 3rdParty/en_cl_fix} status]} {
+    puts $fh "cores/open-logic-ft/$status"
+}
+close $fh
+puts "Results in $results"

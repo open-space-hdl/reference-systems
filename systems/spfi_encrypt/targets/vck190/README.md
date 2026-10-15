@@ -56,26 +56,28 @@ initialisation.
 ## Build
 
 The build needs AMD Vivado 2025.2 with device support and a synthesis licence for the XCVC1902, the submodules in
-`cores/` and the generated top level in `systems/spfi_encrypt/hdl/`.
+`cores/` and the generated top level in `systems/spfi_encrypt/hdl/`. A build computer without network access gets the
+repository as Git bundles (`tools/make_offline_bundle.py`, [hardware test procedure](docs/hardware_test.md),
+section 3).
 
 ```shell
-vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl
+vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
 ```
 
-The script creates the project in `vivado_out/spfi_encrypt_vck190` with the sources of the compile order exported by
-the Composer, the transceiver wizard instance of OpenFibre (`ofb_gtw`, 156.25 MHz reference clock), the CIPS block
-design (`vck190_cips`, JTAG boot), the board top level and the constraints, and runs synthesis, implementation and the
-device image. `-tclargs project` creates the project only, `-tclargs synth` stops after synthesis. On Windows the
-project path must not be longer than about 40 characters: the device image step compiles the platform loader firmware
-in a deep directory below the project, and with a longer path `write_device_image` fails. Set the environment
-variable `RS_VIVADO_OUT` to a short directory in that case (for example `C:/rs`).
+| Step | What the script does |
+| --- | --- |
+| `project` | Creates the project: the sources of the compile order exported by the Composer, the transceiver wizard instance of OpenFibre (`ofb_gtw`, 156.25 MHz reference clock), the CIPS block design (`vck190_cips`, JTAG boot), the board top level and the constraints |
+| `rtl` | `project` and the RTL elaboration of the design |
+| `synth` | `project` and synthesis |
+| `impl` | Synthesis, implementation and the reports in `results/` |
+| `all` (default) | Synthesis, implementation, device image and the reports in `results/` |
 
-| Result | Where | Expected |
-| --- | --- | --- |
-| Device image | `vivado_out/spfi_encrypt_vck190/spfi_encrypt_vck190.runs/impl_1/*.pdi` | Present |
-| Timing | `timing_summary.rpt` | WNS and WHS of all clocks at least 0 ns (`clk_pl_0` 200 MHz, lane clock 156.25 MHz); no pulse width violation |
-| Resources | `utilization.rpt`, `utilization_hierarchical.rpt` | LUT, register, block RAM and URAM count of the system and of its blocks |
-| Methodology and DRC | `methodology.rpt`, `drc.rpt` | No critical item about clock domain crossings or the transceivers |
+The project is `vivado_out/spfi_encrypt_vck190` in the repository, or the directory in the environment variable
+`RS_VIVADO_OUT`. On Windows the project path must not be longer than about 40 characters: the device image step
+compiles the platform loader firmware in a deep directory below the project, and with a longer path
+`write_device_image` fails; use a short directory, for example `RS_VIVADO_OUT=C:/rs`.
 
-Expected messages: Vivado 12-4739 from the scoped constraints of `olo_base_ram_sdp` (retimed registers), TIMING-9 and
-LUTAR-1 in the transceiver wizard and at the reset generators.
+`results/` in the project directory holds the device image, the timing summary, the utilisation (flat and per
+block), the methodology and DRC reports and `build_info.txt` with the Vivado version and the commits of the
+repository and of its submodules. Section 4 of the [hardware test procedure](docs/hardware_test.md) lists the
+expected results and messages.
