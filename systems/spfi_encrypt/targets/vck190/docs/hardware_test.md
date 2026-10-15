@@ -65,7 +65,9 @@ transceiver wizard instance is a black box, so its clocks and constraints are mi
 Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at `i_pa0/LaneClk`) are
 expected there. The critical warning Constraints 18-513 at the false path from `Rst` in `spfi_encrypt.xdc` comes from
 the board top level: it drives `Rst` of the system from a register of its reset generator, not from a device pin, so
-the false path finds no start point and the path is timed as a synchronous one.
+the scoped `-from` finds no start point. The reset synchronisers that receive `Rst` (the reset generators of the
+system and of `ofb0`) carry their own false paths, the scoped constraints of `olo_base_reset_gen`. The timing report
+of the implementation shows the paths of `Rst`.
 
 On Windows the project path must not be longer than about 40 characters: the device image step compiles the platform
 loader firmware in a deep directory below the project, and with a longer path `write_device_image` fails ("opening
