@@ -50,13 +50,22 @@ serve the tests of the cores and are not needed.
 From the root of the repository:
 
 ```shell
-vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl
+vivado -stack 2000 -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl
 ```
+
+`-stack 2000` is needed: the elaboration of the GHASH multipliers of the AES-GCM cores needs a larger stack than
+the default, and with the default stack Vivado ends during the elaboration without a message. The elaboration
+alone takes about 8 GB of memory.
 
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
 board top level and the constraints, and runs synthesis, implementation and the device image. `-tclargs rtl` only
-creates the project and elaborates the design, a check of the sources in a few minutes.
+creates the project and elaborates the design, a check of the sources in about ten minutes. In this step the
+transceiver wizard instance is a black box, so its clocks and constraints are missing: the critical warning
+Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at `i_pa0/LaneClk`) are
+expected there. The critical warning Constraints 18-513 at the false path from `Rst` in `spfi_encrypt.xdc` comes from
+the board top level: it drives `Rst` of the system from a register of its reset generator, not from a device pin, so
+the false path finds no start point and the path is timed as a synchronous one.
 
 On Windows the project path must not be longer than about 40 characters: the device image step compiles the platform
 loader firmware in a deep directory below the project, and with a longer path `write_device_image` fails ("opening

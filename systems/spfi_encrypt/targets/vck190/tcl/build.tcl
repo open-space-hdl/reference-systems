@@ -7,7 +7,9 @@
 # implementation and device image.
 #
 # Usage (from the repository root, with the submodules in cores/ checked out):
-#   vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
+#   vivado -stack 2000 -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
+#   -stack 2000: the elaboration of the GHASH multipliers of OpenCrypto (ocr_ghash) needs a larger stack than the
+#   default; with the default stack Vivado ends during the elaboration without a message.
 #   <step>: project (create the project only), rtl (project and RTL elaboration of the design), synth, impl,
 #   all (default: all, device image included)
 #
