@@ -57,6 +57,12 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
   design script, the constraints, the build script and `docs/hardware_test.md`.
 - The build script creates the project from the sources of the repository; a build needs no file outside the
   repository except the vendor tools. Build outputs (`vivado_out/`, `.Xil/`, logs) are not tracked.
+- A build computer without network access gets the repository as Git bundles: `python tools/make_offline_bundle.py
+  <directory>` writes the repository, the submodules in `cores/` at their pins and the submodule `en_cl_fix` of Open
+  Logic FT, with a `README.txt` of the commits and the commands, and checks them by a clone without network access.
+  The bundles are written outside the repository and never committed.
+- The build script writes its results (device image, reports, the commits it was built from) to `results/` in the
+  project directory; they are what a review of a build and of a hardware test needs.
 - The constraints of a system come from its Composer file (`resolved.constraints`) and from the user guides of the
   cores; the board constraints (pins, I/O standards, board clocks) are added in the target.
 - `hardware_test.md` describes the setup (boards, cables, link partner), the build, and the checks over the
