@@ -14,7 +14,8 @@ The register windows, the encryption channels (receive port, framer, AES-GCM cor
 key slots come from the Composer file of the system, the register maps from the headers of the cores. The set-up
 and the procedure are described with the board target.
 
-Usage: python systems/spfi_encrypt/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--packets N]
+Usage: python systems/spfi_encrypt/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
+       [--packets N] [--test TC-RS-HW-nn ...]
 Exit code 0 when every test case passes.
 """
 
@@ -53,6 +54,18 @@ OCR_SLOT = ("SLOT_STATUS", "SLOT_FIXED", "SLOT_COUNT_LO", "SLOT_COUNT_HI")
 
 
 @dataclass(frozen=True)
+class Profile:
+    """Size of a test run. The hardware test runs the lab profile; the system simulation runs the sim profile, with
+    fewer Space Packets in TC-RS-HW-06 and the same boundary cases (packet_lengths)."""
+
+    name: str
+    packets: int
+
+
+PROFILES = {p.name: p for p in (Profile("lab", 40), Profile("sim", 8))}
+
+
+@dataclass(frozen=True)
 class Channel:
     """One encryption channel: receive port of the Space Packet node, framer, AES-GCM core, send port."""
 
@@ -73,6 +86,11 @@ class System:
         self.rmap = f.instance_of_block("openrmap/omap_core")
         self.port = f.instance_of_block("openfibre/ofb_core")
         self.lanes = f.generic(self.port, "NumLanes_g")
+        # virtual channels of the SpaceFibre port: the RMAP node behind its N-Char bridge, the Space Packet node
+        vcs = {instance_of(f.connection_from(f"{self.port}.M_Vc[{k}]")["to"]): k
+               for k in range(f.generic(self.port, "NumVc_g"))}
+        self.rmap_vc = vcs[f.instance_of_block("openspp/spp_nchar")]
+        self.spp_vc = vcs[self.node]
         self.ecc = f.instance_of_block("olo/olo_ft_ecc_monitor_axi")
         self.windows = f.decoder_windows(f.instance_of_block("olo/olo_axi_lite_decoder"))
         self.chunk_bytes = f.generic(f.instances_of("opencrypto/ocr_framer")[0], "ChunkBytes_g")
@@ -310,19 +328,28 @@ def tc05_configure(regs: Registers, ctx: Context) -> None:
         regs.write(address, 0)  # a write clears a counter
 
 
+def packet_lengths(system: System, packets: int, rng: random.Random) -> list[int]:
+    """Data lengths of the Space Packets of TC-RS-HW-06: first the boundary cases (1 byte, one byte less than, equal
+    to and one byte more than a chunk, the longest packet), then random lengths."""
+    # RxBufferBytes_g holds the longest Space Packet (OpenSPP user guide, integration constraints)
+    max_bytes = system.rx_buffer_bytes - PRIMARY_HEADER_BYTES
+    n = system.chunk_bytes
+    boundary = [1, n - 1, n, n + 1, max_bytes]
+    if packets < len(boundary):
+        raise ValueError(f"TC-RS-HW-06 needs at least {len(boundary)} Space Packets for its boundary cases")
+    return boundary + [rng.randint(1, max_bytes) for _ in range(packets - len(boundary))]
+
+
 def tc06_encryption(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-06: Space Packets of the input APIDs come back as authenticated chunks with the APID of their
     channel; every chunk decrypts with the key of its channel and the chunks give the input packets."""
     s, setup = ctx.system, ctx.setup
     rng = random.Random(ctx.seed)
-    # RxBufferBytes_g holds the longest Space Packet (OpenSPP user guide, integration constraints)
-    max_bytes = s.rx_buffer_bytes - PRIMARY_HEADER_BYTES
     n = s.chunk_bytes
     sent: list[list[bytes]] = [[] for _ in s.channels]
     packets = []
-    for k in range(ctx.packets):
+    for k, length in enumerate(packet_lengths(s, ctx.packets, rng)):
         ch = k % len(s.channels)
-        length = rng.choice([1, n - 1, n, n + 1, rng.randint(1, max_bytes)])
         data = rng.randbytes(length)
         sent[ch].append(data)
         packet = SpacePacket(apid=setup.input_apid_base + ch, data=data, sequence_count=k).encode()
@@ -379,12 +406,33 @@ def tc07_counters(regs: Registers, ctx: Context) -> None:
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
          tc07_counters]
 
+# Test cases that a test case builds on; they run before it when it is selected on its own
+REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption]}
+
+
+def test_name(test) -> str:
+    return test.__doc__.split(":")[0]
+
+
+def select_tests(names: list[str] | None = None) -> list:
+    """The test cases of the given names (all without names) with the test cases they build on, in order."""
+    if not names:
+        return list(TESTS)
+    by_name = {test_name(t): t for t in TESTS}
+    unknown = [n for n in names if n not in by_name]
+    if unknown:
+        raise ValueError(f"unknown test cases {unknown}; known: {', '.join(by_name)}")
+    chosen = {by_name[n] for n in names}
+    chosen |= {r for t in list(chosen) for r in REQUIRES.get(t, [])}
+    return [t for t in TESTS if t in chosen]
+
 
 def make_context(seed: int, packets: int, setup: Setup = Setup(), system: System | None = None) -> Context:
     system = system or System()
     inputs = {setup.input_apid_base + c.port for c in system.channels}
     if inputs & {c.output_apid for c in system.channels}:
         raise ValueError("the input APIDs overlap the output APIDs of the system")
+    packet_lengths(system, packets, random.Random(seed))
     rng = random.Random(seed)
     count = len(system.channels)
     keys = [rng.randbytes(32) for _ in range(count)]
@@ -396,36 +444,45 @@ def make_context(seed: int, packets: int, setup: Setup = Setup(), system: System
                    test_counter=rng.randrange(1 << 32, 1 << 63))
 
 
-def run(transport, ctx: Context) -> int:
-    """Runs the test cases in order and stops at the first failure; returns the number of passed test cases."""
-    regs = Registers(transport, ctx.setup)
-    passed = 0
-    for test in TESTS:
-        name = test.__doc__.split(":")[0]
+def run(transport, ctx: Context, tests: list | None = None,
+        registers: type[Registers] = Registers) -> list[tuple[str, str | None]]:
+    """Runs the test cases in order (all by default) and stops at the first failure; returns the name and the error
+    (None when it passed) of every test case that ran."""
+    tests = tests or TESTS
+    regs = registers(transport, ctx.setup)
+    results = []
+    for test in tests:
+        name = test_name(test)
+        transport.begin(name)
         try:
             test(regs, ctx)
         except Exception as err:  # noqa: BLE001 - the failure is reported, the later test cases depend on it
             print(f"FAIL {name}: {err}")
+            results.append((name, str(err)))
             break
         print(f"PASS {name}")
-        passed += 1
-    print(f"{passed} of {len(TESTS)} test cases passed")
-    return passed
+        results.append((name, None))
+    passed = sum(error is None for _, error in results)
+    print(f"{passed} of {len(tests)} test cases passed")
+    return results
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
-    parser.add_argument("--packets", type=int, default=40, help="Space Packets sent in TC-RS-HW-06")
+    parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
+    parser.add_argument("--packets", type=int, help="Space Packets sent in TC-RS-HW-06 (default: of the profile)")
+    parser.add_argument("--test", action="append", help="run only this test case and those it builds on")
     args = parser.parse_args()
 
     from refsys.transport import StarSystemTransport
 
-    ctx = make_context(args.seed, args.packets)
+    ctx = make_context(args.seed, args.packets or PROFILES[args.profile].packets)
+    tests = select_tests(args.test)
     with StarSystemTransport(args.device) as transport:
-        passed = run(transport, ctx)
-    return 0 if passed == len(TESTS) else 1
+        results = run(transport, ctx, tests)
+    return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
 
 
 if __name__ == "__main__":

@@ -73,7 +73,9 @@ python systems/spfi_encrypt/sw/hardware_test.py --device <name of the STAR-Ultra
 ```
 
 It prints one line per test case and stops at the first failure, since the later test cases build on the earlier
-ones. `--packets` sets the number of Space Packets of TC-RS-HW-06 (default 40), `--seed` the keys and the packets.
+ones. `--packets` sets the number of Space Packets of TC-RS-HW-06 (default 40, the profile `lab`), `--seed` the keys
+and the packets. `--test TC-RS-HW-nn` runs one test case and the test cases it builds on. The
+[system testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`.
 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
@@ -88,7 +90,7 @@ the pinned core; the script reads it from there.
 | TC-RS-HW-03 RMAP | Verified writes of `IRQ_ENA` of `edac0` and read back; a read with a wrong key | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read `ID`, `GENERICS`, `GENERICS2` and `RELEASE_BYTES` of `ocr0` with one command of 16 bytes and with single reads; load the test slot with the key in one write of 32 bytes and `IV_FIXED`, `IV_COUNT_LO` and `IV_COUNT_HI` in one write of 12 bytes, then `KEY_LOAD`; select the slot in `SLOT_QUERY` and read `SLOT_STATUS` to `SLOT_COUNT_HI` with one command of 16 bytes and with single reads | Both reads of 16 bytes give the words of the single reads; the slot is valid with generated IVs (`SLOT_STATUS` 0x3) and holds the written fixed field and invocation counter |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i); slot 0 of every AES-GCM core loaded as in TC-RS-HW-04 with the key and IV values of its channel and queried; counters cleared | Table entries read back, no table overrun; `STATUS.BUSY` of every core returns to 0; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
-| TC-RS-HW-06 Encryption | Space Packets of 1 byte to 8000 bytes (also one byte less, equal to and one byte more than a chunk of 4096 bytes) on the four input APIDs | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
+| TC-RS-HW-06 Encryption | Space Packets on the four input APIDs: first 1 byte, one byte less than, equal to and one byte more than a chunk of 4096 bytes, and 8186 bytes (a Space Packet of 8192 bytes, the size of the receive buffer of `spp0`), then random lengths | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
 | TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and every ECC counter is 0 |
 
 ## 8. Records

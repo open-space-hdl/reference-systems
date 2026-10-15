@@ -9,11 +9,11 @@ board top level per target with its constraints and build script, and a hardware
 ## Status
 
 Work in progress. The repository holds the first system with its generated top level, its core versions and the
-checks of both, and its first board target. The system testbench follows.
+checks of both, its system testbench and its first board target.
 
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
-| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | open | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model | AMD VCK190 (board top, constraints, build script; not built yet) |
 
 Open point of spfi_encrypt, from the checks of the Composer (details in its
 [README](systems/spfi_encrypt/README.md#open-points)):
@@ -32,7 +32,7 @@ Open point of spfi_encrypt, from the checks of the Composer (details in its
 | `systems/<system>/sw/` | Host software of the system, for example its hardware test |
 | `cores/` | Submodules: Open Logic FT and every core, at the commits the system files pin |
 | `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, register maps, facts of a system file, transports |
-| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order |
+| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order, the AMD simulator (`xsim.py`) |
 | `lint/` | VSG configuration and lint script of the hand-written VHDL |
 | `run.py` | VUnit run script: compiles the libraries of all systems and runs their testbenches |
 
