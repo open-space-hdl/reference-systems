@@ -42,8 +42,11 @@ git -C cores/open-logic-ft -c protocol.file.allow=always submodule update --init
 ```
 
 `git submodule status` must show the commits of `README.txt` without a leading `-` or `+`, and
-`python tools/check_pins.py` must pass. The submodules of the cores themselves (their own `open-logic` and `uvvm`)
-serve the tests of the cores and are not needed.
+`python tools/check_pins.py --offline` must pass: it checks the pins against the tags that the bundles carry, without
+network access, after the same check against the published repositories passed when the bundles were written. In a
+clone from GitHub, `python tools/check_pins.py` reads the tags from the published repository of Open Logic FT. The
+submodules of the cores themselves (their own `open-logic` and `uvvm`) serve the tests of the cores and are not
+needed.
 
 ## 4. Build
 

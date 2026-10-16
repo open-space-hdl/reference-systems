@@ -30,7 +30,9 @@ system uses their interfaces as documented in their user guides, and a missing f
   the Open Logic FT tag it was verified with; this tag is not newer than the tag of the system and is the pin of the
   core's own `open-logic` submodule.
 - `python tools/check_pins.py` checks these rules: URL and commit of every submodule, the tag of Open Logic FT, the
-  `verifiedWith` tags against the cores, the same commits across all systems, no unused submodule.
+  `verifiedWith` tags against the cores, the same commits across all systems, no unused submodule. It reads the tags
+  from the published repository of Open Logic FT; with `--offline` it reads them from `cores/open-logic-ft`, for a
+  computer without network access.
 - Only commits that are published in the repositories of the cores are pinned, never a commit of a local clone.
 
 ## Hand-written HDL
@@ -58,8 +60,9 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 - The build script creates the project from the sources of the repository; a build needs no file outside the
   repository except the vendor tools. Build outputs (`vivado_out/`, `.Xil/`, logs) are not tracked.
 - A build computer without network access gets the repository as Git bundles: `python tools/make_offline_bundle.py
-  <directory>` writes the repository, the submodules in `cores/` at their pins and the submodule `en_cl_fix` of Open
-  Logic FT, with a `README.txt` of the commits and the commands, and checks them by a clone without network access.
+  <directory>` checks the pins against the published repositories and writes the repository, the submodules in
+  `cores/` at their pins and the submodule `en_cl_fix` of Open Logic FT, with a `README.txt` of the commits and the
+  commands. It checks them by a clone without network access, with `tools/check_pins.py --offline`.
   The bundles are written outside the repository and never committed.
 - The build script writes its results (device image, reports, the commits it was built from) to `results/` in the
   project directory; they are what a review of a build and of a hardware test needs.
