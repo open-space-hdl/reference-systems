@@ -104,22 +104,23 @@ simulation, with the versions of the cores that the system file pins:
 
 | Step | Simulated time | Result |
 | --- | --- | --- |
-| Transceivers of both ends ready, far end out of reset | 64.9 us | |
-| Link initialised (all lanes Active at both ends) | 92.7 us | |
+| Transmitters of both ends ready | 64.9 us | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | |
 | TC-RS-HW-01 Link | 8.6 us | Pass |
 | TC-RS-HW-02 Identification | 11.4 us | Pass |
 | TC-RS-HW-03 RMAP | 10.1 us | Pass |
-| TC-RS-HW-04 Commands of several words | 25.1 us | Pass |
-| TC-RS-HW-05 Configuration | 83.7 us | Pass |
+| TC-RS-HW-04 Commands of several words | 25.2 us | Pass |
+| TC-RS-HW-05 Configuration | 83.6 us | Pass |
 | TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | 30.3 us | Pass |
 | TC-RS-HW-07 Counters | 65.7 us | Pass |
-| Total | 327.6 us | 7 of 7 |
+| Total | 327.4 us | 7 of 7 |
 
-An RMAP command and its reply take about 1.4 us. The simulation of the whole profile takes about one hour of
-wall-clock time on a workstation, after about 18 minutes of elaboration; `report.txt` gives the wall-clock time of
-every test case. The lanes of `ofb0` start when the lane clock of `pa0` runs, after the transmitters of `pa0` are
-ready (`probes.vcd`); this order follows from the clock structure, not from a ready handshake (see the open point
-`with_block` of the [system](../README.md#open-points)).
+An RMAP command and its reply take about 1.4 us. The simulation of the whole profile takes about 40 minutes of
+wall-clock time on a workstation, after about 17 minutes of compilation and elaboration; `report.txt` gives the
+wall-clock time of every test case. Both cores hold their link in Near-End Reset until the transmitters of their
+adapter are ready (`Stat_TxReady` to `Phy_TxReady`). The lanes of both ends then reach Wait together; the lanes of
+`ofb0` go on to Started at once (`LaneStart_g`), while the lanes of the far end stay in Wait until they detect the
+signal of `ofb0` (`probes.vcd`): the system starts the link.
 
 ## Limits
 
