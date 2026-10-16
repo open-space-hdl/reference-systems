@@ -72,9 +72,10 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 
 - VUnit runs every test (`run.py`). It compiles Open Logic FT and the cores exactly as the system files describe them
   (`tools/composer_system.py`) and the testbenches of the systems.
-- GHDL is the default simulator, QuestaSim (`python run.py --questa`) the second one. Blocks that need vendor
+- GHDL is the default simulator; `python run.py --questa` runs the same tests in QuestaSim. Blocks that need vendor
   libraries (for example the AMD Versal GTY adapter of OpenFibre) are simulated with the vendor simulator or replaced
-  by the behavioural models that the cores provide.
+  by the behavioural models that the cores provide. A system testbench runs in xsim with the vendor models; the
+  QuestaSim evidence (regressions and code coverage) comes from the cores.
 - A system simulation with the AMD transceiver model runs in the AMD simulator xsim, which VUnit does not support:
   `systems/<system>/sim/run_xsim.py` builds and runs it with `tools/xsim.py` and checks the results with the same
   Python checks as a VUnit run would.

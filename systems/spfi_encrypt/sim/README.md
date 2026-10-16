@@ -66,6 +66,9 @@ and the link initialisation.
 
 ## Running
 
+The system testbench runs in xsim with the AMD transceiver model; the cores carry their own QuestaSim evidence
+(regressions and code coverage).
+
 ### xsim with the AMD transceiver model
 
 ```shell
@@ -85,11 +88,6 @@ not use it.
 The transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`, see the verification
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in
 total, and reports every repetition.
-
-### GHDL and QuestaSim
-
-The regular regression with GHDL and QuestaSim follows when OpenFibre provides a pin-compatible model of
-`ofb_pa_gty`; the bench and the checks stay as they are.
 
 ### Without a simulator
 
