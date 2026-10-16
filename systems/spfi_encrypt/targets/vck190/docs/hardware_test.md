@@ -63,8 +63,9 @@ creates the project and elaborates the design, a check of the sources in about t
 a synthesis. In this step the transceiver wizard instance is a black box, so its clocks and constraints are missing:
 the critical warning Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at
 `i_pa0/LaneClk`) are expected there, and `invalid_constraints.xdc` lists the location of the GTY quad and the two
-maximum delays between the lane clock and `Clk_sys`. `Rst` of the system has no false path of its own: every block that receives it
-releases it through `olo_base_reset_gen`, whose scoped constraints cut the paths into its synchronisers.
+maximum delays between the lane clock and `Clk_sys`. `Rst` of the system has no false path of its own: every block
+that receives it releases it through `olo_base_reset_gen`, whose scoped constraints cut the paths into its
+synchronisers.
 
 On Windows the project path must not be longer than about 40 characters: the device image step compiles the platform
 loader firmware in a deep directory below the project, and with a longer path `write_device_image` fails ("opening
