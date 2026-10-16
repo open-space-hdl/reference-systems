@@ -72,9 +72,10 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 
 - VUnit runs every test (`run.py`). It compiles Open Logic FT and the cores exactly as the system files describe them
   (`tools/composer_system.py`) and the testbenches of the systems.
-- GHDL is the default simulator, QuestaSim (`python run.py --questa`) the second one. Blocks that need vendor
+- GHDL is the default simulator; `python run.py --questa` runs the same tests in QuestaSim. Blocks that need vendor
   libraries (for example the AMD Versal GTY adapter of OpenFibre) are simulated with the vendor simulator or replaced
-  by the behavioural models that the cores provide.
+  by the behavioural models that the cores provide. A system testbench runs in xsim with the vendor models; the
+  QuestaSim evidence (regressions and code coverage) comes from the cores.
 - A system simulation with the AMD transceiver model runs in the AMD simulator xsim, which VUnit does not support:
   `systems/<system>/sim/run_xsim.py` builds and runs it with `tools/xsim.py` and checks the results with the same
   Python checks as a VUnit run would.
@@ -93,8 +94,10 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
   Packets, the chunks of OpenCrypto, the register maps from the C headers of the cores, the facts of a system file,
   the transports); `systems/<system>/sw/` holds the tests of a system.
 - Register addresses and fields come from the generated headers of the cores (`cores/<core>/sw/<prefix>_regs.h`),
-  never from copied numbers, so that they follow the pinned versions of the cores. Register windows, connections and
-  constants of a system come from its Composer file, so that a test follows the system when it changes.
+  never from copied numbers, so that they follow the pinned versions of the cores. The register banks of a system
+  (base address, size, identification) and the channels of its ECC monitors come from the header that the Composer
+  exports with the top level (`systems/<system>/hdl/<system>_regs.h`); connections and constants of a system come
+  from its Composer file, so that a test follows the system when it changes.
 - Packets are built and checked by the library, independent of the RTL of the cores. A transport carries complete
   link packets, path addresses included; the transport of a test equipment imports the software of its vendor, which
   the user installs on the test computer.
@@ -105,7 +108,8 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 
 - Write for the engineer who builds or uses the system. Decisions are stated as facts, with the reason from the
   system goals or the user guides of the cores.
-- Modern technical English, UTF-8, Markdown checked by markdownlint with `.markdownlint.json`.
+- Modern technical English, UTF-8, Markdown checked by markdownlint with `.markdownlint.json`; the files that the
+  Composer generates in `hdl/` are checked by `tools/check_hdl.py`, not by markdownlint.
 
 ## Git
 

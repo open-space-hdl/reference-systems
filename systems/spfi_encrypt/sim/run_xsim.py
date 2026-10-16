@@ -45,7 +45,7 @@ VCD = "probes.vcd"
 # the transceivers and the lane states of both ends. They are not used by the checks, which see the ports only.
 PROBES = [
     "/spfi_encrypt_tb/Rst",
-    "/spfi_encrypt_tb/FarRst",
+    "/spfi_encrypt_tb/FarTxReady",
     "/spfi_encrypt_tb/i_dut/i_pa0/LaneRst",
     "/spfi_encrypt_tb/i_dut/i_pa0/Stat_TxReady",
     "/spfi_encrypt_tb/i_dut/i_pa0/Stat_RxReady",

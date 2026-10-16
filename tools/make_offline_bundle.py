@@ -141,9 +141,7 @@ def main() -> int:
     lines += ["  " + c for c in clone_commands("<path>", args.ref, list(links))]
     lines += ["", "Build and hardware test: systems/<system>/targets/<board>/docs/hardware_test.md, sections 3 to 9.",
               "For spfi_encrypt on the VCK190 (from the repository root):", "",
-              "  vivado -stack 2000 -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl", "",
-              "-stack 2000 is needed: with the default stack Vivado ends without a message while it elaborates",
-              "the GHASH multipliers of the AES-GCM cores.", "",
+              "  vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl", "",
               "On Windows keep the project path at most about 40 characters long, otherwise write_device_image fails",
               "while it compiles the platform loader firmware: set RS_VIVADO_OUT to a short directory (for example",
               "C:/git/rs) before starting Vivado. The results are written to <project>/results."]

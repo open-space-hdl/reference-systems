@@ -25,8 +25,9 @@ generated top level of the system instead of the board.
   only: the reset, the system clock, the reference clock and the serial lines.
 - The far end is a second SpaceFibre port: an `ofb_core` with its own physical adapter, joined to the system by the
   serial lines, lane i to lane i in both directions. It has the generics of `ofb0` of the Composer file
-  (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands for the test equipment of the hardware test: it starts the link
-  through its MIB, as the STAR-Ultra does, while `ofb0` keeps its reset values (AutoStart).
+  (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands for the test equipment of the hardware test and, as the port of
+  the STAR-Ultra, is set to auto-start (`LaneStart_g => false`, `AutoStart_g => true`): the system starts the link
+  (`LaneStart_g` of `ofb0` is true in the Composer file).
 - The physical adapter of both ends is the entity `openfibre.ofb_pa_gty` that the simulation compiles: the AMD GTY
   adapter with the transceiver model of Vivado, or a pin-compatible model of OpenFibre. The bench does not depend on
   the variant.
@@ -35,7 +36,7 @@ generated top level of the system instead of the board.
 
 1. `vectors.py write` runs the procedure of `sw/hardware_test.py` against the software model of the system
    (`sw/system_model.py`) through a recording transport. The requests become the operations of the far end in
-   `stimulus.txt`: the start of the link, then per test case the packets on its virtual channels and the polls of
+   `stimulus.txt`: the wait for the link, then per test case the packets on its virtual channels and the polls of
    registers that the procedure waits for.
 2. The bench plays `stimulus.txt` and records every packet that the far end receives (`rx_vc<n>.txt`) and the
    simulated time of its events (`events.txt`).
@@ -66,6 +67,9 @@ and the link initialisation.
 
 ## Running
 
+The system testbench runs in xsim with the AMD transceiver model; the cores carry their own QuestaSim evidence
+(regressions and code coverage).
+
 ### xsim with the AMD transceiver model
 
 ```shell
@@ -86,11 +90,6 @@ The transceiver model sometimes fails to power up in an elaborated snapshot (`DI
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in
 total, and reports every repetition.
 
-### GHDL and QuestaSim
-
-The regular regression with GHDL and QuestaSim follows when OpenFibre provides a pin-compatible model of
-`ofb_pa_gty`; the bench and the checks stay as they are.
-
 ### Without a simulator
 
 `python -m pytest systems/spfi_encrypt/sim` checks the stimuli and the checks: a Python stand-in for the bench plays
@@ -105,22 +104,23 @@ simulation, with the versions of the cores that the system file pins:
 
 | Step | Simulated time | Result |
 | --- | --- | --- |
-| Transceivers of both ends ready, far end out of reset | 64.9 us | |
-| Link initialised (all lanes Active at both ends) | 92.7 us | |
+| Transmitters of both ends ready | 64.9 us | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | |
 | TC-RS-HW-01 Link | 8.6 us | Pass |
 | TC-RS-HW-02 Identification | 11.4 us | Pass |
 | TC-RS-HW-03 RMAP | 10.1 us | Pass |
-| TC-RS-HW-04 Commands of several words | 25.1 us | Pass |
-| TC-RS-HW-05 Configuration | 83.7 us | Pass |
+| TC-RS-HW-04 Commands of several words | 25.2 us | Pass |
+| TC-RS-HW-05 Configuration | 83.6 us | Pass |
 | TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | 30.3 us | Pass |
 | TC-RS-HW-07 Counters | 65.7 us | Pass |
-| Total | 327.6 us | 7 of 7 |
+| Total | 327.4 us | 7 of 7 |
 
-An RMAP command and its reply take about 1.4 us. The simulation of the whole profile takes about one hour of
-wall-clock time on a workstation, after about 18 minutes of elaboration; `report.txt` gives the wall-clock time of
-every test case. The lanes of `ofb0` start when the lane clock of `pa0` runs, after the transmitters of `pa0` are
-ready (`probes.vcd`); this order follows from the clock structure, not from a ready handshake (see the open point
-`with_block` of the [system](../README.md#open-points)).
+An RMAP command and its reply take about 1.4 us. The simulation of the whole profile takes about 40 minutes of
+wall-clock time on a workstation, after about 17 minutes of compilation and elaboration; `report.txt` gives the
+wall-clock time of every test case. Both cores hold their link in Near-End Reset until the transmitters of their
+adapter are ready (`Stat_TxReady` to `Phy_TxReady`). The lanes of both ends then reach Wait together; the lanes of
+`ofb0` go on to Started at once (`LaneStart_g`), while the lanes of the far end stay in Wait until they detect the
+signal of `ofb0` (`probes.vcd`): the system starts the link.
 
 ## Limits
 

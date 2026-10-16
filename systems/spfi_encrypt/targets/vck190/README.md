@@ -61,11 +61,8 @@ repository as Git bundles (`tools/make_offline_bundle.py`, [hardware test proced
 section 3).
 
 ```shell
-vivado -stack 2000 -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
+vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
 ```
-
-`-stack 2000` is needed: with the default stack Vivado ends without a message while it elaborates the GHASH
-multipliers of the AES-GCM cores (`ocr_ghash`).
 
 | Step | What the script does |
 | --- | --- |

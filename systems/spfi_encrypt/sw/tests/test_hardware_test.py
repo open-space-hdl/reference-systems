@@ -117,3 +117,18 @@ def test_a_selected_test_case_brings_those_it_builds_on():
     assert ht.select_tests(None) == ht.TESTS
     with pytest.raises(ValueError):
         ht.select_tests(["TC-RS-HW-99"])
+
+
+def test_register_banks_of_the_exported_header_match_the_system():
+    # bases: the windows of the AXI4-Lite decoder of the Composer file
+    assert SYSTEM.windows == SYSTEM_FILE.decoder_windows(SYSTEM_FILE.instance_of_block("olo/olo_axi_lite_decoder"))
+    # identifications: the register map identifications of the pinned cores
+    core_ids = {SYSTEM.node: ht.SPP.REGMAP_ID, SYSTEM.rmap: ht.OMAP.REGMAP_ID, SYSTEM.port: ht.OFB.REGMAP_ID}
+    core_ids |= {c.core: ht.OCR.REGMAP_ID for c in SYSTEM.channels}
+    assert SYSTEM.ids == core_ids
+    # channels of the ECC monitor: two memories per framer, in the order of the connections, as many as Channels_g
+    assert SYSTEM.ecc_names == [f"FRM{k}_ECC_{m}" for k in range(4) for m in range(2)]
+    assert SYSTEM.ecc_channels == SYSTEM_FILE.generic(SYSTEM.ecc, "Channels_g")
+    channel = f"{SYSTEM.ecc.upper()}_CH_"
+    values = sorted(v for n, v in ht.BANKS.constants().items() if n.startswith(channel))
+    assert values == list(range(SYSTEM.ecc_channels))

@@ -15,11 +15,6 @@ checks of both, its system testbench and its first board target.
 | --- | --- | --- | --- | --- |
 | [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model | AMD VCK190 (board top, constraints, build script; not built yet) |
 
-Open point of spfi_encrypt, from the checks of the Composer (details in its
-[README](systems/spfi_encrypt/README.md#open-points)):
-
-- Warning `with_block`: the SpaceFibre port `ofb0` leaves its reset before the transceivers of `pa0` are ready.
-
 ## Layout
 
 | Path | Content |

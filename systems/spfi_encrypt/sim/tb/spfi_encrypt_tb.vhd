@@ -10,8 +10,8 @@
 -- ofb_core with its own physical adapter, joined by their serial lines (lane i to lane i, both
 -- directions) and fed by one reference clock and one system clock. The far end stands for the test
 -- equipment of the hardware test: it plays stimulus.txt (written by sim/vectors.py from the hardware
--- test), which starts the link through its MIB and then sends packets on its virtual channels and
--- polls registers of the system; it records every packet that it receives, per virtual channel
+-- test), which waits until the link that the system starts is initialised and then sends packets
+-- on its virtual channels and polls registers of the system; it records every packet that it receives, per virtual channel
 -- (rx_vc<n>.txt), and the simulated time of its events (events.txt). sim/vectors.py checks the
 -- records with the procedure of the hardware test. The physical adapter is the entity
 -- openfibre.ofb_pa_gty that the simulation compiles: the AMD GTY adapter with the transceiver model
@@ -65,7 +65,7 @@ architecture sim of spfi_encrypt_tb is
     constant BeatBytes_c : positive := 4 * NumLanes_g;
     constant MaxBytes_c  : positive := 16384;    -- longest packet of the stimulus and of the records
     constant HeadBytes_c : positive := 64;       -- first bytes of a received packet that a poll can test
-    constant ReadyMax_c  : time     := 2 ms;     -- far end out of reset (transceivers ready)
+    constant ReadyMax_c  : time     := 2 ms;     -- transmitters of the far end ready
 
     type IntArray_t is array (natural range <>) of natural;
     type HeadArray_t is array (natural range <>) of std_logic_vector(8 * HeadBytes_c - 1 downto 0);
@@ -81,11 +81,9 @@ architecture sim of spfi_encrypt_tb is
     signal FarTxP : std_logic_vector(NumLanes_g - 1 downto 0);
     signal FarTxN : std_logic_vector(NumLanes_g - 1 downto 0);
 
-    -- Far end: clocks and resets
-    signal FarLaneClk     : std_logic;
-    signal FarLaneRst     : std_logic;
-    signal FarLaneRstSync : std_logic_vector(1 downto 0) := (others => '1');
-    signal FarRst         : std_logic                    := '1';
+    -- Far end: lane clock and the ready state of the transmitters
+    signal FarLaneClk : std_logic;
+    signal FarTxReady : std_logic;
 
     -- Far end: virtual channels
     signal FarSVcTData  : std_logic_vector(32 * NumLanes_g * NumVc_g - 1 downto 0) := (others => '0');
@@ -184,7 +182,7 @@ begin
             Rst                    => Rst,
             RefClk                 => RefClk,
             LaneClk                => FarLaneClk,
-            LaneRst                => FarLaneRst,
+            LaneRst                => open,
             Gt_TxP                 => FarTxP,
             Gt_TxN                 => FarTxN,
             Gt_RxP                 => SysTxP,
@@ -209,32 +207,28 @@ begin
             Phy_PrbsCntReset       => PhyPrbsCntReset,
             Phy_PrbsErr            => PhyPrbsErr,
             Phy_PrbsLocked         => PhyPrbsLocked,
-            Stat_TxReady           => open,
+            Stat_TxReady           => FarTxReady,
             Stat_RxReady           => open,
             Stat_Aligned           => PhyAligned,
             Stat_RxBufErr          => open,
             Stat_ClkCor            => open
         );
 
-    -- The core stays in reset while the adapter holds LaneRst (OpenFibre, notes of ofb_pa_gty)
-    p_far_rst : process (ClkSys) is
-    begin
-        if rising_edge(ClkSys) then
-            FarLaneRstSync <= FarLaneRstSync(0) & FarLaneRst;
-            FarRst         <= Rst or FarLaneRstSync(1);
-        end if;
-    end process;
-
+    -- Reset of the core: the reset of the bench; the core holds the link in Near-End Reset until the
+    -- transmitters of the adapter are ready (Phy_TxReady from Stat_TxReady)
     i_far_core : entity openfibre.ofb_core
         generic map (
             NumVc_g       => NumVc_g,
             NumLanes_g    => NumLanes_g,
             LaneClkFreq_g => 156.25e6,
             CoreClkFreq_g => 156.25e6,
-            VcInDepth_g   => VcInDepth_g
+            VcInDepth_g   => VcInDepth_g,
+            -- the port of the test equipment is set to auto-start: the system starts the link
+            LaneStart_g   => false,
+            AutoStart_g   => true
         )
         port map (
-            Rst                    => FarRst,
+            Rst                    => Rst,
             UserClk                => ClkSys,
             CoreClk                => FarLaneClk,
             LaneClk                => FarLaneClk,
@@ -289,6 +283,7 @@ begin
             Phy_CdrEnable          => PhyCdrEnable,
             Phy_RxInvert           => PhyRxInvert,
             Phy_NoSignal           => PhyNoSignal,
+            Phy_TxReady            => FarTxReady,
             Phy_BitSync            => PhyAligned,
             Phy_SerialNearLoopback => PhyNearLoopback,
             Phy_SerialFarLoopback  => PhyFarLoopback,
@@ -523,10 +518,10 @@ begin
 
         variable Ok_v : boolean;
     begin
-        -- The far end leaves its reset when its transceivers are ready
-        wait until FarRst = '0' for ReadyMax_c;
-        if FarRst /= '0' then
-            logEvent("timeout", "far end in reset");
+        -- The far end starts when the transmitters of its adapter are ready
+        wait until FarTxReady = '1' for ReadyMax_c;
+        if FarTxReady /= '1' then
+            logEvent("timeout", "transmitters of the far end not ready");
             Stop_v := true;
         else
 

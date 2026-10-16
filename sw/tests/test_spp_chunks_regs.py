@@ -99,3 +99,14 @@ def test_register_map_from_header():
         ocr.field("KEY_LOAD", "SLOT", 0x100)
     ofb = RegisterMap(CORES / "openfibre" / "sw" / "ofb_regs.h", "OFB")
     assert ofb.LANE_STATUS(2) == 0x144
+
+
+def test_register_map_constants_of_a_system_header(tmp_path):
+    header = tmp_path / "sys_regs.h"
+    header.write_text('#include "ocr_regs.h"\n'
+                      "#define SYS_OCR0_BASE  0x00010000u\n"
+                      "#define SYS_OCR0_ID    0x4F435201u\n"
+                      "#define SYS_EDAC0_CH_FRM0_ECC_1 1u\n", encoding="utf-8")
+    banks = RegisterMap(header, "SYS")
+    assert banks.constants() == {"OCR0_BASE": 0x10000, "OCR0_ID": 0x4F435201, "EDAC0_CH_FRM0_ECC_1": 1}
+    assert banks.OCR0_BASE == 0x10000

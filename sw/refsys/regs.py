@@ -38,6 +38,10 @@ class RegisterMap:
             return lambda index: base + index * stride
         raise AttributeError(f"{self.header.name} defines no {self.prefix}{name}")
 
+    def constants(self) -> dict[str, int]:
+        """All constants of the header, by their names without the prefix."""
+        return dict(self._const)
+
     def field(self, register: str, field: str, value: int) -> int:
         """A field value at its position in the register."""
         mask = self._const[f"{register}_{field}_MASK"]

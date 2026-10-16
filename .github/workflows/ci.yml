@@ -77,3 +77,4 @@ jobs:
             *.md
             docs/**/*.md
             systems/**/*.md
+            !systems/*/hdl/**
