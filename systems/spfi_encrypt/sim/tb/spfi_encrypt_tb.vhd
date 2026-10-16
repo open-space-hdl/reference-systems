@@ -10,8 +10,8 @@
 -- ofb_core with its own physical adapter, joined by their serial lines (lane i to lane i, both
 -- directions) and fed by one reference clock and one system clock. The far end stands for the test
 -- equipment of the hardware test: it plays stimulus.txt (written by sim/vectors.py from the hardware
--- test), which starts the link through its MIB and then sends packets on its virtual channels and
--- polls registers of the system; it records every packet that it receives, per virtual channel
+-- test), which waits until the link that the system starts is initialised and then sends packets
+-- on its virtual channels and polls registers of the system; it records every packet that it receives, per virtual channel
 -- (rx_vc<n>.txt), and the simulated time of its events (events.txt). sim/vectors.py checks the
 -- records with the procedure of the hardware test. The physical adapter is the entity
 -- openfibre.ofb_pa_gty that the simulation compiles: the AMD GTY adapter with the transceiver model
@@ -222,7 +222,10 @@ begin
             NumLanes_g    => NumLanes_g,
             LaneClkFreq_g => 156.25e6,
             CoreClkFreq_g => 156.25e6,
-            VcInDepth_g   => VcInDepth_g
+            VcInDepth_g   => VcInDepth_g,
+            -- the port of the test equipment is set to auto-start: the system starts the link
+            LaneStart_g   => false,
+            AutoStart_g   => true
         )
         port map (
             Rst                    => Rst,

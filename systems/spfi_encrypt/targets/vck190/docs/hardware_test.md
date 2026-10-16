@@ -107,7 +107,7 @@ LUTAR-1 in the transceiver wizard and at the reset generators.
 | Port | Port 1 of the STAR-Ultra, four lanes |
 | Line rate | 6.25 Gbit/s per lane, 8B/10B |
 | Data scrambling | On (reset value of the system) |
-| Link start | The STAR-Ultra starts the link. After a reset the SpaceFibre port of the system only waits for the far end (AutoStart), and its registers are reachable only over the link |
+| Link start | Auto-start. The system starts the link after a reset (`LaneStart_g` of `ofb0` is true in the Composer file) |
 | Channel 0 | Virtual channel 0 of port 1 through the routing switch of the STAR-Ultra: path address 3 leads to port 1, path address 1 leads back to channel 0 |
 | Channel 1 | Virtual channel 1 of port 1 |
 

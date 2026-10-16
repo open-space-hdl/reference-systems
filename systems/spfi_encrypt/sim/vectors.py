@@ -8,8 +8,8 @@ The system testbench (sim/tb/spfi_encrypt_tb.vhd) joins the system to a far-end 
 hardware test (sw/hardware_test.py) in three steps:
 
 1. write: the procedure of the hardware test runs against the software model of the system (sw/system_model.py)
-   through a recording transport. Its requests become the operations of the far end in stimulus.txt: the start of
-   the link through the MIB of the far end, then per test case the packets on the virtual channels and the polls of
+   through a recording transport. Its requests become the operations of the far end in stimulus.txt: the wait for
+   the link, which the system starts, then per test case the packets on the virtual channels and the polls of
    Registers.wait, which the bench repeats until the polled register has the awaited value.
 2. The bench plays stimulus.txt. It records every packet that the far end receives (rx_vc<n>.txt) and the
    simulated time of its events (events.txt).
@@ -154,15 +154,10 @@ class RecordingRegisters(PollingRegisters):
             self.transport.end_poll()
 
 
-def link_start(recorder: Recorder, system: ht.System) -> None:
-    """The far end starts the link as the test equipment does (OpenFibre user guide, programming sequence): LANE_CTRL
-    of every lane with LaneStart, AutoStart, TxEn and RxEn, then it waits until its link is initialised. The system
-    keeps its reset values (AutoStart)."""
+def link_wait(recorder: Recorder) -> None:
+    """The system starts the link after the reset (LaneStart_g of ofb0). The far end keeps its reset values
+    (AutoStart), as the port of the test equipment is set, and waits until its link is initialised."""
     ofb = ht.OFB
-    start = (ofb.field("LANE_CTRL", "LANE_START", 1) | ofb.field("LANE_CTRL", "AUTO_START", 1)
-             | ofb.field("LANE_CTRL", "TX_EN", 1) | ofb.field("LANE_CTRL", "RX_EN", 1))
-    for lane in range(system.lanes):
-        recorder.line(f"mibw {ofb.LANE_CTRL(lane):08x} {start:08x}")
     mask = ofb.field("DL_STATUS", "LINK_STATE", ofb.DL_STATUS_LINK_STATE_MASK)
     value = ofb.field("DL_STATUS", "LINK_STATE", ht.LINK_INITIALISED)
     recorder.ops.append({"kind": "link", "line": recorder.line(
@@ -177,7 +172,7 @@ def write(directory: Path, profile: str, seed: int, tests: list[str] | None, pac
     ctx = ht.make_context(seed, count)
     selected = ht.select_tests(tests)
     recorder = Recorder(SystemModel(ctx.setup), ctx.system, ctx.setup)
-    link_start(recorder, ctx.system)
+    link_wait(recorder)
     # the run against the model is not a result of the simulation: its output is not shown
     with contextlib.redirect_stdout(io.StringIO()):
         results = ht.run(recorder, ctx, selected, RecordingRegisters)

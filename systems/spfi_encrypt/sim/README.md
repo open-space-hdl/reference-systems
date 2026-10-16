@@ -25,8 +25,9 @@ generated top level of the system instead of the board.
   only: the reset, the system clock, the reference clock and the serial lines.
 - The far end is a second SpaceFibre port: an `ofb_core` with its own physical adapter, joined to the system by the
   serial lines, lane i to lane i in both directions. It has the generics of `ofb0` of the Composer file
-  (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands for the test equipment of the hardware test: it starts the link
-  through its MIB, as the STAR-Ultra does, while `ofb0` keeps its reset values (AutoStart).
+  (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands for the test equipment of the hardware test and, as the port of
+  the STAR-Ultra, is set to auto-start (`LaneStart_g => false`, `AutoStart_g => true`): the system starts the link
+  (`LaneStart_g` of `ofb0` is true in the Composer file).
 - The physical adapter of both ends is the entity `openfibre.ofb_pa_gty` that the simulation compiles: the AMD GTY
   adapter with the transceiver model of Vivado, or a pin-compatible model of OpenFibre. The bench does not depend on
   the variant.
@@ -35,7 +36,7 @@ generated top level of the system instead of the board.
 
 1. `vectors.py write` runs the procedure of `sw/hardware_test.py` against the software model of the system
    (`sw/system_model.py`) through a recording transport. The requests become the operations of the far end in
-   `stimulus.txt`: the start of the link, then per test case the packets on its virtual channels and the polls of
+   `stimulus.txt`: the wait for the link, then per test case the packets on its virtual channels and the polls of
    registers that the procedure waits for.
 2. The bench plays `stimulus.txt` and records every packet that the far end receives (`rx_vc<n>.txt`) and the
    simulated time of its events (`events.txt`).

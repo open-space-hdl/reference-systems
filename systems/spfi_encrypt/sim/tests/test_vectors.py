@@ -85,13 +85,13 @@ def test_records_of_the_model_pass(tmp_path):
     assert "link initialised" in report
 
 
-def test_stimulus_starts_the_link_and_marks_every_test_case(tmp_path):
+def test_stimulus_waits_for_the_link_and_marks_every_test_case(tmp_path):
     vectors.write(tmp_path, "sim", 1, None)
     ops = [t.split() for t in (tmp_path / vectors.STIMULUS).read_text(encoding="utf-8").splitlines()
            if t and not t.startswith("#")]
-    lanes = [op for op in ops[:SYSTEM.lanes]]
-    assert all(op[0] == "mibw" and int(op[1], 16) == ht.OFB.LANE_CTRL(k) for k, op in enumerate(lanes))
-    assert ops[SYSTEM.lanes][0] == "mibp" and ops[-1] == ["end"]
+    assert ops[0][0] == "mibp" and int(ops[0][1], 16) == ht.OFB.DL_STATUS and ops[-1] == ["end"]
+    # the system starts the link: the far end writes no register of its MIB
+    assert not any(op[0] == "mibw" for op in ops)
     assert [op[1] for op in ops if op[0] == "mark"] == [ht.test_name(t) for t in ht.TESTS]
     # every command on the RMAP channel left without the path address of the routing switch
     assert all(not op[3].startswith(SETUP.rmap_path.hex()) for op in ops if op[0] == "send" and op[1] == "0")

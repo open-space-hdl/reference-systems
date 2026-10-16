@@ -23,7 +23,7 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 | Instance | Entity | Function |
 | --- | --- | --- |
 | `pa0` | `openfibre.ofb_pa_gty` | Physical adapter for one AMD Versal GTY quad, 4 lanes at 6.25 Gbit/s |
-| `ofb0` | `openfibre.ofb_core` | SpaceFibre port, 4 lanes, 2 virtual channels; input VC buffers of 1024 words (`VcInDepth_g`), four flow control units of 256 words, as in the OpenFibre reference design for the VCK190: with more than one lane, an input VC buffer of one flow control unit can stop the traffic for good |
+| `ofb0` | `openfibre.ofb_core` | SpaceFibre port, 4 lanes, 2 virtual channels; input VC buffers of 1024 words (`VcInDepth_g`), four flow control units of 256 words, as in the OpenFibre reference design for the VCK190: with more than one lane, an input VC buffer of one flow control unit can stop the traffic for good; starts the link after the reset (`LaneStart_g`) |
 | `nchar0` | `openspp.spp_nchar` | Converts between the packet stream of virtual channel 0 and the N-Char stream of the RMAP node |
 | `rmap0` | `openrmap.omap_core` | RMAP target; its memory master accesses the register map below with single AXI4-Lite transfers |
 | `spp0` | `openspp.spp_core` | Space Packet node on virtual channel 1, 4 send and 4 receive ports, 8 KiB buffers |
