@@ -108,7 +108,8 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 
 - Write for the engineer who builds or uses the system. Decisions are stated as facts, with the reason from the
   system goals or the user guides of the cores.
-- Modern technical English, UTF-8, Markdown checked by markdownlint with `.markdownlint.json`.
+- Modern technical English, UTF-8, Markdown checked by markdownlint with `.markdownlint.json`; the files that the
+  Composer generates in `hdl/` are checked by `tools/check_hdl.py`, not by markdownlint.
 
 ## Git
 

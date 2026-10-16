@@ -4,8 +4,8 @@
   "formatVersion": 1,
   "generator": {
     "name": "Open Space Composer",
-    "version": "0.4.0-beta",
-    "catalog": "dbee0d786ebd"
+    "version": "0.8.2-beta",
+    "catalog": "d012c32ccfc8"
   },
   "system": {
     "name": "spfi_encrypt",
@@ -17,48 +17,48 @@
       "id": "openrmap",
       "name": "OpenRMAP",
       "url": "https://github.com/open-space-hdl/openrmap",
-      "commit": "55033637795a009132286f60da90a6a876a9c087",
+      "commit": "e1e13d3ed369c06f3093c745d6b2f8da38d0eba0",
       "library": "openrmap",
       "fileList": "compile_order.txt",
       "fileListFormat": "files",
-      "verifiedWith": "4.7.0-ft.5"
+      "verifiedWith": "4.7.0-ft.6"
     },
     {
       "id": "openspp",
       "name": "OpenSPP",
       "url": "https://github.com/open-space-hdl/openspp",
-      "commit": "2d7ee8f92175d15e41d1e069f0db663de951d0c6",
+      "commit": "018ebe17992d578dea037fa47251b3309a863bb8",
       "library": "openspp",
       "fileList": "compile_order.txt",
       "fileListFormat": "files",
-      "verifiedWith": "4.7.0-ft.2"
+      "verifiedWith": "4.7.0-ft.6"
     },
     {
       "id": "openfibre",
       "name": "OpenFibre",
       "url": "https://github.com/open-space-hdl/openfibre",
-      "commit": "bd4d80b1f05ee5fda67a97ff4c760952a25a79a7",
+      "commit": "9fc03fb8b0d954501240b28fbeded14c5b5c70c6",
       "library": "openfibre",
       "fileList": "compile_order.txt",
       "fileListFormat": "files",
-      "verifiedWith": "4.7.0-ft.2"
+      "verifiedWith": "4.7.0-ft.6"
     },
     {
       "id": "opencrypto",
       "name": "OpenCrypto",
       "url": "https://github.com/open-space-hdl/opencrypto",
-      "commit": "e03bc8cda75a660cc3e28bdc14d7f9409ddb0497",
+      "commit": "b835a4901c330e7e49ccc3dea13350e66e758ceb",
       "library": "opencrypto",
       "fileList": "compile_order.txt",
       "fileListFormat": "files",
-      "verifiedWith": "4.7.0-ft.3"
+      "verifiedWith": "4.7.0-ft.6"
     },
     {
       "id": "olo",
       "name": "Open Logic FT",
       "url": "https://github.com/open-space-hdl/open-logic-ft",
-      "tag": "4.7.0-ft.5",
-      "commit": "1bc4fb90888cf24ac29bc54527c2982d2dec307c",
+      "tag": "4.7.0-ft.6",
+      "commit": "5d8ae56dcd6362f77e5cffc1cf718e605323c1e7",
       "library": "olo",
       "fileList": "compile_order.txt",
       "fileListFormat": "files"
@@ -478,7 +478,7 @@
   ],
   "externals": [],
   "resolved": {
-    "catalog": "dbee0d786ebd",
+    "catalog": "d012c32ccfc8",
     "entity": "spfi_encrypt",
     "ports": [
       {
@@ -1756,6 +1756,18 @@
             "value": 64,
             "vhdl": "64",
             "default": true
+          },
+          {
+            "name": "LaneStart_g",
+            "value": false,
+            "vhdl": "false",
+            "default": true
+          },
+          {
+            "name": "AutoStart_g",
+            "value": true,
+            "vhdl": "true",
+            "default": true
           }
         ],
         "ports": [
@@ -2166,6 +2178,12 @@
             "actual": "ofb0_Phy_NoSignal_s"
           },
           {
+            "name": "Phy_TxReady",
+            "dir": "in",
+            "type": "std_logic",
+            "actual": "ofb0_Phy_TxReady_s"
+          },
+          {
             "name": "Phy_BitSync",
             "dir": "in",
             "type": "std_logic_vector(3 downto 0)",
@@ -2249,6 +2267,12 @@
             "value": "VERSAL_AI_CORE",
             "vhdl": "\"VERSAL_AI_CORE\"",
             "default": true
+          },
+          {
+            "name": "RstPulseCycles_g",
+            "value": 1000,
+            "vhdl": "1000",
+            "default": true
           }
         ],
         "ports": [
@@ -2265,7 +2289,7 @@
             "type": "std_logic",
             "reset": {
               "kind": "async",
-              "note": "Asynchronous reset of the transceivers and their reset controller."
+              "note": "Asynchronous reset of the transceivers, their reset controller and the logic of FreeRunClk, of any pulse width; a reset generator of the adapter releases it synchronously to FreeRunClk after RstPulseCycles_g cycles."
             },
             "actual": "Rst"
           },
@@ -2457,8 +2481,7 @@
             "name": "Stat_TxReady",
             "dir": "out",
             "type": "std_logic",
-            "domain": "lane",
-            "actual": "open"
+            "actual": "pa0_Stat_TxReady_s"
           },
           {
             "name": "Stat_RxReady",
@@ -7294,6 +7317,10 @@
         "type": "std_logic_vector(3 downto 0)"
       },
       {
+        "name": "ofb0_Phy_TxReady_s",
+        "type": "std_logic"
+      },
+      {
         "name": "ofb0_PhyRx_CodeErr_s",
         "type": "std_logic_vector(15 downto 0)"
       },
@@ -7528,6 +7555,10 @@
       {
         "name": "pa0_Stat_Aligned_s",
         "type": "std_logic_vector(3 downto 0)"
+      },
+      {
+        "name": "pa0_Stat_TxReady_s",
+        "type": "std_logic"
       },
       {
         "name": "rmap0_M_Axi_ArAddr_s",
@@ -8157,6 +8188,13 @@
         "kind": "connection",
         "connection": "c7",
         "signal": "tx_k"
+      },
+      {
+        "to": "ofb0_Phy_TxReady_s",
+        "from": "pa0_Stat_TxReady_s",
+        "kind": "connection",
+        "connection": "c7",
+        "signal": "tx_ready"
       },
       {
         "to": "ofb0_S_Vc_TData_s(255 downto 128)",
@@ -10413,13 +10451,6 @@
     "packing": [],
     "constraints": [
       {
-        "kind": "false_path",
-        "from": [
-          "Rst"
-        ],
-        "note": "Asynchronous reset input; the reset generators synchronise its release."
-      },
-      {
         "kind": "max_delay",
         "from": "pa0.LaneClk",
         "to": "Clk_sys",
@@ -10452,11 +10483,11 @@
         "library": "olo",
         "source": "olo",
         "url": "https://github.com/open-space-hdl/open-logic-ft",
-        "tag": "4.7.0-ft.5",
-        "commit": "1bc4fb90888cf24ac29bc54527c2982d2dec307c",
+        "tag": "4.7.0-ft.6",
+        "commit": "5d8ae56dcd6362f77e5cffc1cf718e605323c1e7",
         "fileList": "compile_order.txt",
         "fileListFormat": "files",
-        "note": "Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.5 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 (ft.3), fixes the error reporting of olo_axi_master_simple and the write word count of olo_axi_master_full (ft.4), and fixes the address of transfers that olo_axi_master_simple splits at AxiMaxBeats_g (ft.5); it changes no other source, so the cores verified with 4.7.0-ft.2, 4.7.0-ft.3 or 4.7.0-ft.4 use it unchanged. Of the cores only OpenRMAP uses olo_axi_master_simple.",
+        "note": "Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.6 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 (ft.3), fixes the error reporting of olo_axi_master_simple and the write word count of olo_axi_master_full (ft.4), the address of transfers that olo_axi_master_simple splits at AxiMaxBeats_g (ft.5), and the transfers of olo_axi_master_full with 8-bit data and narrow addresses (ft.6). Every core of the catalog is verified with 4.7.0-ft.6.",
         "entities": [
           "olo_axi_lite_decoder",
           "olo_base_reset_gen",
@@ -10467,10 +10498,10 @@
         "library": "openrmap",
         "source": "openrmap",
         "url": "https://github.com/open-space-hdl/openrmap",
-        "commit": "55033637795a009132286f60da90a6a876a9c087",
+        "commit": "e1e13d3ed369c06f3093c745d6b2f8da38d0eba0",
         "fileList": "compile_order.txt",
         "fileListFormat": "files",
-        "verifiedWith": "4.7.0-ft.5",
+        "verifiedWith": "4.7.0-ft.6",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.",
         "entities": [
           "omap_core"
@@ -10480,10 +10511,10 @@
         "library": "openspp",
         "source": "openspp",
         "url": "https://github.com/open-space-hdl/openspp",
-        "commit": "2d7ee8f92175d15e41d1e069f0db663de951d0c6",
+        "commit": "018ebe17992d578dea037fa47251b3309a863bb8",
         "fileList": "compile_order.txt",
         "fileListFormat": "files",
-        "verifiedWith": "4.7.0-ft.2",
+        "verifiedWith": "4.7.0-ft.6",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.",
         "entities": [
           "spp_core",
@@ -10494,10 +10525,10 @@
         "library": "openfibre",
         "source": "openfibre",
         "url": "https://github.com/open-space-hdl/openfibre",
-        "commit": "bd4d80b1f05ee5fda67a97ff4c760952a25a79a7",
+        "commit": "9fc03fb8b0d954501240b28fbeded14c5b5c70c6",
         "fileList": "compile_order.txt",
         "fileListFormat": "files",
-        "verifiedWith": "4.7.0-ft.2",
+        "verifiedWith": "4.7.0-ft.6",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. compile_order.txt lists the technology-independent sources; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).",
         "entities": [
           "ofb_core",
@@ -10508,10 +10539,10 @@
         "library": "opencrypto",
         "source": "opencrypto",
         "url": "https://github.com/open-space-hdl/opencrypto",
-        "commit": "e03bc8cda75a660cc3e28bdc14d7f9409ddb0497",
+        "commit": "b835a4901c330e7e49ccc3dea13350e66e758ceb",
         "fileList": "compile_order.txt",
         "fileListFormat": "files",
-        "verifiedWith": "4.7.0-ft.3",
+        "verifiedWith": "4.7.0-ft.6",
         "note": "The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.",
         "entities": [
           "ocr_core",
@@ -10528,7 +10559,727 @@
       "library openfibre;",
       "library opencrypto;"
     ],
-    "problems": []
+    "problems": [],
+    "addressMap": [
+      {
+        "space": "rmap0.M_Axi",
+        "label": "rmap0.M_Axi",
+        "kind": "master",
+        "addrWidth": 32,
+        "banks": [
+          {
+            "instance": "spp0",
+            "interface": "S_AxiLite",
+            "block": "openspp/spp_core",
+            "entity": "spp_core",
+            "base": 0,
+            "size": 2048,
+            "addrWidth": 11,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[0]"
+            ],
+            "id": "0x53505001",
+            "registers": {
+              "source": "openspp",
+              "url": "https://github.com/open-space-hdl/openspp",
+              "commit": "018ebe17992d578dea037fa47251b3309a863bb8",
+              "header": "sw/spp_regs.h",
+              "doc": "hdl/spp_mib/docs/register_map.md",
+              "prefix": "SPP"
+            }
+          },
+          {
+            "instance": "ocr0",
+            "interface": "S_AxiLite",
+            "block": "opencrypto/ocr_core",
+            "entity": "ocr_core",
+            "base": 65536,
+            "size": 256,
+            "addrWidth": 8,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[1]"
+            ],
+            "id": "0x4F435201",
+            "registers": {
+              "source": "opencrypto",
+              "url": "https://github.com/open-space-hdl/opencrypto",
+              "commit": "b835a4901c330e7e49ccc3dea13350e66e758ceb",
+              "header": "sw/ocr_regs.h",
+              "doc": "hdl/ocr_mib/docs/register_map.md",
+              "prefix": "OCR"
+            }
+          },
+          {
+            "instance": "edac0",
+            "interface": "S_AxiLite",
+            "block": "olo/olo_ft_ecc_monitor_axi",
+            "entity": "olo_ft_ecc_monitor_axi",
+            "base": 131072,
+            "size": 4096,
+            "addrWidth": 12,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[2]"
+            ],
+            "doc": "https://openspacehdl.org/open-logic-ft/doc/ft/olo_ft_ecc_monitor_axi.html"
+          },
+          {
+            "instance": "ocr1",
+            "interface": "S_AxiLite",
+            "block": "opencrypto/ocr_core",
+            "entity": "ocr_core",
+            "base": 196608,
+            "size": 256,
+            "addrWidth": 8,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[3]"
+            ],
+            "id": "0x4F435201",
+            "registers": {
+              "source": "opencrypto",
+              "url": "https://github.com/open-space-hdl/opencrypto",
+              "commit": "b835a4901c330e7e49ccc3dea13350e66e758ceb",
+              "header": "sw/ocr_regs.h",
+              "doc": "hdl/ocr_mib/docs/register_map.md",
+              "prefix": "OCR"
+            }
+          },
+          {
+            "instance": "ocr2",
+            "interface": "S_AxiLite",
+            "block": "opencrypto/ocr_core",
+            "entity": "ocr_core",
+            "base": 262144,
+            "size": 256,
+            "addrWidth": 8,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[4]"
+            ],
+            "id": "0x4F435201",
+            "registers": {
+              "source": "opencrypto",
+              "url": "https://github.com/open-space-hdl/opencrypto",
+              "commit": "b835a4901c330e7e49ccc3dea13350e66e758ceb",
+              "header": "sw/ocr_regs.h",
+              "doc": "hdl/ocr_mib/docs/register_map.md",
+              "prefix": "OCR"
+            }
+          },
+          {
+            "instance": "ocr3",
+            "interface": "S_AxiLite",
+            "block": "opencrypto/ocr_core",
+            "entity": "ocr_core",
+            "base": 327680,
+            "size": 256,
+            "addrWidth": 8,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[5]"
+            ],
+            "id": "0x4F435201",
+            "registers": {
+              "source": "opencrypto",
+              "url": "https://github.com/open-space-hdl/opencrypto",
+              "commit": "b835a4901c330e7e49ccc3dea13350e66e758ceb",
+              "header": "sw/ocr_regs.h",
+              "doc": "hdl/ocr_mib/docs/register_map.md",
+              "prefix": "OCR"
+            }
+          },
+          {
+            "instance": "rmap0",
+            "interface": "S_AxiLite",
+            "block": "openrmap/omap_core",
+            "entity": "omap_core",
+            "base": 393216,
+            "size": 1024,
+            "addrWidth": 10,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[6]"
+            ],
+            "id": "0x4F4D4101",
+            "registers": {
+              "source": "openrmap",
+              "url": "https://github.com/open-space-hdl/openrmap",
+              "commit": "e1e13d3ed369c06f3093c745d6b2f8da38d0eba0",
+              "header": "sw/omap_regs.h",
+              "doc": "hdl/omap_mib/docs/register_map.md",
+              "prefix": "OMAP"
+            }
+          },
+          {
+            "instance": "ofb0",
+            "interface": "S_AxiLite",
+            "block": "openfibre/ofb_core",
+            "entity": "ofb_core",
+            "base": 458752,
+            "size": 4096,
+            "addrWidth": 12,
+            "window": 65536,
+            "via": [
+              "dec0.M_AxiLite[7]"
+            ],
+            "id": "0x0FB10008",
+            "registers": {
+              "source": "openfibre",
+              "url": "https://github.com/open-space-hdl/openfibre",
+              "commit": "9fc03fb8b0d954501240b28fbeded14c5b5c70c6",
+              "header": "sw/ofb_regs.h",
+              "doc": "hdl/ofb_mib/docs/register_map.md",
+              "prefix": "OFB"
+            }
+          }
+        ],
+        "unused": [],
+        "decoders": [
+          {
+            "instance": "dec0",
+            "base": 0,
+            "window": 65536,
+            "ports": 8,
+            "bits": 19
+          }
+        ],
+        "what": "RMAP memory addresses as seen by an initiator",
+        "windows": {
+          "instance": "rmap0",
+          "registers": [
+            "WIN_CTRL",
+            "WIN_BASE",
+            "WIN_LAST"
+          ],
+          "base": 256,
+          "stride": 16,
+          "count": 4,
+          "countGeneric": "Windows_g",
+          "reset": "WinInit_g",
+          "value": "WinInitOpen_c",
+          "state": "window 0 is open over the whole address space with all permissions and the other windows are disabled, so the whole map is reachable after the reset"
+        }
+      }
+    ],
+    "interrupts": [
+      {
+        "source": "edac0.Irq",
+        "instance": "edac0",
+        "entity": "olo_ft_ecc_monitor_axi",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": []
+      },
+      {
+        "source": "ocr0.Irq",
+        "instance": "ocr0",
+        "entity": "ocr_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_EN",
+            "offset": 28
+          }
+        ],
+        "status": {
+          "name": "IRQ_STATUS",
+          "offset": 32
+        },
+        "events": {
+          "name": "EVENTS",
+          "offset": 24
+        }
+      },
+      {
+        "source": "ocr1.Irq",
+        "instance": "ocr1",
+        "entity": "ocr_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_EN",
+            "offset": 28
+          }
+        ],
+        "status": {
+          "name": "IRQ_STATUS",
+          "offset": 32
+        },
+        "events": {
+          "name": "EVENTS",
+          "offset": 24
+        }
+      },
+      {
+        "source": "ocr2.Irq",
+        "instance": "ocr2",
+        "entity": "ocr_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_EN",
+            "offset": 28
+          }
+        ],
+        "status": {
+          "name": "IRQ_STATUS",
+          "offset": 32
+        },
+        "events": {
+          "name": "EVENTS",
+          "offset": 24
+        }
+      },
+      {
+        "source": "ocr3.Irq",
+        "instance": "ocr3",
+        "entity": "ocr_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_EN",
+            "offset": 28
+          }
+        ],
+        "status": {
+          "name": "IRQ_STATUS",
+          "offset": 32
+        },
+        "events": {
+          "name": "EVENTS",
+          "offset": 24
+        }
+      },
+      {
+        "source": "ofb0.Irq",
+        "instance": "ofb0",
+        "entity": "ofb_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_MASK",
+            "offset": 68
+          }
+        ]
+      },
+      {
+        "source": "rmap0.Irq",
+        "instance": "rmap0",
+        "entity": "omap_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_EN",
+            "offset": 148
+          }
+        ],
+        "status": {
+          "name": "IRQ_STATUS",
+          "offset": 152
+        },
+        "events": {
+          "name": "EVENTS",
+          "offset": 144
+        }
+      },
+      {
+        "source": "spp0.Irq",
+        "instance": "spp0",
+        "entity": "spp_core",
+        "domain": "sys",
+        "to": {
+          "kind": "open"
+        },
+        "enable": [
+          {
+            "name": "IRQ_EN",
+            "offset": 88
+          }
+        ],
+        "status": {
+          "name": "IRQ_STATUS",
+          "offset": 92
+        },
+        "events": {
+          "name": "EVENTS",
+          "offset": 84
+        }
+      }
+    ],
+    "protection": {
+      "faultTolerance": true,
+      "blocks": [
+        {
+          "instance": "rmap0",
+          "entity": "omap_core",
+          "channels": 3,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 160
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 164
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 168
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 172
+          },
+          "evidence": "user guide section 6 (protection scope) and the register map"
+        },
+        {
+          "instance": "ofb0",
+          "entity": "ofb_core",
+          "channels": 9,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 96
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 100
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 104
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 108
+          },
+          "evidence": "user guide section 8 (protection scope) and the register map"
+        },
+        {
+          "instance": "spp0",
+          "entity": "spp_core",
+          "channels": 8,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 96
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 100
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 104
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 108
+          },
+          "evidence": "user guide section 6 (protection scope) and the register map"
+        },
+        {
+          "instance": "ocr0",
+          "entity": "ocr_core",
+          "channels": 18,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 192
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 196
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 200
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 204
+          },
+          "evidence": "user guide section 6 (protection scope) and the register map"
+        },
+        {
+          "instance": "ocr1",
+          "entity": "ocr_core",
+          "channels": 18,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 192
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 196
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 200
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 204
+          },
+          "evidence": "user guide section 6 (protection scope) and the register map"
+        },
+        {
+          "instance": "ocr2",
+          "entity": "ocr_core",
+          "channels": 18,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 192
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 196
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 200
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 204
+          },
+          "evidence": "user guide section 6 (protection scope) and the register map"
+        },
+        {
+          "instance": "ocr3",
+          "entity": "ocr_core",
+          "channels": 18,
+          "status": {
+            "name": "ECC_STATUS",
+            "offset": 192
+          },
+          "select": {
+            "name": "ECC_SELECT",
+            "offset": 196
+          },
+          "count": {
+            "name": "ECC_COUNT",
+            "offset": 200
+          },
+          "inject": {
+            "name": "ECC_INJECT",
+            "offset": 204
+          },
+          "evidence": "user guide section 6 (protection scope) and the register map"
+        }
+      ],
+      "events": [
+        {
+          "source": "frm0.Ecc[0]",
+          "instance": "frm0",
+          "entity": "ocr_framer",
+          "memory": "chunk buffer",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[0]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 0,
+            "connection": "c15",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm0.Ecc[1]",
+          "instance": "frm0",
+          "entity": "ocr_framer",
+          "memory": "position FIFO",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[1]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 1,
+            "connection": "c16",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm1.Ecc[0]",
+          "instance": "frm1",
+          "entity": "ocr_framer",
+          "memory": "chunk buffer",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[2]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 2,
+            "connection": "c33",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm1.Ecc[1]",
+          "instance": "frm1",
+          "entity": "ocr_framer",
+          "memory": "position FIFO",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[3]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 3,
+            "connection": "c34",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm2.Ecc[0]",
+          "instance": "frm2",
+          "entity": "ocr_framer",
+          "memory": "chunk buffer",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[4]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 4,
+            "connection": "c35",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm2.Ecc[1]",
+          "instance": "frm2",
+          "entity": "ocr_framer",
+          "memory": "position FIFO",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[5]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 5,
+            "connection": "c36",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm3.Ecc[0]",
+          "instance": "frm3",
+          "entity": "ocr_framer",
+          "memory": "chunk buffer",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[6]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 6,
+            "connection": "c37",
+            "crossed": false
+          }
+        },
+        {
+          "source": "frm3.Ecc[1]",
+          "instance": "frm3",
+          "entity": "ocr_framer",
+          "memory": "position FIFO",
+          "inserted": false,
+          "registers": false,
+          "to": {
+            "kind": "block",
+            "to": "edac0.In[7]",
+            "toEntity": "olo_ft_ecc_monitor_axi",
+            "channel": 7,
+            "connection": "c38",
+            "crossed": false
+          }
+        }
+      ],
+      "crossings": []
+    },
+    "readiness": {
+      "parts": [
+        {
+          "source": "openrmap",
+          "name": "OpenRMAP",
+          "trl": 3,
+          "status": "Fully verified by simulation. Not yet tested on hardware, no flight heritage.",
+          "instances": [
+            "rmap0"
+          ]
+        },
+        {
+          "source": "openspp",
+          "name": "OpenSPP",
+          "trl": 3,
+          "status": "Fully verified by simulation. Not yet tested on hardware, no flight heritage.",
+          "instances": [
+            "nchar0",
+            "spp0"
+          ]
+        },
+        {
+          "source": "openfibre",
+          "name": "OpenFibre",
+          "trl": 3,
+          "status": "Fully verified by simulation. Not yet tested on hardware, no flight heritage.",
+          "instances": [
+            "ofb0",
+            "pa0"
+          ]
+        },
+        {
+          "source": "opencrypto",
+          "name": "OpenCrypto",
+          "trl": 3,
+          "status": "Fully verified by simulation. Not yet tested on hardware, no flight heritage.",
+          "instances": [
+            "ocr0",
+            "frm0",
+            "frm1",
+            "ocr1",
+            "frm2",
+            "ocr2",
+            "frm3",
+            "ocr3"
+          ]
+        },
+        {
+          "source": "olo",
+          "name": "Open Logic FT",
+          "trl": 3,
+          "status": "Fully verified by simulation. Not yet tested on hardware, no flight heritage.",
+          "instances": [
+            "dec0",
+            "edac0",
+            "auto_rst_sys"
+          ]
+        }
+      ],
+      "lowest": 3
+    }
   },
   "checks": [
     {
@@ -10676,12 +11427,6 @@
       "connection": "c11"
     },
     {
-      "severity": "warning",
-      "rule": "with_block",
-      "message": "ofb0 with pa0: ofb_core leaves reset before the transceivers are ready: the lane initialisation can start against a transmitter that is still in reset, and the Composer cannot couple LaneRst of the adapter to the reset of the core yet.",
-      "instance": "ofb0"
-    },
-    {
       "severity": "info",
       "rule": "throughput",
       "message": "No rate data for omap_core (rmap0): the paths through it are not checked.",
@@ -10708,13 +11453,187 @@
       "severity": "info",
       "rule": "sizes",
       "message": "No length limit published for spp_nchar (nchar0): packets through it are checked against the other blocks only."
+    },
+    {
+      "severity": "info",
+      "rule": "address_map",
+      "message": "dec0: spp0 (2 KiB), ocr0 (256 B), edac0 (4 KiB), ocr1 (256 B), ocr2 (256 B), ocr3 (256 B), rmap0 (1 KiB), ofb0 (4 KiB) are smaller than their windows of 64 KiB; the registers repeat inside the window.",
+      "instance": "dec0"
+    },
+    {
+      "severity": "info",
+      "rule": "address_map",
+      "message": "dec0 decodes 19 address bits: in the 32-bit space of rmap0.M_Axi its map repeats every 0x00080000 bytes.",
+      "instance": "dec0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "rmap0: ChunkBytes_g must not be larger than BufferBytes_g and must be a multiple of AxiDataWidth_g/8 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 32 still holds.",
+      "instance": "rmap0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "rmap0: Accesses longer than one command of the memory master are split, so AxiAddrWidth_g no longer needs 25 + log2(AxiDataWidth_g/8) bits; AxiAddrWidth_g 12 to 26 at 32-bit data and AxiDataWidth_g 8 build; single-address writes no longer hang at wide data widths. Check the parts of the system that rely on it.",
+      "instance": "rmap0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "spp0: TxBufferBytes_g holds at least the shortest Space Packet and at most what TxMaxPackets_g packets of 65542 bytes fill (checked at elaboration, CO-GN-02, CO-GN-03). New rules for TxBufferBytes_g: the checks show whether the value 8192 still holds.",
+      "instance": "spp0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "spp0: RxBufferBytes_g holds at least the shortest Space Packet and at most what RxMaxPackets_g packets of 65542 bytes fill (checked at elaboration, CO-GN-02, CO-GN-03). New rules for RxBufferBytes_g: the checks show whether the value 8192 still holds.",
+      "instance": "spp0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "spp0: TxMaxPackets_g is 2 to max(2, TxBufferBytes_g / B) (checked at elaboration, CO-GN-04). New rules for TxMaxPackets_g: the checks show whether the value 8 still holds.",
+      "instance": "spp0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "spp0: RxMaxPackets_g is 2 to the number of shortest Space Packets the receive buffer holds (checked at elaboration, CO-GN-04). New rules for RxMaxPackets_g: the checks show whether the value 8 still holds.",
+      "instance": "spp0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "nchar0: DataWidth_g must be a multiple of 8 (checked at elaboration). New rules for DataWidth_g: the checks show whether the value 32 still holds.",
+      "instance": "nchar0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: Multi-Lane: the far-end reset is detected when a lane enters Active with its capability (ML-LM-14). Check the parts of the system that rely on it.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: VcInDepth_g must be at least 128 x NumLanes_g with several lanes (DL-VI-05); this replaces the known defect of a buffer of one flow control unit. The default 256 is too small for three or four lanes; reference value 256 x NumLanes_g. New rules for VcInDepth_g: the checks show whether the value 1024 still holds.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: VcOutDepth_g x NumLanes_g must be at least 64 (DL-VO-05). New rules for VcOutDepth_g: the checks show whether the value 128 still holds.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: ErbRows_g must be at least 64 (DL-ER-08). New rules for ErbRows_g: the checks show whether the value 512 still holds.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: New input Phy_TxReady in the Phy interface: while the transmitters of the adapter are not ready, the link stays in Near-End Reset (CORE-PL-04, DL-LR-06). A connected ofb_pa_gty drives it; an external Phy interface has it as a top-level input that must come from a register or a constant. Check the parts of the system that rely on it.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: Register map version 8 (ID 0x0FB10008): DL_STATUS bit 9 TX_READY, DL_ERRORS bit 12 TX_LOST, IRQ_MASK bits 12:0. Check the software that writes these registers.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: The reset of the core no longer waits for the transceivers: the coupling of the reset to LaneRst of the adapter is replaced by the TX ready input. Check the parts of the system that rely on it.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "pa0: Stat_TxReady moves from the Stat interface to the Phy interface (tx_ready), a register of FreeRunClk; a system that exported it with Stat gets it through the connection to the core instead. Check the parts of the system that rely on it.",
+      "instance": "pa0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "pa0: Rst is asynchronous again and may be a pulse of any width: a reset generator of the adapter releases it synchronously to FreeRunClk. LaneRst stays asserted while the transmitters are not ready, also while LaneClk stands still. Check the parts of the system that rely on it.",
+      "instance": "pa0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "pa0: New generic RstPulseCycles_g (default 1000): minimum reset of the transceivers in cycles of FreeRunClk. New generic RstPulseCycles_g, with its default 1000.",
+      "instance": "pa0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: New generic LaneStart_g (default false): reset value of LaneStart in LANE_CTRL of every lane; true starts the link after the reset without software. New generic LaneStart_g, with its default false.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ofb0: New generic AutoStart_g (default true): reset value of AutoStart in LANE_CTRL of every lane, as before. New generic AutoStart_g, with its default true.",
+      "instance": "ofb0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ocr0: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.",
+      "instance": "ocr0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ocr1: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.",
+      "instance": "ocr1"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ocr2: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.",
+      "instance": "ocr2"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "ocr3: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.",
+      "instance": "ocr3"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "frm0: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.",
+      "instance": "frm0"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "frm1: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.",
+      "instance": "frm1"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "frm2: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.",
+      "instance": "frm2"
+    },
+    {
+      "severity": "info",
+      "rule": "migration",
+      "message": "frm3: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.",
+      "instance": "frm3"
     }
   ],
   "agent": {
-    "brief": "# spfi_encrypt: build brief\n\nSpaceFibre node: an OpenFibre port with its AMD Versal GTY adapter carries RMAP on virtual channel 0 (an OpenRMAP target through an N-Char adapter) and Space Packets on virtual channel 1 (OpenSPP, directly on the channel). The assignment of the channels is a convention of this example, not of the cores: any channel carries any packets, and both ends of the link use the same assignment.\n\nThis brief was generated by the Open Space Composer from the system file `spfi_encrypt.composer.json` (catalog `dbee0d786ebd`).\nThe file holds the system as edited (`instances`, `connections`, `externals`), in `resolved` the netlist it resolves to and in `catalogSubset` the catalog entries of its blocks (interfaces, fields, clocks, generics).\nBuild a VHDL-2008 top level `spfi_encrypt` from `resolved` as described below; everything needed is in the file and in the listed repositories.\nThe button Export HDL of the Composer, and `tools/composer_hdl.mjs` of the repository of the website, write this top level, its compile order and its constraints from the same netlist (`spfi_encrypt.vhd`, `spfi_encrypt_compile_order.txt`, `spfi_encrypt.xdc`, `spfi_encrypt_top.xdc`); use them, or build the top level by hand as described here.\n\n## 1. Sources and libraries\n\nFetch every repository at the given version and compile one VHDL-2008 library per row, in this order:\n\n| Library | Repository | Version | Files | Entities used |\n| --- | --- | --- | --- | --- |\n| `olo` | https://github.com/open-space-hdl/open-logic-ft | tag `4.7.0-ft.5` (commit `1bc4fb90888cf24ac29bc54527c2982d2dec307c`) | every file listed in `compile_order.txt`, in its order | `olo_axi_lite_decoder`, `olo_base_reset_gen`, `olo_ft_ecc_monitor_axi` |\n| `openrmap` | https://github.com/open-space-hdl/openrmap | commit `55033637795a009132286f60da90a6a876a9c087` | every file listed in `compile_order.txt`, in its order | `omap_core` |\n| `openspp` | https://github.com/open-space-hdl/openspp | commit `2d7ee8f92175d15e41d1e069f0db663de951d0c6` | every file listed in `compile_order.txt`, in its order | `spp_core`, `spp_nchar` |\n| `openfibre` | https://github.com/open-space-hdl/openfibre | commit `bd4d80b1f05ee5fda67a97ff4c760952a25a79a7` | every file listed in `compile_order.txt`, in its order | `ofb_core`, `ofb_pa_gty` |\n| `opencrypto` | https://github.com/open-space-hdl/opencrypto | commit `e03bc8cda75a660cc3e28bdc14d7f9409ddb0497` | every file listed in `compile_order.txt`, in its order | `ocr_core`, `ocr_framer` |\n\n- `olo`: Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.5 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 (ft.3), fixes the error reporting of olo_axi_master_simple and the write word count of olo_axi_master_full (ft.4), and fixes the address of transfers that olo_axi_master_simple splits at AxiMaxBeats_g (ft.5); it changes no other source, so the cores verified with 4.7.0-ft.2, 4.7.0-ft.3 or 4.7.0-ft.4 use it unchanged. Of the cores only OpenRMAP uses olo_axi_master_simple.\n- `openrmap`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openspp`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openfibre`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. compile_order.txt lists the technology-independent sources; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).\n- `opencrypto`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- One `olo` library (Open Logic FT `4.7.0-ft.5`) serves the whole system. The cores were verified with the Open Logic FT tags `4.7.0-ft.5` (openrmap), `4.7.0-ft.2` (openspp), `4.7.0-ft.2` (openfibre), `4.7.0-ft.3` (opencrypto) (`verifiedWith`); their own `open-logic` submodules are not needed.\n- With GHDL: analyse Open Logic file by file (`ghdl -a --std=08 -frelaxed --work=olo <file>`), import the files of a core library (`ghdl -i --std=08 -frelaxed --work=<library> <files>`) and let `ghdl -m --std=08 -frelaxed <top>` find the order. `-frelaxed` is needed for Open Logic, whose RAMs use a shared variable without a protected type (`olo_base_ram_sdp`); the cores and the top level also analyse as strict VHDL-2008.\n- With other tools follow the order of the table.\n\n## 2. Top-level entity\n\nEntity `spfi_encrypt`, ports in this order (`resolved.ports`; `domain` is the clock domain of the port):\n\n| Port | Direction | Type | Clock domain | Meaning |\n| --- | --- | --- | --- | --- |\n| `Rst` | in | `std_logic` |  | Asynchronous reset of the system, high-active |\n| `Clk_sys` | in | `std_logic` | System clock (`sys`) | Clock of the domain System clock (200 MHz) |\n| `pa0_Gt_TxP` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_p |\n| `pa0_Gt_TxN` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_n |\n| `pa0_Gt_RxP` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_p |\n| `pa0_Gt_RxN` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_n |\n| `pa0_RefClk` | in | `std_logic` |  | `pa0.Gt` refclk |\n\nExternal interfaces:\n\n- `pa0.Gt` (SpaceFibre serial lanes): Serial transceiver lanes and reference clock pins of a SpaceFibre physical adapter.\n\n## 3. Architecture\n\n1. Context clause (`resolved.context`): `library ieee;` `use ieee.std_logic_1164.all;` `library olo;` `library openrmap;` `library openspp;` `library openfibre;` `library opencrypto;`\n2. Declare every signal of `resolved.signals` (one per port of an instance, named `<instance>_<port>_s`, with the type of the port).\n3. Instantiate every entry of `resolved.instances` as `i_<id> : entity <library>.<entity>`: a generic map with every generic (the value is the VHDL literal in `vhdl`, package constants fully qualified; write the defaults too, where `default` is true, so that a new default of a core cannot change the system unnoticed), and a port map with the `actual` of every port. Leave out the ports with `useDefault` (they keep their VHDL `default`). Clocks and resets are port actuals on purpose: never assign a clock to another signal.\n4. Write every entry of `resolved.nets` as a concurrent assignment `<to> <= <from>;`. They connect the interfaces signal by signal (a packed data word bit by bit), set the side band constants and tie-offs, and connect the top-level ports.\n\n| Instance | Entity | Library | Origin | Clock domain | Why |\n| --- | --- | --- | --- | --- | --- |\n| `rmap0` | `omap_core` | `openrmap` | placed | sys |  |\n| `nchar0` | `spp_nchar` | `openspp` | placed | sys |  |\n| `ofb0` | `ofb_core` | `openfibre` | placed | sys |  |\n| `pa0` | `ofb_pa_gty` | `openfibre` | placed | sys |  |\n| `spp0` | `spp_core` | `openspp` | placed | sys |  |\n| `ocr0` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `dec0` | `olo_axi_lite_decoder` | `olo` | placed | sys |  |\n| `frm0` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `edac0` | `olo_ft_ecc_monitor_axi` | `olo` | placed | sys |  |\n| `frm1` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr1` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm2` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr2` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm3` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr3` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `auto_rst_sys` | `olo_base_reset_gen` | `olo` | inserted: reset | sys | Synchronous reset of System clock. |\n\nGenerics that differ from the VHDL default:\n\n- `rmap0`: `Initiator_g => false`, `Passthrough_g => false`, `AxiMaxBeats_g => 1`\n- `nchar0`: `DataWidth_g => 128`\n- `ofb0`: `NumVc_g => 2`, `NumLanes_g => 4`, `CoreClkFreq_g => 156.25e6`, `VcInDepth_g => 1024`\n- `pa0`: none\n- `spp0`: `DataWidth_g => 128`, `NumTx_g => 4`, `NumRx_g => 4`, `TxBufferBytes_g => 8192`, `RxBufferBytes_g => 8192`, `ClkFreqHz_g => 200.0e6`\n- `ocr0`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `dec0`: `Ports_g => 8`\n- `frm0`: `DataWidth_g => 128`\n- `edac0`: `Channels_g => 8`\n- `frm1`: `DataWidth_g => 128`\n- `ocr1`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm2`: `DataWidth_g => 128`\n- `ocr2`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm3`: `DataWidth_g => 128`\n- `ocr3`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `auto_rst_sys`: `SyncTmr_g => true`\n\nConstants with a field map (`fields` of the net):\n\n- `spp0_S_Tx_User_s(55 downto 28) <= \"0000000000000000000000000001\"` (connection c27): 10:0 APID = 0x1; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(83 downto 56) <= \"0000000000000000000000000010\"` (connection c28): 10:0 APID = 0x2; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(111 downto 84) <= \"0000000000000000000000000011\"` (connection c29): 10:0 APID = 0x3; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(27 downto 0) <= \"0000000000000000000000000000\"` (connection c12): 10:0 APID = 0x0; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `frm0_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm1_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm2_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm3_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n\n## 4. Clocks and resets\n\n| Clock domain | Frequency | Clock | Reset generator |\n| --- | --- | --- | --- |\n| System clock (`sys`) | 200 MHz | top-level port `Clk_sys` | `auto_rst_sys` (olo_base_reset_gen, output `auto_rst_sys_RstOut_s`) |\n| pa0 Lane clock (`lane`) | 156.25 MHz | output `pa0.LaneClk` (signal `pa0_LaneClk_s`) | none: no block of the domain has a synchronous reset |\n\nReset ports (`reset` of the port):\n\n| Port | Reset | Actual | Why |\n| --- | --- | --- | --- |\n| `rmap0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `nchar0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ofb0.Rst` | asynchronous | `Rst` | Asynchronous reset; a reset generator per clock domain releases it synchronously, so all four clocks must run for the reset to complete. |\n| `pa0.Rst` | asynchronous | `Rst` | Asynchronous reset of the transceivers and their reset controller. |\n| `spp0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `dec0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `edac0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `auto_rst_sys.RstIn` | asynchronous | `Rst` | Asynchronous reset input (polarity from RstInPolarity_g). |\n\n`Rst` is the asynchronous system reset. A reset generator asserts the reset of its domain at once and releases it synchronously to the clock; a block with an asynchronous reset synchronises the release itself.\n\n## 5. Constraints\n\nEvery clock crossing is an Open Logic block. Between the clocks of a crossing a maximum delay applies in both directions, the period of the faster clock, data path only (Open Logic clock crossing principles). Do not declare these clocks as asynchronous clock groups: in Vivado `set_clock_groups -asynchronous` overrides the delay limits.\n\n- False path from `Rst`: Asynchronous reset input; the reset generators synchronise its release.\n- Maximum delay from the clock of `pa0.LaneClk` to the clock of `Clk_sys`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- Maximum delay from the clock of `Clk_sys` to the clock of `pa0.LaneClk`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- AMD Vivado: source the script of Open Logic once. It reads the scoped constraints of olo_base_cc_reset, olo_base_cc_bits, olo_base_cc_simple, olo_base_reset_gen and olo_base_ram_sdp wherever the system uses them, also inside the cores. tools/vivado/all_constraints_amd.tcl would also read those of olo_intf_sync, which expect device pins at its input and stop the build (ERROR 18-513) where a block synchronises internal signals with it, as ofb_pa_gty does; a block that synchronises device pins declares its own false path for them. File `src/base/tcl/olo_base_constraints_amd.tcl` of Open Logic.\n\n## 6. Throughput\n\nThe capacity of every path from a source (an external stream input, the inbound side of a link) to a sink (an external stream output, the outbound side of a link), from the rate data of the catalog: every element at its packet length and at the frequency of its clock domain, the path at its slowest element (in bold). Capacities are payload rates at the source in bit/s (SI prefixes, three significant digits). The packet lengths are reference points, not stated traffic, unless the system states traffic for the interface.\n\n### Path 1: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[0]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm0.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr0.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[0]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\n### Path 2: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm1.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr1.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[1]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\n### Path 3: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[2]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm2.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr2.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[2]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\n### Path 4: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[3]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm3.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr3.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[3]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\nBlocks without rate data end the paths through them:\n\n- `omap_core` (`rmap0`).\n\nEvidence of the rate data:\n\n- `ocr_framer`: TC-FR-03 (four long packets without stall cycles, at most AadBeats + 2 cycles per chunk, hdl/ocr_framer/docs/verification_report.md).\n- `ocr_framer and ocr_core`: user guide section 7.2 and TC-FR-08 (framer and core with the dense output, C(n) exactly at 16, 32, 64 and 128 bit, hdl/ocr_framer/docs/verification_report.md).\n- `ofb_core`: user guide section 7; TC-NI-07 (virtual channel ports), TC-CORE-16 (link efficiency), TC-CORE-15 (CoreClk); rowEff derived from the link efficiency of TC-CORE-16 (words of 4 bytes, packets of 1 to 1024 B) and the row model of TC-NI-07.\n- `spp_core`: user guide section 7; TC-CO-12 (throughput at 32, 64 and 128 bit), TC-CO-08, TC-SE-10.\n\n## 7. Packet sizes and buffers\n\nThe largest packet at every interface with a size limit, from the size data of the catalog: the largest packet a source states, the chunks of a route, the bytes the routes add. A source that states no largest packet, or a link, is not bounded: it meets the limit of the first interface that has one. A limit that is only the reset value of a register is marked: software can change it.\n\n| Interface | Largest packet | Limit | Kind | Reason |\n| --- | --- | --- | --- | --- |\n| `spp0.S_Tx[0]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[0]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Tx[1]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[1]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Tx[2]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[2]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Tx[3]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[3]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Link` | not bounded (the link of ofb0) | 8196 B | fixed | the receive buffer holds the longest Space Packet (error code 0x17) |\n| `spp0.S_Link` | not bounded (the link of ofb0) | 65546 B | fixed | a Space Packet has at most 65542 bytes (SPP-23) |\n| `spp0.S_Link` | not bounded (the link of ofb0) | 65546 B | reset value | the Maximum Packet Length, MaxLength_g as the reset value of MAX_LENGTH |\n| `ocr0.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n| `ocr1.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n| `ocr2.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n| `ocr3.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n\nBuffers that hold a whole message (counted in beats):\n\n- `ocr0.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n- `ocr1.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n- `ocr2.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n- `ocr3.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n\nWhat leaves over a link (for the node at the far end):\n\n- spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes.\n\nBlocks without a length limit:\n\n- `ofb_core` (`ofb0`): no length limit, tested up to 1024 B.\n- `ocr_framer` (`frm0`, `frm1`, `frm2`, `frm3`): no length limit.\n\nBlocks that publish no length limit (packets through them are checked against the other blocks only):\n\n- `omap_core` (`rmap0`).\n- `spp_nchar` (`nchar0`).\n\nEvidence of the size data:\n\n- `ocr_core`: user guide section 2 (generics LenBits_g and ReleaseBytes_g) and section 8 (the release buffer holds the longest message); the cycles of a release buffer that holds one message but not two: user guide section 7.1, TC-CO-15 (the bound max(B + 2, 3 M - D + 4) for M sectioned beats in a buffer of D beats) and TC-CO-16 (framer chunks of 4096 bytes at 128 bit, hdl/ocr_core/docs/verification_report.md).\n- `ocr_framer`: user guide section 4.6: every packet is cut into chunks of ChunkBytes_g bytes.\n- `ofb_core`: no length limit by design: segments are independent of packet boundaries (ofb_dl_vc_out.vhd, DL-VO-03 and DL-VO-04), no length counter in NI, DL or MIB; tested up to 1024 B (TC-CORE-16, TC-CORE-17, TC-CORE-13).\n- `spp_core`: user guide section 7.1 and the integration table (the send buffer holds the longest SDU of a port, the receive buffer the longest Space Packet), requirements SPP-6 and SPP-23.\n\n## 8. Notes from the user guides\n\n**RMAP node** (`omap_core`, `rmap0`): https://openspacehdl.org/openrmap/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- M_RepData, M_Conf and M_User must be served when connected; a stalled output stalls the received packet stream and the link.\n- RMAP address bits above AxiAddrWidth_g must be zero in the windows.\n- With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'. Known defect of Open Logic olo_axi_master_simple up to 4.7.0-ft.4 (fix pending in open-logic-ft): with AxiMaxBeats_g < AxiDataWidth_g/8, commands that the memory master splits into several AXI transactions read or write the first word repeatedly, with status 0.\n\n**N-Char adapter** (`spp_nchar`, `nchar0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- A received end of packet marker without data characters is discarded.\n- A link packet that ends with a beat without valid bytes gets its marker after the bytes of the earlier beats; a link packet without any byte sends nothing.\n\n**SpaceFibre port** (`ofb_core`, `ofb0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- The VC ports have the link format of OpenSPP: spp_core with DataWidth_g = 32 x NumLanes_g connects to a VC port directly (M_Link_User(0) to S_Vc_TUser); the further user bits of OpenSPP (destination index) do not reach the SpaceFibre port.\n- Every VC carries any packets; which VC carries which traffic is a convention of the system that both ends of the link follow.\n- Enable the safe implementation of state machines in the synthesis tool (Vivado FSM_SAFE_STATE = default_state on the state registers, Synplify syn_encoding = safe).\n- Read ID (0x0FB10007) and GENERICS after the reset; start the link with LANE_CTRL = 0x63 at one end (LaneStart, AutoStart, TxEn, RxEn) and wait for DL_STATUS bits 1:0 = 3 (programming sequence of the user guide).\n- All four clocks must run for the reset to complete; CoreClk may be the lane clock (as in the VCK190 reference design).\n\n**SpaceFibre GTY adapter** (`ofb_pa_gty`, `pa0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- Vendor-specific (AMD Versal GTY). hdl/ofb_pa_gty/src/ofb_pa_gty.vhd is not in component_list.txt: add it to the library openfibre, and create the transceiver wizard instance ofb_gtw in the Vivado project with hdl/ofb_pa_gty/tcl/ofb_gtw.tcl (source the file, then ofb_gtw_create ofb_gtw 156.25 for a 156.25 MHz reference clock).\n- RefClk is the output O of the IBUFDS_GTE5 of the reference clock pins of the quad; place the buffer in the chip-level top, as hdl/ofb_vck190/src/ofb_vck190_top.vhd does.\n- Hold the reset of the core while LaneRst is high; the VCK190 reference design synchronises LaneRst to MgmtClk and ORs it with the power-on reset into Rst of the core.\n- The line rate is 6.25 Gbit/s with a 156.25 MHz reference clock, so LaneClk runs at 156.25 MHz.\n- Simulation needs the AMD transceiver models (unisim and the simulation files of the wizard); OpenFibre simulates the adapter with tools/run_xsim.py. Without them, the test bench model tb/ofb_tb_pa_model.vhd of OpenFibre (two adapters joined by a lane, one clock) stands in for the adapters of both ends of a link.\n\n**Space Packet node** (`spp_core`, `spp0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- After the reset the core initialises both APID tables (2048 clock cycles); packets are sent and delivered once the tables are ready.\n- Serve every receive port, or place a buffer behind a port whose user can stall for long.\n- TxBufferBytes_g holds the longest SDU of a port, RxBufferBytes_g the longest Space Packet.\n- Hold the side band (TUser) of a send port constant during an SDU.\n- A last beat without valid bytes (Keep all zero) ends an SDU or packet at the inputs; an SDU without any byte is rejected (0x02). The outputs never carry a beat without valid bytes.\n- The user supplies the packet secondary header at the start of the Octet String and keeps the secondary header flag of an APID static.\n\n**AES-GCM core** (`ocr_core`, `ocr0`, `ocr1`, `ocr2`, `ocr3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen with SyncTmr_g = true.\n- After the reset the key table erases every slot (NumKeys_g cycles, STATUS.BUSY = '1'); no key survives a reset.\n- One context per message, in the order of the messages; the core pairs the n-th context with the n-th message.\n- Load every key slot in use through the registers before sending contexts (programming sequence of the user guide).\n- Without the release buffer, discard every decrypted message whose last beat carries the error flag or whose status is not OK.\n- Save the invocation counter of every slot with generated IVs regularly ahead of the operational value (GCM 9.1).\n\n**AXI4-Lite decoder** (`olo_axi_lite_decoder`, `dec0`): https://openspacehdl.org/open-logic-ft/doc/axi/olo_axi_lite_decoder.html\n\n- Connects one AXI4-Lite master to several register files, each in an equal address window.\n\n**Chunk framer** (`ocr_framer`, `frm0`, `frm1`, `frm2`, `frm3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- The slot Cfg_Slot is loaded for generated IVs and stays unchanged while the framer holds chunks.\n- Every chunk consumes one invocation of the slot; save the counter regularly (GCM 9.1).\n- A receiver decrypts every chunk on its own (IV bytes 0 to 11, AAD bytes 12 to 15, tag the last 16 bytes), orders the chunks by the invocation counter and finds the packet boundaries in the positions.\n\n**EDAC monitor with registers** (`olo_ft_ecc_monitor_axi`, `edac0`): https://openspacehdl.org/open-logic-ft/doc/ft/olo_ft_ecc_monitor_axi.html\n\n- EDAC monitor with an AXI4-Lite register file and an interrupt.\n\n## 9. Initialisation by software\n\nRegister addresses are byte addresses of the AXI4-Lite port of the block; write registers as 32-bit words and wait for the write response before a read that depends on it.\n\n**`rmap0`** (RMAP node, `omap_core`) through `dec0.M_AxiLite[6]` (connection c39):\n\n1. Read ID (0x000): it reads 0x4F4D4101.\n2. None needed: with the default generics the target accepts every command to the logical address 0xFE with the key 0x00 on the whole address space (WinInit_g). A flight configuration narrows the logical addresses (TGT_LA 0x010), the key (TGT_KEY) and the windows (WIN_BASE, WIN_LAST, WIN_CTRL), see the register map.\n\n**`ofb0`** (SpaceFibre port, `ofb_core`) through `dec0.M_AxiLite[7]` (connection c40):\n\n1. Read ID (0x000): it reads 0x0FB10007.\n2. Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn); the reset value 0x62 (AutoStart) starts when the far end sends.\n3. Wait for LANE_STATUS (0x104 + 0x20 i) bits 3:0 = 7 (Active) of the lanes and DL_STATUS (0x010) bits 1:0 = 3 (link initialised); VC_HAS_CREDIT (0x030) shows the VCs that may send.\n\n**`spp0`** (Space Packet node, `spp_core`) through `dec0.M_AxiLite[0]` (connection c9):\n\n1. Read ID (0x000): it reads 0x53505001.\n2. After the reset wait until TABLE_STATUS (0x040) bits 1:0 (TX_BUSY, RX_BUSY) are 0: the core initialises both APID tables (2048 clock cycles).\n3. Nothing else is needed: with TxPathDefault_g and RxPathDefault_g every APID has an enabled path to destination 0 and to receive port 0, destination 0 has the Target Logical Address 0xFE (DEST_CTRL 0x400) and the own address is Tla_g. A flight configuration writes the APID tables (TX_TABLE_APID 0x030 and TX_TABLE_ENTRY 0x034, RX_TABLE_APID 0x038 and RX_TABLE_ENTRY 0x03C) and the destinations (DEST_CTRL 0x400 + 0x20 n).\n\n**`ocr0`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[1]` (connection c10):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm0`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`frm1`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr1`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[3]` (connection c30):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm2`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr2`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[4]` (connection c31):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm3`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr3`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[5]` (connection c32):\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n## 10. Checks\n\n- Warning: ofb0 with pa0: ofb_core leaves reset before the transceivers are ready: the lane initialisation can start against a transmitter that is still in reset, and the Composer cannot couple LaneRst of the adapter to the reset of the core yet.\n- Note: ofb0.M_Vc[0] has 1 user bit, nchar0.S_Link 5: bit 0 is connected, bits 4 to 1 are tied to zero at nchar0.S_Link.\n- Note: spp0.M_Link has 5 user bits, ofb0.S_Vc[1] 1: bit 0 is connected, bits 4 to 1 are not used.\n- Note: spp0.M_Rx[1] has user, frm1.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[2] has user, frm2.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[3] has user, frm3.S_In does not: it is not passed on.\n- Note: ocr1.M_Out has user; spp0.S_Tx[1] gets the side band constants of c27 instead.\n- Note: ocr2.M_Out has user; spp0.S_Tx[2] gets the side band constants of c28 instead.\n- Note: ocr3.M_Out has user; spp0.S_Tx[3] gets the side band constants of c29 instead.\n- Note: rmap0.M_Axi has AwLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has WLast, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has RLast, dec0.S_AxiLite does not: it is tied to '1' (an AXI4-Lite slave answers single transfers, so every read beat is the last; valid only with the single-transfer condition of the AXI4-Lite connection).\n- Note: ocr0.M_Out has user; spp0.S_Tx[0] gets the side band constants of c12 instead.\n- Note: spp0.M_Rx[0] has user, frm0.S_In does not: it is not passed on.\n- Note: No rate data for omap_core (rmap0): the paths through it are not checked.\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: Packets from the link of ofb0 reach spp0.S_Link, which takes at most 8196 bytes: the receive buffer holds the longest Space Packet (error code 0x17); longer ones are discarded.\n- Note: No length limit published for omap_core (rmap0): packets through it are checked against the other blocks only.\n- Note: No length limit published for spp_nchar (nchar0): packets through it are checked against the other blocks only.\n\n## 11. Verification\n\nA smoke testbench `spfi_encrypt_tb` (VHDL-2008, no extra libraries):\n\n1. Instantiate `spfi_encrypt` and drive `Clk_sys` at 200 MHz.\n2. Hold `Rst` at '1' for 16 cycles of the slowest clock (200 MHz), then '0'.\n3. Keep every external input idle: stream inputs with valid at '0', ready inputs of external outputs at '1', bus requests idle, pins at '0'.\n4. Run for at least 100 us (the blocks initialise their tables after the reset) and stop the simulation: it must end without failed assertions, and the handshake outputs of the top level (valid, ready) and the line outputs must not be 'U' or 'X' after the reset. Data outputs may stay undefined while their valid is '0'.\n5. Where an AXI4-Lite port is external, read the ID register of the block (section 9) and compare it with the documented value.\n\nWith GHDL: analyse the libraries of section 1, then `ghdl -i --std=08 -frelaxed spfi_encrypt.vhd spfi_encrypt_tb.vhd`, `ghdl -m --std=08 -frelaxed spfi_encrypt_tb` and `ghdl -r --std=08 -frelaxed spfi_encrypt_tb --stop-time=100us --assert-level=error --ieee-asserts=disable` (`--ieee-asserts=disable` silences the warnings of the numeric package about metavalues before the reset).\n\nOptional end-to-end test, after the initialisation of section 9:\n\n- SpaceFibre port (`ofb_core`): Connect two nodes (in a simulation without the transceiver models: two cores joined by tb/ofb_tb_pa_model.vhd of OpenFibre), start the link at one end and send a packet on a virtual channel; it arrives on the same virtual channel at the other end.\n- Space Packet node (`spp_core`): Send one SDU on a send port (APID 0x123, for example) and expect it on receive port 0 with the same APID in user bits 10:0, once the APID tables are ready.\n- AES-GCM core (`ocr_core`): Load the key slot, send a packet and check the output: with generated IVs the first 4 bytes of every message are IV_FIXED, the next 8 the invocation counter; decrypt it with AES-GCM in the test bench (or a second core) and compare.\n\nVendor-specific blocks need the simulation libraries of their vendor: `pa0` (ofb_pa_gty, AMD Versal GTY); see their notes in section 8.\n"
+    "brief": "# spfi_encrypt: build brief\n\nSpaceFibre node: an OpenFibre port with its AMD Versal GTY adapter carries RMAP on virtual channel 0 (an OpenRMAP target through an N-Char adapter) and Space Packets on virtual channel 1 (OpenSPP, directly on the channel). The assignment of the channels is a convention of this example, not of the cores: any channel carries any packets, and both ends of the link use the same assignment.\n\nThis brief was generated by the Open Space Composer from the system file `spfi_encrypt.composer.json` (catalog `d012c32ccfc8`).\nThe file holds the system as edited (`instances`, `connections`, `externals`), in `resolved` the netlist it resolves to and in `catalogSubset` the catalog entries of its blocks (interfaces, fields, clocks, generics).\nBuild a VHDL-2008 top level `spfi_encrypt` from `resolved` as described below; everything needed is in the file and in the listed repositories.\nThe button Export HDL of the Composer, and `tools/composer_hdl.mjs` of the repository of the website, write this top level, its compile order and its constraints from the same netlist (`spfi_encrypt.vhd`, `spfi_encrypt_compile_order.txt`, `spfi_encrypt.xdc`, `spfi_encrypt_top.xdc`, and the address map `spfi_encrypt_address_map.md` with the C header `spfi_encrypt_regs.h`); use them, or build the top level by hand as described here.\n\n**Readiness:** Parts at TRL 3 or higher (lowest: 3). The composed system has no TRL of its own: it is checked by elaboration and a run to 0 ns. The parts are listed in section 15.\n\n## 1. Sources and libraries\n\nFetch every repository at the given version and compile one VHDL-2008 library per row, in this order:\n\n| Library | Repository | Version | Files | Entities used |\n| --- | --- | --- | --- | --- |\n| `olo` | https://github.com/open-space-hdl/open-logic-ft | tag `4.7.0-ft.6` (commit `5d8ae56dcd6362f77e5cffc1cf718e605323c1e7`) | every file listed in `compile_order.txt`, in its order | `olo_axi_lite_decoder`, `olo_base_reset_gen`, `olo_ft_ecc_monitor_axi` |\n| `openrmap` | https://github.com/open-space-hdl/openrmap | commit `e1e13d3ed369c06f3093c745d6b2f8da38d0eba0` | every file listed in `compile_order.txt`, in its order | `omap_core` |\n| `openspp` | https://github.com/open-space-hdl/openspp | commit `018ebe17992d578dea037fa47251b3309a863bb8` | every file listed in `compile_order.txt`, in its order | `spp_core`, `spp_nchar` |\n| `openfibre` | https://github.com/open-space-hdl/openfibre | commit `9fc03fb8b0d954501240b28fbeded14c5b5c70c6` | every file listed in `compile_order.txt`, in its order | `ofb_core`, `ofb_pa_gty` |\n| `opencrypto` | https://github.com/open-space-hdl/opencrypto | commit `b835a4901c330e7e49ccc3dea13350e66e758ceb` | every file listed in `compile_order.txt`, in its order | `ocr_core`, `ocr_framer` |\n\n- `olo`: Clone with the submodule 3rdParty/en_cl_fix (git clone --recursive); compile_order.txt lists its files. 4.7.0-ft.6 adds olo_base_chunker and olo_axi_lite_decoder to 4.7.0-ft.2 (ft.3), fixes the error reporting of olo_axi_master_simple and the write word count of olo_axi_master_full (ft.4), the address of transfers that olo_axi_master_simple splits at AxiMaxBeats_g (ft.5), and the transfers of olo_axi_master_full with 8-bit data and narrow addresses (ft.6). Every core of the catalog is verified with 4.7.0-ft.6.\n- `openrmap`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openspp`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- `openfibre`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer. compile_order.txt lists the technology-independent sources; the vendor-specific physical adapter ofb_pa_gty is added separately (see its notes).\n- `opencrypto`: The submodules of the repository (open-logic, uvvm) serve its own tests; a system uses the olo library of the Composer.\n- One `olo` library (Open Logic FT `4.7.0-ft.6`) serves the whole system. The cores were verified with the Open Logic FT tags `4.7.0-ft.6` (openrmap), `4.7.0-ft.6` (openspp), `4.7.0-ft.6` (openfibre), `4.7.0-ft.6` (opencrypto) (`verifiedWith`); their own `open-logic` submodules are not needed.\n- With GHDL: analyse Open Logic file by file (`ghdl -a --std=08 -frelaxed --work=olo <file>`), import the files of a core library (`ghdl -i --std=08 -frelaxed --work=<library> <files>`) and let `ghdl -m --std=08 -frelaxed <top>` find the order. `-frelaxed` is needed for Open Logic, whose RAMs use a shared variable without a protected type (`olo_base_ram_sdp`); the cores and the top level also analyse as strict VHDL-2008.\n- With other tools follow the order of the table.\n\n## 2. Top-level entity\n\nEntity `spfi_encrypt`, ports in this order (`resolved.ports`; `domain` is the clock domain of the port):\n\n| Port | Direction | Type | Clock domain | Meaning |\n| --- | --- | --- | --- | --- |\n| `Rst` | in | `std_logic` |  | Asynchronous reset of the system, high-active |\n| `Clk_sys` | in | `std_logic` | System clock (`sys`) | Clock of the domain System clock (200 MHz) |\n| `pa0_Gt_TxP` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_p |\n| `pa0_Gt_TxN` | out | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` tx_n |\n| `pa0_Gt_RxP` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_p |\n| `pa0_Gt_RxN` | in | `std_logic_vector(3 downto 0)` |  | `pa0.Gt` rx_n |\n| `pa0_RefClk` | in | `std_logic` |  | `pa0.Gt` refclk |\n\nExternal interfaces:\n\n- `pa0.Gt` (SpaceFibre serial lanes): Serial transceiver lanes and reference clock pins of a SpaceFibre physical adapter.\n\n## 3. Architecture\n\n1. Context clause (`resolved.context`): `library ieee;` `use ieee.std_logic_1164.all;` `library olo;` `library openrmap;` `library openspp;` `library openfibre;` `library opencrypto;`\n2. Declare every signal of `resolved.signals` (one per port of an instance, named `<instance>_<port>_s`, with the type of the port).\n3. Instantiate every entry of `resolved.instances` as `i_<id> : entity <library>.<entity>`: a generic map with every generic (the value is the VHDL literal in `vhdl`, package constants fully qualified; write the defaults too, where `default` is true, so that a new default of a core cannot change the system unnoticed), and a port map with the `actual` of every port. Leave out the ports with `useDefault` (they keep their VHDL `default`). Clocks and resets are port actuals on purpose: never assign a clock to another signal.\n4. Write every entry of `resolved.nets` as a concurrent assignment `<to> <= <from>;`. They connect the interfaces signal by signal (a packed data word bit by bit), set the side band constants and tie-offs, and connect the top-level ports.\n\n| Instance | Entity | Library | Origin | Clock domain | Why |\n| --- | --- | --- | --- | --- | --- |\n| `rmap0` | `omap_core` | `openrmap` | placed | sys |  |\n| `nchar0` | `spp_nchar` | `openspp` | placed | sys |  |\n| `ofb0` | `ofb_core` | `openfibre` | placed | sys |  |\n| `pa0` | `ofb_pa_gty` | `openfibre` | placed | sys |  |\n| `spp0` | `spp_core` | `openspp` | placed | sys |  |\n| `ocr0` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `dec0` | `olo_axi_lite_decoder` | `olo` | placed | sys |  |\n| `frm0` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `edac0` | `olo_ft_ecc_monitor_axi` | `olo` | placed | sys |  |\n| `frm1` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr1` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm2` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr2` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `frm3` | `ocr_framer` | `opencrypto` | placed | sys |  |\n| `ocr3` | `ocr_core` | `opencrypto` | placed | sys |  |\n| `auto_rst_sys` | `olo_base_reset_gen` | `olo` | inserted: reset | sys | Synchronous reset of System clock. |\n\nGenerics that differ from the VHDL default:\n\n- `rmap0`: `Initiator_g => false`, `Passthrough_g => false`, `AxiMaxBeats_g => 1`\n- `nchar0`: `DataWidth_g => 128`\n- `ofb0`: `NumVc_g => 2`, `NumLanes_g => 4`, `CoreClkFreq_g => 156.25e6`, `VcInDepth_g => 1024`\n- `pa0`: none\n- `spp0`: `DataWidth_g => 128`, `NumTx_g => 4`, `NumRx_g => 4`, `TxBufferBytes_g => 8192`, `RxBufferBytes_g => 8192`, `ClkFreqHz_g => 200.0e6`\n- `ocr0`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `dec0`: `Ports_g => 8`\n- `frm0`: `DataWidth_g => 128`\n- `edac0`: `Channels_g => 8`\n- `frm1`: `DataWidth_g => 128`\n- `ocr1`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm2`: `DataWidth_g => 128`\n- `ocr2`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `frm3`: `DataWidth_g => 128`\n- `ocr3`: `DataWidth_g => 128`, `ReleaseBuffer_g => true`, `ReleaseBytes_g => 16384`, `DenseOutput_g => true`, `ClkFreqHz_g => 200.0e6`\n- `auto_rst_sys`: `SyncTmr_g => true`\n\nConstants with a field map (`fields` of the net):\n\n- `spp0_S_Tx_User_s(55 downto 28) <= \"0000000000000000000000000001\"` (connection c27): 10:0 APID = 0x1; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(83 downto 56) <= \"0000000000000000000000000010\"` (connection c28): 10:0 APID = 0x2; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(111 downto 84) <= \"0000000000000000000000000011\"` (connection c29): 10:0 APID = 0x3; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `spp0_S_Tx_User_s(27 downto 0) <= \"0000000000000000000000000000\"` (connection c12): 10:0 APID = 0x0; 11 Secondary header flag = '0'; 12 Packet type (telecommand) = '0'; 13 Packet name instead of sequence count = '0'; 27:14 Packet name = 0x0.\n- `frm0_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm1_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm2_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n- `frm3_Cfg_Slot_s <= \"00\"`: 1:0 Key slot = 0.\n\n## 4. Clocks and resets\n\n| Clock domain | Frequency | Clock | Reset generator |\n| --- | --- | --- | --- |\n| System clock (`sys`) | 200 MHz | top-level port `Clk_sys` | `auto_rst_sys` (olo_base_reset_gen, output `auto_rst_sys_RstOut_s`) |\n| pa0 Lane clock (`lane`) | 156.25 MHz | output `pa0.LaneClk` (signal `pa0_LaneClk_s`) | none: no block of the domain has a synchronous reset |\n\nReset ports (`reset` of the port):\n\n| Port | Reset | Actual | Why |\n| --- | --- | --- | --- |\n| `rmap0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `nchar0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ofb0.Rst` | asynchronous | `Rst` | Asynchronous reset; a reset generator per clock domain releases it synchronously, so all four clocks must run for the reset to complete. |\n| `pa0.Rst` | asynchronous | `Rst` | Asynchronous reset of the transceivers, their reset controller and the logic of FreeRunClk, of any pulse width; a reset generator of the adapter releases it synchronously to FreeRunClk after RstPulseCycles_g cycles. |\n| `spp0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `dec0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `edac0.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr1.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr2.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `frm3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `ocr3.Rst` | synchronous | `auto_rst_sys_RstOut_s` | Synchronous reset in the clock domain System clock (clock Clk): the output of the reset generator auto_rst_sys. |\n| `auto_rst_sys.RstIn` | asynchronous | `Rst` | Asynchronous reset input (polarity from RstInPolarity_g). |\n\n`Rst` is the asynchronous system reset. A reset generator asserts the reset of its domain at once and releases it synchronously to the clock; a block with an asynchronous reset synchronises the release itself.\n\n## 5. Constraints\n\nEvery clock crossing is an Open Logic block. Between the clocks of a crossing a maximum delay applies in both directions, the period of the faster clock, data path only (Open Logic clock crossing principles). Do not declare these clocks as asynchronous clock groups: in Vivado `set_clock_groups -asynchronous` overrides the delay limits.\n\n- Maximum delay from the clock of `pa0.LaneClk` to the clock of `Clk_sys`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- Maximum delay from the clock of `Clk_sys` to the clock of `pa0.LaneClk`: 5 ns, data path only (`set_max_delay -datapath_only` in Vivado). Clock crossings of ofb0: the period of the faster clock.\n- AMD Vivado: source the script of Open Logic once. It reads the scoped constraints of olo_base_cc_reset, olo_base_cc_bits, olo_base_cc_simple, olo_base_reset_gen and olo_base_ram_sdp wherever the system uses them, also inside the cores. tools/vivado/all_constraints_amd.tcl would also read those of olo_intf_sync, which expect device pins at its input and stop the build (ERROR 18-513) where a block synchronises internal signals with it, as ofb_pa_gty does; a block that synchronises device pins declares its own false path for them. File `src/base/tcl/olo_base_constraints_amd.tcl` of Open Logic.\n\n## 6. Throughput\n\nThe capacity of every path from a source (an external stream input, the inbound side of a link) to a sink (an external stream output, the outbound side of a link), from the rate data of the catalog: every element at its packet length and at the frequency of its clock domain, the path at its slowest element (in bold). Capacities are payload rates at the source in bit/s (SI prefixes, three significant digits). The packet lengths are reference points, not stated traffic, unless the system states traffic for the interface.\n\n### Path 1: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[0]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm0.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr0.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[0]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\n### Path 2: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm1.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr1.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[1]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\n### Path 3: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[2]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm2.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr2.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[2]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\n### Path 4: the link of ofb0 to the link of ofb0\n\n| Element | Clock | Model | 64 B | 1024 B |\n| --- | --- | --- | --- | --- |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | 14.5 Gbit/s | 17.9 Gbit/s |\n| `ofb0.M_Vc[1]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.S_Link` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `spp0.M_Rx[3]` | System clock, 200 MHz | per interface | 20.5 Gbit/s | 25.2 Gbit/s |\n| `frm3.S_In` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ocr3.M_Out` | System clock, 200 MHz | chain formula | 12.8 Gbit/s | 24.1 Gbit/s |\n| `spp0.S_Tx[3]` | System clock, 200 MHz | per interface | 17.1 Gbit/s | 24.8 Gbit/s |\n| `spp0.M_Link` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `ofb0.S_Vc[1]` | System clock, 200 MHz | per interface | 14.6 Gbit/s | 24.5 Gbit/s |\n| `the link of ofb0` | LaneClk: pa0 Lane clock, 156.25 MHz | link, both directions | **10.4 Gbit/s** | **17.3 Gbit/s** |\n| **Path** |  |  | **10.4 Gbit/s** | **17.3 Gbit/s** |\n\n- At 64 B: limited by `the link of ofb0` (15.6 Gbit/s on the link at 96 B packets, both directions in use).\n- At 1024 B: limited by `the link of ofb0` (17.9 Gbit/s on the link at 1056 B packets, both directions in use).\n- Assuming every packet of the link of ofb0 reaches the link of ofb0: the route of the source has several outputs and the system decides at run time where a packet goes.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n- the link of ofb0: measured with packets of 1 to 1024 B, conservative above.\n\nBlocks without rate data end the paths through them:\n\n- `omap_core` (`rmap0`).\n\nEvidence of the rate data:\n\n- `ocr_framer`: TC-FR-03 (four long packets without stall cycles, at most AadBeats + 2 cycles per chunk, hdl/ocr_framer/docs/verification_report.md).\n- `ocr_framer and ocr_core`: user guide section 7.2 and TC-FR-08 (framer and core with the dense output, C(n) exactly at 16, 32, 64 and 128 bit, hdl/ocr_framer/docs/verification_report.md).\n- `ofb_core`: user guide section 7; TC-NI-07 (virtual channel ports), TC-CORE-16 (link efficiency), TC-CORE-15 (CoreClk); rowEff derived from the link efficiency of TC-CORE-16 (words of 4 bytes, packets of 1 to 1024 B) and the row model of TC-NI-07.\n- `spp_core`: user guide section 7; TC-CO-12 (throughput at 32, 64 and 128 bit), TC-CO-08, TC-SE-10.\n\n## 7. Packet sizes and buffers\n\nThe largest packet at every interface with a size limit, from the size data of the catalog: the largest packet a source states, the chunks of a route, the bytes the routes add. A source that states no largest packet, or a link, is not bounded: it meets the limit of the first interface that has one. A limit that is only the reset value of a register is marked: software can change it.\n\n| Interface | Largest packet | Limit | Kind | Reason |\n| --- | --- | --- | --- | --- |\n| `spp0.S_Tx[0]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[0]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Tx[1]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[1]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Tx[2]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[2]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Tx[3]` | ChunkBytes_g + 32 = 4128 B | 8192 B | fixed | the send buffer holds the longest SDU of the port (error code 0x01) |\n| `spp0.S_Tx[3]` | ChunkBytes_g + 32 = 4128 B | 65536 B | fixed | an Octet String has at most 65536 bytes (SPP-6) |\n| `spp0.S_Link` | not bounded (the link of ofb0) | 8196 B | fixed | the receive buffer holds the longest Space Packet (error code 0x17) |\n| `spp0.S_Link` | not bounded (the link of ofb0) | 65546 B | fixed | a Space Packet has at most 65542 bytes (SPP-23) |\n| `spp0.S_Link` | not bounded (the link of ofb0) | 65546 B | reset value | the Maximum Packet Length, MaxLength_g as the reset value of MAX_LENGTH |\n| `ocr0.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n| `ocr1.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n| `ocr2.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n| `ocr3.S_In` | ChunkBytes_g + 4 = 4100 B | 4294967295 B | fixed | AAD and DATA have at most 2^LenBits_g - 1 bytes each (error LENGTH) |\n\nBuffers that hold a whole message (counted in beats):\n\n- `ocr0.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n- `ocr1.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n- `ocr2.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n- `ocr3.M_Out`: the longest message (ChunkBytes_g + 32 = 4128 B) takes 259 beats of 16 B; the buffer holds 16384 B = 1024 beats.\n\nWhat leaves over a link (for the node at the far end):\n\n- spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes.\n\nBlocks without a length limit:\n\n- `ofb_core` (`ofb0`): no length limit, tested up to 65542 B.\n- `ocr_framer` (`frm0`, `frm1`, `frm2`, `frm3`): no length limit.\n\nBlocks that publish no length limit (packets through them are checked against the other blocks only):\n\n- `omap_core` (`rmap0`).\n- `spp_nchar` (`nchar0`).\n\nEvidence of the size data:\n\n- `ocr_core`: user guide section 2 (generics LenBits_g and ReleaseBytes_g) and section 8 (the release buffer holds the longest message); the cycles of a release buffer that holds one message but not two: user guide section 7.1, TC-CO-15 (the bound max(B + 2, 3 M - D + 4) for M sectioned beats in a buffer of D beats) and TC-CO-16 (framer chunks of 4096 bytes at 128 bit, hdl/ocr_core/docs/verification_report.md).\n- `ocr_framer`: user guide section 4.6: every packet is cut into chunks of ChunkBytes_g bytes.\n- `ofb_core`: no length limit by design: segments are independent of packet boundaries (ofb_dl_vc_out.vhd, DL-VO-03 and DL-VO-04), no length counter in NI, DL or MIB; packets of 65542 bytes (the largest Space Packet) with 1 to 4 lanes (TC-CORE-20, user guide section 7).\n- `spp_core`: user guide section 7.1 and the integration table (the send buffer holds the longest SDU of a port, the receive buffer the longest Space Packet), requirements SPP-6 and SPP-23.\n\n## 8. Notes from the user guides\n\n**RMAP node** (`omap_core`, `rmap0`): https://openspacehdl.org/openrmap/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- M_RepData, M_Conf and M_User must be served when connected; a stalled output stalls the received packet stream and the link.\n- RMAP address bits above AxiAddrWidth_g must be zero in the windows.\n- With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'.\n- An access longer than one command of the memory master (2^(AxiAddrWidth_g - 2) - AxiDataWidth_g/8 bytes, at most 2^24 - AxiDataWidth_g/8) is split into several commands.\n\n**N-Char adapter** (`spp_nchar`, `nchar0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- A received end of packet marker without data characters is discarded.\n- A link packet that ends with a beat without valid bytes gets its marker after the bytes of the earlier beats; a link packet without any byte sends nothing.\n\n**SpaceFibre port** (`ofb_core`, `ofb0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- The VC ports have the link format of OpenSPP: spp_core with DataWidth_g = 32 x NumLanes_g connects to a VC port directly (M_Link_User(0) to S_Vc_TUser); the further user bits of OpenSPP (destination index) do not reach the SpaceFibre port.\n- Every VC carries any packets; which VC carries which traffic is a convention of the system that both ends of the link follow.\n- Enable the safe implementation of state machines in the synthesis tool (Vivado FSM_SAFE_STATE = default_state on the state registers, Synplify syn_encoding = safe).\n- Read ID (0x0FB10008) and GENERICS after the reset; start the link with LANE_CTRL = 0x63 at one end (LaneStart, AutoStart, TxEn, RxEn), or with LaneStart_g = true at that end, and wait for DL_STATUS bits 1:0 = 3 (programming sequence of the user guide).\n- All four clocks must run for the reset to complete; CoreClk may be the lane clock (as in the VCK190 reference design).\n\n**SpaceFibre GTY adapter** (`ofb_pa_gty`, `pa0`): https://openspacehdl.org/openfibre/docs/user_guide.html\n\n- Vendor-specific (AMD Versal GTY). hdl/ofb_pa_gty/src/ofb_pa_gty.vhd is not in component_list.txt: add it to the library openfibre, and create the transceiver wizard instance ofb_gtw in the Vivado project with hdl/ofb_pa_gty/tcl/ofb_gtw.tcl (source the file, then ofb_gtw_create ofb_gtw 156.25 for a 156.25 MHz reference clock).\n- RefClk is the output O of the IBUFDS_GTE5 of the reference clock pins of the quad; place the buffer in the chip-level top, as hdl/ofb_vck190/src/ofb_vck190_top.vhd does.\n- Stat_TxReady reaches Phy_TxReady of the core through the Phy interface; the core holds the link in Near-End Reset while the transmitters are not ready, so its reset needs no status of the adapter. The VCK190 reference design resets the core and the adapter with the power-on reset.\n- The line rate is 6.25 Gbit/s with a 156.25 MHz reference clock, so LaneClk runs at 156.25 MHz.\n- Simulation needs the AMD transceiver models (unisim and the simulation files of the wizard); OpenFibre simulates the adapter with tools/run_xsim.py. Without them, the test bench model tb/ofb_tb_pa_model.vhd of OpenFibre (two adapters joined by a lane, one clock) stands in for the adapters of both ends of a link.\n\n**Space Packet node** (`spp_core`, `spp0`): https://openspacehdl.org/openspp/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.\n- After the reset the core initialises both APID tables (2048 clock cycles); packets are sent and delivered once the tables are ready.\n- Serve every receive port, or place a buffer behind a port whose user can stall for long.\n- TxBufferBytes_g holds the longest SDU of a port, RxBufferBytes_g the longest Space Packet.\n- Hold the side band (TUser) of a send port constant during an SDU.\n- A last beat without valid bytes (Keep all zero) ends an SDU or packet at the inputs; an SDU without any byte is rejected (0x02). The outputs never carry a beat without valid bytes.\n- The user supplies the packet secondary header at the start of the Octet String and keeps the secondary header flag of an APID static.\n\n**AES-GCM core** (`ocr_core`, `ocr0`, `ocr1`, `ocr2`, `ocr3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen with SyncTmr_g = true.\n- After the reset the key table erases every slot (NumKeys_g cycles, STATUS.BUSY = '1'); no key survives a reset.\n- One context per message, in the order of the messages; the core pairs the n-th context with the n-th message.\n- Load every key slot in use through the registers before sending contexts (programming sequence of the user guide).\n- Without the release buffer, discard every decrypted message whose last beat carries the error flag or whose status is not OK.\n- Save the invocation counter of every slot with generated IVs regularly ahead of the operational value (GCM 9.1).\n\n**AXI4-Lite decoder** (`olo_axi_lite_decoder`, `dec0`): https://openspacehdl.org/open-logic-ft/doc/axi/olo_axi_lite_decoder.html\n\n- Connects one AXI4-Lite master to several register files, each in an equal address window.\n\n**Chunk framer** (`ocr_framer`, `frm0`, `frm1`, `frm2`, `frm3`): https://openspacehdl.org/opencrypto/docs/user_guide.html\n\n- The slot Cfg_Slot is loaded for generated IVs and stays unchanged while the framer holds chunks.\n- Every chunk consumes one invocation of the slot; save the counter regularly (GCM 9.1).\n- A receiver decrypts every chunk on its own (IV bytes 0 to 11, AAD bytes 12 to 15, tag the last 16 bytes), orders the chunks by the invocation counter and finds the packet boundaries in the positions.\n\n**EDAC monitor with registers** (`olo_ft_ecc_monitor_axi`, `edac0`): https://openspacehdl.org/open-logic-ft/doc/ft/olo_ft_ecc_monitor_axi.html\n\n- EDAC monitor with an AXI4-Lite register file and an interrupt.\n\n## 9. Address map\n\nEvery address space of the system with its register banks (`resolved.addressMap`). A space starts at an AXI slave of the top level or at the AXI master of a block; an AXI4-Lite decoder gives each of its ports a window of equal size. The export writes the same as `spfi_encrypt_address_map.md`, and the base, size and ID register value of every bank as C macros in `spfi_encrypt_regs.h`.\n\n### rmap0.M_Axi\n\nRMAP memory addresses as seen by an initiator, 32 address bits. rmap0 accepts an access only inside its windows: WIN_CTRL, WIN_BASE and WIN_LAST of window n at 0x100 + 0x10 n of rmap0 (4 windows, Windows_g). After the reset (WinInit_g = WinInitOpen_c) window 0 is open over the whole address space with all permissions and the other windows are disabled, so the whole map is reachable after the reset. Software can narrow the windows. dec0 decodes 19 address bits: the map repeats every 0x00080000 bytes.\n\n| Base | Last | Size | Instance | Block | ID register | Window | Register map |\n| --- | --- | --- | --- | --- | --- | --- | --- |\n| 0x00000000 | 0x000007FF | 2 KiB | `spp0` | `spp_core` | 0x53505001 | `dec0.M_AxiLite[0]`, 64 KiB | `sw/spp_regs.h`, `hdl/spp_mib/docs/register_map.md` of openspp |\n| 0x00010000 | 0x000100FF | 256 B | `ocr0` | `ocr_core` | 0x4F435201 | `dec0.M_AxiLite[1]`, 64 KiB | `sw/ocr_regs.h`, `hdl/ocr_mib/docs/register_map.md` of opencrypto |\n| 0x00020000 | 0x00020FFF | 4 KiB | `edac0` | `olo_ft_ecc_monitor_axi` |  | `dec0.M_AxiLite[2]`, 64 KiB | https://openspacehdl.org/open-logic-ft/doc/ft/olo_ft_ecc_monitor_axi.html |\n| 0x00030000 | 0x000300FF | 256 B | `ocr1` | `ocr_core` | 0x4F435201 | `dec0.M_AxiLite[3]`, 64 KiB | `sw/ocr_regs.h`, `hdl/ocr_mib/docs/register_map.md` of opencrypto |\n| 0x00040000 | 0x000400FF | 256 B | `ocr2` | `ocr_core` | 0x4F435201 | `dec0.M_AxiLite[4]`, 64 KiB | `sw/ocr_regs.h`, `hdl/ocr_mib/docs/register_map.md` of opencrypto |\n| 0x00050000 | 0x000500FF | 256 B | `ocr3` | `ocr_core` | 0x4F435201 | `dec0.M_AxiLite[5]`, 64 KiB | `sw/ocr_regs.h`, `hdl/ocr_mib/docs/register_map.md` of opencrypto |\n| 0x00060000 | 0x000603FF | 1 KiB | `rmap0` | `omap_core` | 0x4F4D4101 | `dec0.M_AxiLite[6]`, 64 KiB | `sw/omap_regs.h`, `hdl/omap_mib/docs/register_map.md` of openrmap |\n| 0x00070000 | 0x00070FFF | 4 KiB | `ofb0` | `ofb_core` | 0x0FB10008 | `dec0.M_AxiLite[7]`, 64 KiB | `sw/ofb_regs.h`, `hdl/ofb_mib/docs/register_map.md` of openfibre |\n\n### Register maps\n\nThe register offsets are in the C headers and register maps of the cores, at the commits the system is built with. `spfi_encrypt_regs.h` includes the headers by name: the include path of the compiler must point to these directories.\n\n| Header | Repository | Commit | Path | Register map |\n| --- | --- | --- | --- | --- |\n| `ocr_regs.h` | https://github.com/open-space-hdl/opencrypto | `b835a4901c330e7e49ccc3dea13350e66e758ceb` | `sw/ocr_regs.h` | `hdl/ocr_mib/docs/register_map.md` |\n| `ofb_regs.h` | https://github.com/open-space-hdl/openfibre | `9fc03fb8b0d954501240b28fbeded14c5b5c70c6` | `sw/ofb_regs.h` | `hdl/ofb_mib/docs/register_map.md` |\n| `omap_regs.h` | https://github.com/open-space-hdl/openrmap | `e1e13d3ed369c06f3093c745d6b2f8da38d0eba0` | `sw/omap_regs.h` | `hdl/omap_mib/docs/register_map.md` |\n| `spp_regs.h` | https://github.com/open-space-hdl/openspp | `018ebe17992d578dea037fa47251b3309a863bb8` | `sw/spp_regs.h` | `hdl/spp_mib/docs/register_map.md` |\n\n## 10. Interrupts\n\nEvery interrupt output of the system (`resolved.interrupts`): a level that is high while an enabled event is pending. The Composer places no interrupt controller: route the interrupts to the processor, or leave them open and poll the status registers.\n\n| Interrupt | Clock domain | Goes to | Enable | Status | Events (write 1 to clear) |\n| --- | --- | --- | --- | --- | --- |\n| `edac0.Irq` | System clock | open: poll the registers | see the documentation of `olo_ft_ecc_monitor_axi` |  |  |\n| `ocr0.Irq` | System clock | open: poll `IRQ_STATUS` | `IRQ_EN` (0x01C) | `IRQ_STATUS` (0x020) | `EVENTS` (0x018) |\n| `ocr1.Irq` | System clock | open: poll `IRQ_STATUS` | `IRQ_EN` (0x01C) | `IRQ_STATUS` (0x020) | `EVENTS` (0x018) |\n| `ocr2.Irq` | System clock | open: poll `IRQ_STATUS` | `IRQ_EN` (0x01C) | `IRQ_STATUS` (0x020) | `EVENTS` (0x018) |\n| `ocr3.Irq` | System clock | open: poll `IRQ_STATUS` | `IRQ_EN` (0x01C) | `IRQ_STATUS` (0x020) | `EVENTS` (0x018) |\n| `ofb0.Irq` | System clock | open: poll the registers | `IRQ_MASK` (0x044) |  |  |\n| `rmap0.Irq` | System clock | open: poll `IRQ_STATUS` | `IRQ_EN` (0x094) | `IRQ_STATUS` (0x098) | `EVENTS` (0x090) |\n| `spp0.Irq` | System clock | open: poll `IRQ_STATUS` | `IRQ_EN` (0x058) | `IRQ_STATUS` (0x05C) | `EVENTS` (0x054) |\n\n## 11. Protection scope\n\nThe system is designed for radiation environments together with the triple modular redundancy (TMR) of the synthesis tool, like the Open Logic ft entities its blocks are built on (`resolved.protection`).\n\nBlocks that protect their memories with SECDED ECC and report it in their registers (the channels count the double-error flags of the status register):\n\n| Block | Channels | Status | Counters | Error injection | Evidence |\n| --- | --- | --- | --- | --- | --- |\n| `rmap0` (`omap_core`) | 3 | `ECC_STATUS` (0x0A0) | `ECC_SELECT` (0x0A4), `ECC_COUNT` (0x0A8) | `ECC_INJECT` (0x0AC) | user guide section 6 (protection scope) and the register map |\n| `ofb0` (`ofb_core`) | 9 | `ECC_STATUS` (0x060) | `ECC_SELECT` (0x064), `ECC_COUNT` (0x068) | `ECC_INJECT` (0x06C) | user guide section 8 (protection scope) and the register map |\n| `spp0` (`spp_core`) | 8 | `ECC_STATUS` (0x060) | `ECC_SELECT` (0x064), `ECC_COUNT` (0x068) | `ECC_INJECT` (0x06C) | user guide section 6 (protection scope) and the register map |\n| `ocr0` (`ocr_core`) | 18 | `ECC_STATUS` (0x0C0) | `ECC_SELECT` (0x0C4), `ECC_COUNT` (0x0C8) | `ECC_INJECT` (0x0CC) | user guide section 6 (protection scope) and the register map |\n| `ocr1` (`ocr_core`) | 18 | `ECC_STATUS` (0x0C0) | `ECC_SELECT` (0x0C4), `ECC_COUNT` (0x0C8) | `ECC_INJECT` (0x0CC) | user guide section 6 (protection scope) and the register map |\n| `ocr2` (`ocr_core`) | 18 | `ECC_STATUS` (0x0C0) | `ECC_SELECT` (0x0C4), `ECC_COUNT` (0x0C8) | `ECC_INJECT` (0x0CC) | user guide section 6 (protection scope) and the register map |\n| `ocr3` (`ocr_core`) | 18 | `ECC_STATUS` (0x0C0) | `ECC_SELECT` (0x0C4), `ECC_COUNT` (0x0C8) | `ECC_INJECT` (0x0CC) | user guide section 6 (protection scope) and the register map |\n\nECC events of memories (SECDED ECC of the Open Logic ft entities) and where they are reported:\n\n| Source | Memory | Reported at |\n| --- | --- | --- |\n| `frm0.Ecc[0]` | chunk buffer of `frm0` | channel 0 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm0.Ecc[1]` | position FIFO of `frm0` | channel 1 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm1.Ecc[0]` | chunk buffer of `frm1` | channel 2 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm1.Ecc[1]` | position FIFO of `frm1` | channel 3 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm2.Ecc[0]` | chunk buffer of `frm2` | channel 4 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm2.Ecc[1]` | position FIFO of `frm2` | channel 5 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm3.Ecc[0]` | chunk buffer of `frm3` | channel 6 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n| `frm3.Ecc[1]` | position FIFO of `frm3` | channel 7 of `edac0` (`olo_ft_ecc_monitor_axi`) |\n\nState machines recover through their `when others` branch and the reset. All other logic (registers of the control and data paths, counters, pointers, pipeline registers) relies on the TMR of the synthesis tool. The integrator:\n\n- enables the TMR of the synthesis tool for the system,\n- checks in the synthesis report that TMR was applied, that the synchroniser chains of the crossings were not triplicated a second time, and that no register-based storage meant to be protected by TMR was inferred as a RAM primitive,\n- requests safe state machines, so that synthesis keeps the `when others` branches (AMD Vivado: property `FSM_SAFE_STATE` = `default_state` on the state registers; Synplify: attribute `syn_encoding` = `safe`),\n- protects the configuration memory of SRAM-based FPGAs by scrubbing; this is part of the FPGA design.\n\nThe ECC paths of the blocks are verified in simulation by error injection. Whether the protection as a whole meets the requirements of a mission is shown by a radiation test of the system in operation.\n\n## 12. Initialisation by software\n\nRegister addresses are byte addresses of the AXI4-Lite port of the block; write registers as 32-bit words and wait for the write response before a read that depends on it.\n\n**`rmap0`** (RMAP node, `omap_core`) through `dec0.M_AxiLite[6]` (connection c39), at 0x00060000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x4F4D4101.\n2. None needed: with the default generics the target accepts every command to the logical address 0xFE with the key 0x00 on the whole address space (WinInit_g). A flight configuration narrows the logical addresses (TGT_LA 0x010), the key (TGT_KEY) and the windows (WIN_BASE, WIN_LAST, WIN_CTRL), see the register map.\n\n**`ofb0`** (SpaceFibre port, `ofb_core`) through `dec0.M_AxiLite[7]` (connection c40), at 0x00070000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x0FB10008.\n2. Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn); the reset value 0x62 (AutoStart, AutoStart_g) starts when the far end sends.\n3. Wait for LANE_STATUS (0x104 + 0x20 i) bits 3:0 = 7 (Active) of the lanes and DL_STATUS (0x010) bits 1:0 = 3 (link initialised); VC_HAS_CREDIT (0x030) shows the VCs that may send.\n\n**`spp0`** (Space Packet node, `spp_core`) through `dec0.M_AxiLite[0]` (connection c9), at 0x00000000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x53505001.\n2. After the reset wait until TABLE_STATUS (0x040) bits 1:0 (TX_BUSY, RX_BUSY) are 0: the core initialises both APID tables (2048 clock cycles).\n3. Nothing else is needed: with TxPathDefault_g and RxPathDefault_g every APID has an enabled path to destination 0 and to receive port 0, destination 0 has the Target Logical Address 0xFE (DEST_CTRL 0x400) and the own address is Tla_g. A flight configuration writes the APID tables (TX_TABLE_APID 0x030 and TX_TABLE_ENTRY 0x034, RX_TABLE_APID 0x038 and RX_TABLE_ENTRY 0x03C) and the destinations (DEST_CTRL 0x400 + 0x20 n).\n\n**`ocr0`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[1]` (connection c10), at 0x00010000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm0`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`frm1`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr1`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[3]` (connection c30), at 0x00030000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm2`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr2`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[4]` (connection c31), at 0x00040000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n**`frm3`** (Chunk framer, `ocr_framer`):\n\n1. Load the key slot Cfg_Slot of the AES-GCM core for generated IVs (KEY_LOAD with IV_GEN = '1', see the core) before the first packet; without a loaded slot every chunk fails with KEY.\n\n**`ocr3`** (AES-GCM core, `ocr_core`) through `dec0.M_AxiLite[5]` (connection c32), at 0x00050000 in the address space of rmap0.M_Axi:\n\n1. Read ID (0x000): it reads 0x4F435201.\n2. After the reset wait until STATUS (0x014) bit 0 BUSY is 0: the key table erases every slot.\n3. Load every key slot in use: write the key to KEY0 to KEY7 (0x040 + 4 n; key byte 4 n in bits 31:24; 4, 6 or 8 words), for generated IVs the fixed field to IV_FIXED (0x060) and the first invocation counter to IV_COUNT_LO (0x064) and IV_COUNT_HI (0x068), then write KEY_LOAD (0x06C) with START (bit 31), IV_GEN (bit 8) and the slot (bits 7:0), for example 0x80000100 for slot 0 with generated IVs; wait until STATUS.BUSY is 0.\n\n## 13. Checks\n\n- Note: ofb0.M_Vc[0] has 1 user bit, nchar0.S_Link 5: bit 0 is connected, bits 4 to 1 are tied to zero at nchar0.S_Link.\n- Note: spp0.M_Link has 5 user bits, ofb0.S_Vc[1] 1: bit 0 is connected, bits 4 to 1 are not used.\n- Note: spp0.M_Rx[1] has user, frm1.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[2] has user, frm2.S_In does not: it is not passed on.\n- Note: spp0.M_Rx[3] has user, frm3.S_In does not: it is not passed on.\n- Note: ocr1.M_Out has user; spp0.S_Tx[1] gets the side band constants of c27 instead.\n- Note: ocr2.M_Out has user; spp0.S_Tx[2] gets the side band constants of c28 instead.\n- Note: ocr3.M_Out has user; spp0.S_Tx[3] gets the side band constants of c29 instead.\n- Note: rmap0.M_Axi has AwLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has AwProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has WLast, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLen, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArSize, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArBurst, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArLock, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArCache, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has ArProt, dec0.S_AxiLite does not: it is not passed on.\n- Note: rmap0.M_Axi has RLast, dec0.S_AxiLite does not: it is tied to '1' (an AXI4-Lite slave answers single transfers, so every read beat is the last; valid only with the single-transfer condition of the AXI4-Lite connection).\n- Note: ocr0.M_Out has user; spp0.S_Tx[0] gets the side band constants of c12 instead.\n- Note: spp0.M_Rx[0] has user, frm0.S_In does not: it is not passed on.\n- Note: No rate data for omap_core (rmap0): the paths through it are not checked.\n- Note: spp0 sends Space Packets of up to ChunkBytes_g + 38 = 4134 bytes: the node that receives them needs RxBufferBytes_g of at least 4134 (spp0 has 8192).\n- Note: Packets from the link of ofb0 reach spp0.S_Link, which takes at most 8196 bytes: the receive buffer holds the longest Space Packet (error code 0x17); longer ones are discarded.\n- Note: No length limit published for omap_core (rmap0): packets through it are checked against the other blocks only.\n- Note: No length limit published for spp_nchar (nchar0): packets through it are checked against the other blocks only.\n- Note: dec0: spp0 (2 KiB), ocr0 (256 B), edac0 (4 KiB), ocr1 (256 B), ocr2 (256 B), ocr3 (256 B), rmap0 (1 KiB), ofb0 (4 KiB) are smaller than their windows of 64 KiB; the registers repeat inside the window.\n- Note: dec0 decodes 19 address bits: in the 32-bit space of rmap0.M_Axi its map repeats every 0x00080000 bytes.\n- Note: rmap0: ChunkBytes_g must not be larger than BufferBytes_g and must be a multiple of AxiDataWidth_g/8 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 32 still holds.\n- Note: rmap0: Accesses longer than one command of the memory master are split, so AxiAddrWidth_g no longer needs 25 + log2(AxiDataWidth_g/8) bits; AxiAddrWidth_g 12 to 26 at 32-bit data and AxiDataWidth_g 8 build; single-address writes no longer hang at wide data widths. Check the parts of the system that rely on it.\n- Note: spp0: TxBufferBytes_g holds at least the shortest Space Packet and at most what TxMaxPackets_g packets of 65542 bytes fill (checked at elaboration, CO-GN-02, CO-GN-03). New rules for TxBufferBytes_g: the checks show whether the value 8192 still holds.\n- Note: spp0: RxBufferBytes_g holds at least the shortest Space Packet and at most what RxMaxPackets_g packets of 65542 bytes fill (checked at elaboration, CO-GN-02, CO-GN-03). New rules for RxBufferBytes_g: the checks show whether the value 8192 still holds.\n- Note: spp0: TxMaxPackets_g is 2 to max(2, TxBufferBytes_g / B) (checked at elaboration, CO-GN-04). New rules for TxMaxPackets_g: the checks show whether the value 8 still holds.\n- Note: spp0: RxMaxPackets_g is 2 to the number of shortest Space Packets the receive buffer holds (checked at elaboration, CO-GN-04). New rules for RxMaxPackets_g: the checks show whether the value 8 still holds.\n- Note: nchar0: DataWidth_g must be a multiple of 8 (checked at elaboration). New rules for DataWidth_g: the checks show whether the value 32 still holds.\n- Note: ofb0: Multi-Lane: the far-end reset is detected when a lane enters Active with its capability (ML-LM-14). Check the parts of the system that rely on it.\n- Note: ofb0: VcInDepth_g must be at least 128 x NumLanes_g with several lanes (DL-VI-05); this replaces the known defect of a buffer of one flow control unit. The default 256 is too small for three or four lanes; reference value 256 x NumLanes_g. New rules for VcInDepth_g: the checks show whether the value 1024 still holds.\n- Note: ofb0: VcOutDepth_g x NumLanes_g must be at least 64 (DL-VO-05). New rules for VcOutDepth_g: the checks show whether the value 128 still holds.\n- Note: ofb0: ErbRows_g must be at least 64 (DL-ER-08). New rules for ErbRows_g: the checks show whether the value 512 still holds.\n- Note: ofb0: New input Phy_TxReady in the Phy interface: while the transmitters of the adapter are not ready, the link stays in Near-End Reset (CORE-PL-04, DL-LR-06). A connected ofb_pa_gty drives it; an external Phy interface has it as a top-level input that must come from a register or a constant. Check the parts of the system that rely on it.\n- Note: ofb0: Register map version 8 (ID 0x0FB10008): DL_STATUS bit 9 TX_READY, DL_ERRORS bit 12 TX_LOST, IRQ_MASK bits 12:0. Check the software that writes these registers.\n- Note: ofb0: The reset of the core no longer waits for the transceivers: the coupling of the reset to LaneRst of the adapter is replaced by the TX ready input. Check the parts of the system that rely on it.\n- Note: pa0: Stat_TxReady moves from the Stat interface to the Phy interface (tx_ready), a register of FreeRunClk; a system that exported it with Stat gets it through the connection to the core instead. Check the parts of the system that rely on it.\n- Note: pa0: Rst is asynchronous again and may be a pulse of any width: a reset generator of the adapter releases it synchronously to FreeRunClk. LaneRst stays asserted while the transmitters are not ready, also while LaneClk stands still. Check the parts of the system that rely on it.\n- Note: pa0: New generic RstPulseCycles_g (default 1000): minimum reset of the transceivers in cycles of FreeRunClk. New generic RstPulseCycles_g, with its default 1000.\n- Note: ofb0: New generic LaneStart_g (default false): reset value of LaneStart in LANE_CTRL of every lane; true starts the link after the reset without software. New generic LaneStart_g, with its default false.\n- Note: ofb0: New generic AutoStart_g (default true): reset value of AutoStart in LANE_CTRL of every lane, as before. New generic AutoStart_g, with its default true.\n- Note: ocr0: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.\n- Note: ocr1: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.\n- Note: ocr2: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.\n- Note: ocr3: ReleaseBytes_g is at most 65536 bytes with ReleaseBuffer_g (checked at elaboration). New rules for ReleaseBytes_g: the checks show whether the value 16384 still holds.\n- Note: frm0: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.\n- Note: frm1: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.\n- Note: frm2: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.\n- Note: frm3: ChunkBytes_g is at most 65536 (checked at elaboration). New rules for ChunkBytes_g: the checks show whether the value 4096 still holds.\n\n## 14. Verification\n\nA smoke testbench `spfi_encrypt_tb` (VHDL-2008, no extra libraries):\n\n1. Instantiate `spfi_encrypt` and drive `Clk_sys` at 200 MHz.\n2. Hold `Rst` at '1' for 16 cycles of the slowest clock (200 MHz), then '0'.\n3. Keep every external input idle: stream inputs with valid at '0', ready inputs of external outputs at '1', bus requests idle, pins at '0'.\n4. Run for at least 100 us (the blocks initialise their tables after the reset) and stop the simulation: it must end without failed assertions, and the handshake outputs of the top level (valid, ready) and the line outputs must not be 'U' or 'X' after the reset. Data outputs may stay undefined while their valid is '0'.\n5. Where an AXI4-Lite port is external, read the ID register of the block (section 12) and compare it with the documented value.\n\nWith GHDL: analyse the libraries of section 1, then `ghdl -i --std=08 -frelaxed spfi_encrypt.vhd spfi_encrypt_tb.vhd`, `ghdl -m --std=08 -frelaxed spfi_encrypt_tb` and `ghdl -r --std=08 -frelaxed spfi_encrypt_tb --stop-time=100us --assert-level=error --ieee-asserts=disable` (`--ieee-asserts=disable` silences the warnings of the numeric package about metavalues before the reset).\n\nOptional end-to-end test, after the initialisation of section 12:\n\n- SpaceFibre port (`ofb_core`): Connect two nodes (in a simulation without the transceiver models: two cores joined by tb/ofb_tb_pa_model.vhd of OpenFibre), start the link at one end and send a packet on a virtual channel; it arrives on the same virtual channel at the other end.\n- Space Packet node (`spp_core`): Send one SDU on a send port (APID 0x123, for example) and expect it on receive port 0 with the same APID in user bits 10:0, once the APID tables are ready.\n- AES-GCM core (`ocr_core`): Load the key slot, send a packet and check the output: with generated IVs the first 4 bytes of every message are IV_FIXED, the next 8 the invocation counter; decrypt it with AES-GCM in the test bench (or a second core) and compare.\n\nVendor-specific blocks need the simulation libraries of their vendor: `pa0` (ofb_pa_gty, AMD Versal GTY); see their notes in section 8.\n\n## 15. Readiness of the parts\n\nThe technology readiness level (TRL) of every part, as its project states it (https://openspacehdl.org/trl/). Parts at TRL 3 or higher (lowest: 3). The composed system has no TRL of its own: it is checked by elaboration and a run to 0 ns.\n\n| Part | Repository | TRL | Status | Instances |\n| --- | --- | --- | --- | --- |\n| OpenRMAP | https://github.com/open-space-hdl/openrmap | 3 | Fully verified by simulation. Not yet tested on hardware, no flight heritage. | `rmap0` |\n| OpenSPP | https://github.com/open-space-hdl/openspp | 3 | Fully verified by simulation. Not yet tested on hardware, no flight heritage. | `nchar0`, `spp0` |\n| OpenFibre | https://github.com/open-space-hdl/openfibre | 3 | Fully verified by simulation. Not yet tested on hardware, no flight heritage. | `ofb0`, `pa0` |\n| OpenCrypto | https://github.com/open-space-hdl/opencrypto | 3 | Fully verified by simulation. Not yet tested on hardware, no flight heritage. | `ocr0`, `frm0`, `frm1`, `ocr1`, `frm2`, `ocr2`, `frm3`, `ocr3` |\n| Open Logic FT | https://github.com/open-space-hdl/open-logic-ft | 3 | Fully verified by simulation. Not yet tested on hardware, no flight heritage. | `dec0`, `edac0`, `auto_rst_sys` |\n"
   },
   "catalogSubset": {
-    "id": "dbee0d786ebd",
+    "id": "d012c32ccfc8",
     "note": "Catalog entries of the blocks of this system and of their interface types, as the Composer used them: ports, generics, clocks, resets, interfaces with their signals, clocks, fields and directions, presets, rules, notes and the initialisation by software.",
     "types": [
       {
@@ -11447,15 +12366,28 @@
           "Rst is synchronous and high-active; synchronise its release to Clk, for example with olo_base_reset_gen.",
           "M_RepData, M_Conf and M_User must be served when connected; a stalled output stalls the received packet stream and the link.",
           "RMAP address bits above AxiAddrWidth_g must be zero in the windows.",
-          "With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'. Known defect of Open Logic olo_axi_master_simple up to 4.7.0-ft.4 (fix pending in open-logic-ft): with AxiMaxBeats_g < AxiDataWidth_g/8, commands that the memory master splits into several AXI transactions read or write the first word repeatedly, with status 0."
+          "With AxiMaxBeats_g = 1 and AxiDataWidth_g = 32 the memory master issues single transfers only and can drive an AXI4-Lite slave; tie M_Axi_RLast to '1'.",
+          "An access longer than one command of the memory master (2^(AxiAddrWidth_g - 2) - AxiDataWidth_g/8 bytes, at most 2^24 - AxiDataWidth_g/8) is split into several commands."
         ],
         "rules": [
           {
             "kind": "generic_range",
-            "generic": "AxiAddrWidth_g",
-            "min": "25 + log2(AxiDataWidth_g / 8)",
+            "generic": "ChunkBytes_g",
+            "max": "BufferBytes_g",
+            "message": "a chunk of a non-verified write fits the write buffer"
+          },
+          {
+            "kind": "generic_multiple",
+            "generic": "ChunkBytes_g",
+            "of": "AxiDataWidth_g / 8",
+            "message": "a single-address write moves whole memory words"
+          },
+          {
+            "kind": "generic_range",
+            "generic": "AxiMaxBeats_g",
+            "max": "min(4096, 2 ** (AxiAddrWidth_g - 2)) / (AxiDataWidth_g / 8)",
             "when": "Target_g",
-            "message": "the memory master of the target takes transfers of up to 24 address bits"
+            "message": "a burst never exceeds 4 KB nor the largest memory command; larger values fail elaboration"
           },
           {
             "kind": "generic_any_true",
@@ -11491,6 +12423,34 @@
         "packages": [
           "omap_pkg"
         ],
+        "protection": {
+          "evidence": "user guide section 6 (protection scope) and the register map",
+          "ecc": {
+            "count": {
+              "name": "ECC_COUNT",
+              "offset": 168
+            },
+            "inject": {
+              "name": "ECC_INJECT",
+              "offset": 172
+            },
+            "select": {
+              "name": "ECC_SELECT",
+              "offset": 164
+            },
+            "status": {
+              "name": "ECC_STATUS",
+              "offset": 160
+            },
+            "channels": 3
+          }
+        },
+        "registers": {
+          "map": "hdl/omap_mib/regs/omap_regs.yml",
+          "header": "sw/omap_regs.h",
+          "doc": "hdl/omap_mib/docs/register_map.md",
+          "prefix": "OMAP"
+        },
         "generics": [
           {
             "name": "Target_g",
@@ -11820,6 +12780,22 @@
             "clock": "Clk",
             "label": "Interrupt",
             "tieOff": "open",
+            "irqRegisters": {
+              "enable": [
+                {
+                  "name": "IRQ_EN",
+                  "offset": 148
+                }
+              ],
+              "events": {
+                "name": "EVENTS",
+                "offset": 144
+              },
+              "status": {
+                "name": "IRQ_STATUS",
+                "offset": 152
+              }
+            },
             "signals": {
               "irq": "Irq"
             }
@@ -11844,6 +12820,24 @@
                   "value": 32
                 }
               ]
+            },
+            "addressSpace": {
+              "what": "RMAP memory addresses as seen by an initiator",
+              "windows": {
+                "array": "WINDOW",
+                "registers": [
+                  "WIN_CTRL",
+                  "WIN_BASE",
+                  "WIN_LAST"
+                ],
+                "count": "Windows_g",
+                "reset": "WinInit_g",
+                "states": {
+                  "WinInitOpen_c": "window 0 is open over the whole address space with all permissions and the other windows are disabled, so the whole map is reachable after the reset"
+                },
+                "base": 256,
+                "stride": 16
+              }
             },
             "signals": {
               "AwAddr": "M_Axi_AwAddr",
@@ -13068,7 +14062,7 @@
           "The VC ports have the link format of OpenSPP: spp_core with DataWidth_g = 32 x NumLanes_g connects to a VC port directly (M_Link_User(0) to S_Vc_TUser); the further user bits of OpenSPP (destination index) do not reach the SpaceFibre port.",
           "Every VC carries any packets; which VC carries which traffic is a convention of the system that both ends of the link follow.",
           "Enable the safe implementation of state machines in the synthesis tool (Vivado FSM_SAFE_STATE = default_state on the state registers, Synplify syn_encoding = safe).",
-          "Read ID (0x0FB10007) and GENERICS after the reset; start the link with LANE_CTRL = 0x63 at one end (LaneStart, AutoStart, TxEn, RxEn) and wait for DL_STATUS bits 1:0 = 3 (programming sequence of the user guide).",
+          "Read ID (0x0FB10008) and GENERICS after the reset; start the link with LANE_CTRL = 0x63 at one end (LaneStart, AutoStart, TxEn, RxEn), or with LaneStart_g = true at that end, and wait for DL_STATUS bits 1:0 = 3 (programming sequence of the user guide).",
           "All four clocks must run for the reset to complete; CoreClk may be the lane clock (as in the VCK190 reference design)."
         ],
         "rules": [
@@ -13079,10 +14073,22 @@
             "pow2Ratio": true
           },
           {
+            "kind": "generic_range",
+            "generic": "VcOutDepth_g",
+            "min": "cdiv(64, NumLanes_g)",
+            "message": "the output VC buffer holds a data frame of 64 words (VcOutDepth_g x NumLanes_g, DL-VO-05)"
+          },
+          {
             "kind": "generic_multiple",
             "generic": "ErbRows_g",
             "of": 2,
             "pow2Ratio": true
+          },
+          {
+            "kind": "generic_range",
+            "generic": "ErbRows_g",
+            "min": 64,
+            "message": "the error recovery buffer holds a data frame of 64 rows (DL-ER-08)"
           },
           {
             "kind": "clock_relation",
@@ -13104,20 +14110,14 @@
             "pow2Ratio": true
           },
           {
-            "kind": "known_defect",
+            "kind": "generic_range",
             "generic": "VcInDepth_g",
-            "below": "128 * NumLanes_g",
+            "min": "128 * NumLanes_g",
             "when": {
               "generic": "NumLanes_g",
               "not": 1
             },
-            "message": "Known defect of ofb_core: with more than one lane and an input VC buffer of one flow control unit (VcInDepth_g = 64 x NumLanes_g) the traffic can stop permanently. Set VcInDepth_g to at least 128 x NumLanes_g; the reference design uses 256 x NumLanes_g. The cause is under analysis in OpenFibre."
-          },
-          {
-            "kind": "with_block",
-            "block": "openfibre/ofb_pa_gty",
-            "severity": "warning",
-            "message": "ofb_core leaves reset before the transceivers are ready: the lane initialisation can start against a transmitter that is still in reset, and the Composer cannot couple LaneRst of the adapter to the reset of the core yet."
+            "message": "with several lanes the input VC buffer holds two flow control units (DL-VI-05); reference value 256 x NumLanes_g"
           }
         ],
         "constraints": [
@@ -13134,11 +14134,30 @@
         ],
         "idRegister": {
           "address": "0x000",
-          "value": "0x0FB10007"
+          "value": "0x0FB10008"
         },
         "init": [
           {
-            "text": "Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn); the reset value 0x62 (AutoStart) starts when the far end sends."
+            "text": "Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn), or 0x62 (AutoStart, TxEn, RxEn) to wait for the far end.",
+            "unless": [
+              "LaneStart_g",
+              "AutoStart_g"
+            ]
+          },
+          {
+            "text": "Start the link at one end: write LANE_CTRL (0x100 + 0x20 i) of every lane i = 0x63 (LaneStart, AutoStart, TxEn, RxEn); the reset value 0x62 (AutoStart, AutoStart_g) starts when the far end sends.",
+            "when": [
+              "AutoStart_g"
+            ],
+            "unless": [
+              "LaneStart_g"
+            ]
+          },
+          {
+            "text": "The lanes start after the reset without software (LaneStart_g, LANE_CTRL reset value 0x61 or 0x63).",
+            "when": [
+              "LaneStart_g"
+            ]
           },
           {
             "text": "Wait for LANE_STATUS (0x104 + 0x20 i) bits 3:0 = 7 (Active) of the lanes and DL_STATUS (0x010) bits 1:0 = 3 (link initialised); VC_HAS_CREDIT (0x030) shows the VCs that may send."
@@ -13172,11 +14191,13 @@
                 "oneDirection": {
                   "1": 0.946,
                   "2": 0.946,
+                  "3": 0.948,
                   "4": 0.948
                 },
                 "bothDirections": {
                   "1": 0.905,
                   "2": 0.909,
+                  "3": 0.912,
                   "4": 0.908
                 }
               },
@@ -13185,17 +14206,45 @@
           ]
         },
         "sizes": {
-          "evidence": "no length limit by design: segments are independent of packet boundaries (ofb_dl_vc_out.vhd, DL-VO-03 and DL-VO-04), no length counter in NI, DL or MIB; tested up to 1024 B (TC-CORE-16, TC-CORE-17, TC-CORE-13)",
+          "evidence": "no length limit by design: segments are independent of packet boundaries (ofb_dl_vc_out.vhd, DL-VO-03 and DL-VO-04), no length counter in NI, DL or MIB; packets of 65542 bytes (the largest Space Packet) with 1 to 4 lanes (TC-CORE-20, user guide section 7)",
           "interfaces": {
             "S_Vc": {
               "noLimit": true,
-              "tested": 1024
+              "tested": 65542
             },
             "M_Vc": {
               "noLimit": true,
-              "tested": 1024
+              "tested": 65542
             }
           }
+        },
+        "protection": {
+          "evidence": "user guide section 8 (protection scope) and the register map",
+          "ecc": {
+            "count": {
+              "name": "ECC_COUNT",
+              "offset": 104
+            },
+            "inject": {
+              "name": "ECC_INJECT",
+              "offset": 108
+            },
+            "select": {
+              "name": "ECC_SELECT",
+              "offset": 100
+            },
+            "status": {
+              "name": "ECC_STATUS",
+              "offset": 96
+            },
+            "channels": 9
+          }
+        },
+        "registers": {
+          "map": "hdl/ofb_mib/regs/ofb_regs.yml",
+          "header": "sw/ofb_regs.h",
+          "doc": "hdl/ofb_mib/docs/register_map.md",
+          "prefix": "OFB"
         },
         "generics": [
           {
@@ -13251,7 +14300,7 @@
             "defaultText": "128",
             "default": 128,
             "label": "Output VC buffer",
-            "description": "Output VC buffer of every VC.",
+            "description": "Output VC buffer of every VC; a power of two, at least 64 words (VcOutDepth_g x NumLanes_g).",
             "unit": "beats"
           },
           {
@@ -13263,7 +14312,7 @@
             "defaultText": "256",
             "default": 256,
             "label": "Input VC buffer",
-            "description": "Input VC buffer of every VC; a multiple of 64 x NumLanes_g.",
+            "description": "Input VC buffer of every VC; NumLanes_g times a power of two, at least 64 with one lane and 128 x NumLanes_g with several lanes (reference value 256 x NumLanes_g).",
             "unit": "words"
           },
           {
@@ -13275,7 +14324,7 @@
             "defaultText": "512",
             "default": 512,
             "label": "Error recovery buffer",
-            "description": "Error recovery buffer in data rows of NumLanes_g words.",
+            "description": "Error recovery buffer in data rows of NumLanes_g words; a power of two, at least 64.",
             "advanced": true,
             "unit": "rows"
           },
@@ -13290,6 +14339,24 @@
             "label": "PRBS words at lane start",
             "description": "PRBS words sent after INIT1 and INIT2 during the lane initialisation.",
             "advanced": true
+          },
+          {
+            "name": "LaneStart_g",
+            "vhdlType": "boolean",
+            "kind": "boolean",
+            "defaultText": "false",
+            "default": false,
+            "label": "Lane start after reset",
+            "description": "Reset value of LaneStart (LANE_CTRL bit 0 of every lane); the port starts the link without software. Set it at one end when the MIB of that end is reachable only over this link."
+          },
+          {
+            "name": "AutoStart_g",
+            "vhdlType": "boolean",
+            "kind": "boolean",
+            "defaultText": "true",
+            "default": true,
+            "label": "Auto start after reset",
+            "description": "Reset value of AutoStart (LANE_CTRL bit 1 of every lane); the port starts the link when the far end does."
           }
         ],
         "clocks": [
@@ -13521,6 +14588,14 @@
             "clock": "MgmtClk",
             "label": "Interrupt",
             "tieOff": "open",
+            "irqRegisters": {
+              "enable": [
+                {
+                  "name": "IRQ_MASK",
+                  "offset": 68
+                }
+              ]
+            },
             "signals": {
               "irq": "Irq"
             }
@@ -13531,8 +14606,11 @@
             "role": "master",
             "clock": "LaneClk",
             "label": "Physical adapter",
-            "description": "Symbol streams, control and status of every lane; connect the physical adapter or make the ports external.",
+            "description": "Symbol streams, control and status of every lane; connect the physical adapter or make the ports external. tx_ready (Phy_TxReady) is an asynchronous level from a register or a constant: while it is 0 the link stays in Near-End Reset.",
             "mustServe": true,
+            "asyncSignals": [
+              "tx_ready"
+            ],
             "signals": {
               "tx_data": "PhyTx_Data",
               "tx_k": "PhyTx_K",
@@ -13546,6 +14624,7 @@
               "cdr_enable": "Phy_CdrEnable",
               "rx_invert": "Phy_RxInvert",
               "no_signal": "Phy_NoSignal",
+              "tx_ready": "Phy_TxReady",
               "bit_sync": "Phy_BitSync",
               "near_loopback": "Phy_SerialNearLoopback",
               "far_loopback": "Phy_SerialFarLoopback",
@@ -13905,6 +14984,13 @@
             "width": "NumLanes_g"
           },
           {
+            "name": "Phy_TxReady",
+            "dir": "in",
+            "vhdlType": "std_logic",
+            "width": "1",
+            "default": "'1'"
+          },
+          {
             "name": "Phy_BitSync",
             "dir": "in",
             "vhdlType": "std_logic_vector(NumLanes_g-1 downto 0)",
@@ -13980,7 +15066,7 @@
         "notes": [
           "Vendor-specific (AMD Versal GTY). hdl/ofb_pa_gty/src/ofb_pa_gty.vhd is not in component_list.txt: add it to the library openfibre, and create the transceiver wizard instance ofb_gtw in the Vivado project with hdl/ofb_pa_gty/tcl/ofb_gtw.tcl (source the file, then ofb_gtw_create ofb_gtw 156.25 for a 156.25 MHz reference clock).",
           "RefClk is the output O of the IBUFDS_GTE5 of the reference clock pins of the quad; place the buffer in the chip-level top, as hdl/ofb_vck190/src/ofb_vck190_top.vhd does.",
-          "Hold the reset of the core while LaneRst is high; the VCK190 reference design synchronises LaneRst to MgmtClk and ORs it with the power-on reset into Rst of the core.",
+          "Stat_TxReady reaches Phy_TxReady of the core through the Phy interface; the core holds the link in Near-End Reset while the transmitters are not ready, so its reset needs no status of the adapter. The VCK190 reference design resets the core and the adapter with the power-on reset.",
           "The line rate is 6.25 Gbit/s with a 156.25 MHz reference clock, so LaneClk runs at 156.25 MHz.",
           "Simulation needs the AMD transceiver models (unisim and the simulation files of the wizard); OpenFibre simulates the adapter with tools/run_xsim.py. Without them, the test bench model tb/ofb_tb_pa_model.vhd of OpenFibre (two adapters joined by a lane, one clock) stands in for the adapters of both ends of a link."
         ],
@@ -14012,6 +15098,18 @@
             "label": "Device family",
             "description": "SIM_DEVICE of the BUFG_GT (device family).",
             "advanced": true
+          },
+          {
+            "name": "RstPulseCycles_g",
+            "vhdlType": "positive range 3 to positive'high",
+            "kind": "integer",
+            "min": 3,
+            "max": 2147483647,
+            "defaultText": "1000",
+            "default": 1000,
+            "label": "Reset length",
+            "description": "Minimum reset of the transceivers and their reset controller, in cycles of FreeRunClk (3 or more).",
+            "advanced": true
           }
         ],
         "clocks": [
@@ -14034,7 +15132,7 @@
             "port": "Rst",
             "active": "high",
             "sync": "async",
-            "description": "Asynchronous reset of the transceivers and their reset controller."
+            "description": "Asynchronous reset of the transceivers, their reset controller and the logic of FreeRunClk, of any pulse width; a reset generator of the adapter releases it synchronously to FreeRunClk after RstPulseCycles_g cycles."
           }
         ],
         "interfaces": [
@@ -14044,8 +15142,11 @@
             "role": "slave",
             "clock": "LaneClk",
             "label": "Core",
-            "description": "The physical adapter ports of the core, one to one.",
+            "description": "The physical adapter ports of the core, one to one; tx_ready is Stat_TxReady, a register of FreeRunClk.",
             "mustServe": true,
+            "asyncSignals": [
+              "tx_ready"
+            ],
             "signals": {
               "tx_data": "PhyTx_Data",
               "tx_k": "PhyTx_K",
@@ -14059,6 +15160,7 @@
               "cdr_enable": "Phy_CdrEnable",
               "rx_invert": "Phy_RxInvert",
               "no_signal": "Phy_NoSignal",
+              "tx_ready": "Stat_TxReady",
               "bit_sync": "Stat_Aligned",
               "near_loopback": "Phy_SerialNearLoopback",
               "far_loopback": "Phy_SerialFarLoopback",
@@ -14094,7 +15196,7 @@
             "role": "event_out",
             "clock": "LaneClk",
             "label": "Lane reset",
-            "description": "High while the transmitters are not ready; hold the reset of the core while it is high.",
+            "description": "High while the transmitters are not ready, also while LaneClk stands still; released synchronously to LaneClk. A reset for further logic of the lane clock; the core gets the TX ready through its Phy interface.",
             "tieOff": "open",
             "signals": {
               "rst": "LaneRst"
@@ -14106,10 +15208,9 @@
             "role": "event_out",
             "clock": "LaneClk",
             "label": "Status",
-            "description": "Transmitters and receivers ready, receive buffer errors and clock corrections per lane.",
+            "description": "Receivers ready, receive buffer errors and clock corrections per lane.",
             "tieOff": "open",
             "signals": {
-              "tx_ready": "Stat_TxReady",
               "rx_ready": "Stat_RxReady",
               "rx_buf_err": "Stat_RxBufErr",
               "clk_cor": "Stat_ClkCor"
@@ -14368,6 +15469,34 @@
             "generic": "RxBufferBytes_g",
             "of": "DataWidth_g / 8",
             "pow2Ratio": true
+          },
+          {
+            "kind": "generic_range",
+            "generic": "TxBufferBytes_g",
+            "min": "DataWidth_g / 8 * max(2, 2 ** log2ceil(cdiv(7, DataWidth_g / 8)))",
+            "max": "DataWidth_g / 8 * min(2 ** log2ceil(TxMaxPackets_g * cdiv(65542, DataWidth_g / 8)), 2 ** 29)",
+            "message": "CO-GN-02, CO-GN-03"
+          },
+          {
+            "kind": "generic_range",
+            "generic": "RxBufferBytes_g",
+            "min": "DataWidth_g / 8 * max(2, 2 ** log2ceil(cdiv(7, DataWidth_g / 8)))",
+            "max": "DataWidth_g / 8 * min(2 ** log2ceil(RxMaxPackets_g * cdiv(65542, DataWidth_g / 8)), 2 ** 29)",
+            "message": "CO-GN-02, CO-GN-03"
+          },
+          {
+            "kind": "generic_range",
+            "generic": "TxMaxPackets_g",
+            "min": 2,
+            "max": "max(2, TxBufferBytes_g / (DataWidth_g / 8))",
+            "message": "an SDU of one byte takes a beat of the send buffer (CO-GN-04)"
+          },
+          {
+            "kind": "generic_range",
+            "generic": "RxMaxPackets_g",
+            "min": 2,
+            "max": "max(2, RxBufferBytes_g / (DataWidth_g / 8) / cdiv(7, DataWidth_g / 8))",
+            "message": "the shortest Space Packets that fit into the receive buffer (CO-GN-04)"
           }
         ],
         "idRegister": {
@@ -14484,6 +15613,34 @@
         "packages": [
           "spp_pkg"
         ],
+        "protection": {
+          "evidence": "user guide section 6 (protection scope) and the register map",
+          "ecc": {
+            "count": {
+              "name": "ECC_COUNT",
+              "offset": 104
+            },
+            "inject": {
+              "name": "ECC_INJECT",
+              "offset": 108
+            },
+            "select": {
+              "name": "ECC_SELECT",
+              "offset": 100
+            },
+            "status": {
+              "name": "ECC_STATUS",
+              "offset": 96
+            },
+            "channels": 8
+          }
+        },
+        "registers": {
+          "map": "hdl/spp_mib/regs/spp_regs.yml",
+          "header": "sw/spp_regs.h",
+          "doc": "hdl/spp_mib/docs/register_map.md",
+          "prefix": "SPP"
+        },
         "generics": [
           {
             "name": "DataWidth_g",
@@ -14933,6 +16090,22 @@
             "clock": "Clk",
             "label": "Interrupt",
             "tieOff": "open",
+            "irqRegisters": {
+              "enable": [
+                {
+                  "name": "IRQ_EN",
+                  "offset": 88
+                }
+              ],
+              "events": {
+                "name": "EVENTS",
+                "offset": 84
+              },
+              "status": {
+                "name": "IRQ_STATUS",
+                "offset": 92
+              }
+            },
             "signals": {
               "irq": "Irq"
             }
@@ -15291,6 +16464,22 @@
             "unlessZero": true
           },
           {
+            "kind": "generic_range",
+            "generic": "ClkFreqHz_g",
+            "min": 1000,
+            "when": {
+              "generic": "ScrubPeriod_g",
+              "not": 0
+            },
+            "message": "the pacer of the key table scrubbers counts milliseconds"
+          },
+          {
+            "kind": "generic_range",
+            "generic": "ReleaseBytes_g",
+            "max": 65536,
+            "when": "ReleaseBuffer_g"
+          },
+          {
             "kind": "generic_multiple",
             "generic": "ReleaseBytes_g",
             "of": "16 * DataWidth_g / 8",
@@ -15391,6 +16580,34 @@
         "packages": [
           "ocr_pkg"
         ],
+        "protection": {
+          "evidence": "user guide section 6 (protection scope) and the register map",
+          "ecc": {
+            "count": {
+              "name": "ECC_COUNT",
+              "offset": 200
+            },
+            "inject": {
+              "name": "ECC_INJECT",
+              "offset": 204
+            },
+            "select": {
+              "name": "ECC_SELECT",
+              "offset": 196
+            },
+            "status": {
+              "name": "ECC_STATUS",
+              "offset": 192
+            },
+            "channels": 18
+          }
+        },
+        "registers": {
+          "map": "hdl/ocr_mib/regs/ocr_regs.yml",
+          "header": "sw/ocr_regs.h",
+          "doc": "hdl/ocr_mib/docs/register_map.md",
+          "prefix": "OCR"
+        },
         "generics": [
           {
             "name": "DataWidth_g",
@@ -15698,6 +16915,22 @@
             "clock": "Clk",
             "label": "Interrupt",
             "tieOff": "open",
+            "irqRegisters": {
+              "enable": [
+                {
+                  "name": "IRQ_EN",
+                  "offset": 28
+                }
+              ],
+              "events": {
+                "name": "EVENTS",
+                "offset": 24
+              },
+              "status": {
+                "name": "IRQ_STATUS",
+                "offset": 32
+              }
+            },
             "signals": {
               "irq": "Irq"
             }
@@ -16377,6 +17610,11 @@
               "M_Out"
             ],
             "message": "The framer and the core share clock and reset; a reset of only one of them leaves contexts or messages without partner."
+          },
+          {
+            "kind": "generic_range",
+            "generic": "ChunkBytes_g",
+            "max": 65536
           }
         ],
         "init": [
@@ -16648,6 +17886,10 @@
             "description": "Element 0 the chunk buffer, element 1 the position FIFO.",
             "vector": "2",
             "tieOff": "open",
+            "memory": [
+              "chunk buffer",
+              "position FIFO"
+            ],
             "signals": {
               "sec": "Ecc_Sec",
               "ded": "Ecc_Ded"

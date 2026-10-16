@@ -329,8 +329,8 @@ def make_report(vectors, events, results, problems, wall) -> str:
     out = [f"spfi_encrypt system simulation: profile {vectors['profile']}, {vectors['packets']} Space Packets in "
            f"TC-RS-HW-06, seed {vectors['seed']}", ""]
     if ready is not None and link in times:
-        out.append(f"Far end out of reset at {ready / 1000:.1f} us, link initialised at {times[link] / 1000:.1f} us "
-                   "(simulated time)")
+        out.append(f"Transmitters of the far end ready at {ready / 1000:.1f} us, link initialised at "
+                   f"{times[link] / 1000:.1f} us (simulated time)")
     out += ["", f"{'Test case':<13} {'Result':<7} {'Simulated':>12} {'Wall clock':>12}"]
     verdict = {name: ("PASS" if error is None else "FAIL") for name, error in results}
     bounds = [(op["name"], op["line"]) for op in marks] + [("end", stop_line)]

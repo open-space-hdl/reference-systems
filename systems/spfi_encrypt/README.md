@@ -12,17 +12,11 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 
 | Item | Status |
 | --- | --- |
-| Composer file | present, core versions checked by `tools/check_pins.py`; the checks of the Composer report one warning, see [Open points](#open-points) |
+| Composer file | present, core versions checked by `tools/check_pins.py`; the checks of the Composer report no warning |
 | Generated top level (`hdl/`) | generated with the command line tool of the Composer (`tools/composer_ref.txt`); the CI checks that it is the export of the Composer file |
 | [System testbench](sim/README.md) (`sim/`) | all test cases of the hardware test pass against a far-end SpaceFibre node with the transceiver model in xsim (profile `sim`) |
 | [AMD VCK190 target](targets/vck190/README.md) | board top, constraints and build script; not built yet |
 | Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
-
-## Open points
-
-| Check of the Composer | Instance | Finding | Consequence |
-| --- | --- | --- | --- |
-| Warning `with_block` | `ofb0` with `pa0` | `ofb0` leaves its reset before the transceivers of `pa0` are ready, so the lane initialisation can start against a transmitter that is still in reset. The Composer cannot couple the lane reset of the adapter to the reset of the core yet. | The coupling follows with a version of OpenFibre in which `ofb_core` takes the ready state of the transmitters. In the system simulation the link initialises: the lanes of `ofb0` start when the lane clock of `pa0` runs, after the transmitters are ready. That order follows from the clock structure, not from a ready handshake. |
 
 ## Blocks
 
@@ -57,7 +51,9 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 
 `Rst` is the asynchronous, high-active reset of the system. `auto_rst_sys` releases it synchronously to `Clk_sys` for
 the blocks with a synchronous reset. `ofb0` and `pa0` take the asynchronous `Rst` directly: `ofb0` releases it with
-one reset generator per clock domain, `pa0` resets the transceivers and their reset controller with it.
+one reset generator per clock domain, `pa0` releases it with a reset generator in its free-running clock and resets
+the transceivers and their reset controller with it. `ofb0` holds its link in Near-End Reset until the transmitters of
+`pa0` are ready (`Stat_TxReady` of `pa0` to `Phy_TxReady` of `ofb0`).
 
 ## Top-level ports
 
