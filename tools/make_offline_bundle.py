@@ -11,9 +11,11 @@ that --ref records, and en_cl_fix.bundle, the submodule 3rdParty/en_cl_fix of Op
 orders of the systems list. The submodules of the cores themselves (their own open-logic and uvvm) serve the tests of
 the cores and are not needed. README.txt in <out dir> lists the commits and the commands to clone and build.
 
-Before it reports success, the script clones the bundles into a temporary directory with the commands of README.txt,
-with only file transports allowed, and checks every commit, the files of every compile order and the pins
-(tools/check_pins.py). The submodules in cores/ must be checked out at the recorded commits.
+Before it writes the bundles, the script checks the pins against the published repositories (tools/check_pins.py).
+Before it reports success, it clones the bundles into a temporary directory with the commands of README.txt, with
+only file transports allowed, and checks every commit, the files of every compile order and the pins against the
+tags that the bundles carry (tools/check_pins.py --offline, also with only file transports). The submodules in
+cores/ must be checked out at the recorded commits.
 """
 
 import argparse
@@ -92,10 +94,10 @@ def verify(out: Path, branch: str, ref_sha: str, links: dict[str, str], nested_s
                        if line.startswith("file ") and not ((repo / "cores" / line.split()[2]).exists()
                                                             or (order.parent / line.split()[2]).exists())]
             problems += [f"{order.name}: missing {m}" for m in missing]
-        pins = subprocess.run([sys.executable, "tools/check_pins.py"], cwd=repo, capture_output=True, text=True,
-                              check=False)
+        pins = subprocess.run([sys.executable, "tools/check_pins.py", "--offline"], cwd=repo, capture_output=True,
+                              text=True, env=env, check=False)
         if pins.returncode != 0:
-            problems.append(f"check_pins.py: {pins.stdout}{pins.stderr}")
+            problems.append(f"check_pins.py --offline: {pins.stdout}{pins.stderr}")
         if problems:
             raise SystemExit("The offline clone is not complete:\n  " + "\n  ".join(problems))
 
@@ -120,6 +122,11 @@ def main() -> int:
     if git("rev-parse", "HEAD", cwd=ROOT / NESTED[0] / NESTED[1]) != nested_sha:
         raise SystemExit(f"{NESTED[0]}/{NESTED[1]} is not checked out at {nested_sha}: git submodule update --init")
 
+    pins = subprocess.run([sys.executable, "tools/check_pins.py"], cwd=ROOT, capture_output=True, text=True,
+                          check=False)
+    if pins.returncode != 0:
+        raise SystemExit(f"check_pins.py against the published repositories failed:\n{pins.stdout}{pins.stderr}")
+
     bundle(ROOT, out / f"{REPO}.bundle", [args.ref])
     tags = {}
     for p, sha in links.items():
@@ -139,6 +146,9 @@ def main() -> int:
     lines += ["", "Clone (<path> is the directory of the bundles; git submodule status must show every commit without",
               "a leading - or +):", ""]
     lines += ["  " + c for c in clone_commands("<path>", args.ref, list(links))]
+    lines += ["", "Then check the pins against the tags that the bundles carry, without network access; the package",
+              "was written after the same check against the published repositories had passed:", "",
+              "  python tools/check_pins.py --offline"]
     lines += ["", "Build and hardware test: systems/<system>/targets/<board>/docs/hardware_test.md, sections 3 to 9.",
               "For spfi_encrypt on the VCK190 (from the repository root):", "",
               "  vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl", "",

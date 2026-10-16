@@ -11,8 +11,13 @@ For every system file systems/<system>/<system>.composer.json:
 
 Across the files: all systems pin the same commit of a repository (they share cores/), and every submodule in cores/
 is used by a system. Run it from any directory; it exits with 1 on a mismatch.
+
+The tags of Open Logic FT come from its published repository. With --offline they come from the checked-out
+submodule cores/open-logic-ft instead, without network access: for a computer that received the repository as Git
+bundles (tools/make_offline_bundle.py), whose bundle of Open Logic FT carries the tag of the system.
 """
 
+import argparse
 import configparser
 import subprocess
 import sys
@@ -40,11 +45,23 @@ def gitlink(path: str, cwd: Path = ROOT) -> str | None:
     return None
 
 
-def tag_commits(url: str) -> dict[str, str]:
+def remote_tags(url: str) -> dict[str, str]:
     """Tag -> commit of a remote repository (annotated tags peeled)."""
+    return parse_tags(git("ls-remote", "--tags", url))
+
+
+def local_tags(repo: Path) -> dict[str, str]:
+    """Tag -> commit of the tags of a local clone (annotated tags peeled), without network access."""
+    result = subprocess.run(["git", "show-ref", "--tags", "-d"], cwd=repo, capture_output=True, text=True, check=False)
+    return parse_tags(result.stdout)
+
+
+def parse_tags(listing: str) -> dict[str, str]:
+    """Tag -> commit from the lines `<commit> refs/tags/<name>` of ls-remote or show-ref -d; the peeled line
+    (`^{}`) of an annotated tag gives the commit."""
     tags: dict[str, str] = {}
-    for line in git("ls-remote", "--tags", url).splitlines():
-        sha, ref = line.split("\t")
+    for line in listing.splitlines():
+        sha, ref = line.split(maxsplit=1)
         name = ref.removeprefix("refs/tags/")
         if name.endswith("^{}"):
             tags[name.removesuffix("^{}")] = sha
@@ -54,6 +71,10 @@ def tag_commits(url: str) -> dict[str, str]:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--offline", action="store_true",
+                        help="read the tags of Open Logic FT from cores/open-logic-ft instead of its remote")
+    args = parser.parse_args()
     errors: list[str] = []
     modules = submodules()
     pinned: dict[str, tuple[str, str]] = {}  # submodule path -> (commit, system)
@@ -84,9 +105,22 @@ def main() -> int:
             errors.append(f"{rel_file}: exactly one source (Open Logic FT) must have a tag, found {len(olo)}")
             continue
         olo = olo[0]
-        tags = tag_commits(olo.url)
+        if args.offline:
+            where = olo.path.relative_to(ROOT).as_posix()
+            if not (olo.path / ".git").exists():
+                errors.append(f"{rel_file}: {where} is not checked out (git submodule update --init)")
+                continue
+            tags = local_tags(olo.path)
+        else:
+            where = olo.url
+            try:
+                tags = remote_tags(olo.url)
+            except subprocess.CalledProcessError:
+                errors.append(f"{rel_file}: the tags of {olo.url} cannot be read; on a computer without network "
+                              "access use --offline")
+                continue
         if tags.get(olo.tag) != olo.commit:
-            errors.append(f"{rel_file}: tag {olo.tag} of {olo.url} is {tags.get(olo.tag)}, the file pins {olo.commit}")
+            errors.append(f"{rel_file}: tag {olo.tag} of {where} is {tags.get(olo.tag)}, the file pins {olo.commit}")
 
         for src in srcs:
             if src is olo or src.tag:
@@ -95,7 +129,7 @@ def main() -> int:
                 errors.append(f"{rel_file}: {src.id} has no verifiedWith")
                 continue
             if src.verified_with not in tags:
-                errors.append(f"{rel_file}: {src.id} verifiedWith {src.verified_with} is not a tag of {olo.url}")
+                errors.append(f"{rel_file}: {src.id} verifiedWith {src.verified_with} is not a tag of {where}")
                 continue
             if version_key(src.verified_with) > version_key(olo.tag):
                 errors.append(f"{rel_file}: {src.id} was verified with {src.verified_with}, newer than {olo.tag}")
