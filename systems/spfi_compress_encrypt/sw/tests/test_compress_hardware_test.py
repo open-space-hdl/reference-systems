@@ -82,6 +82,20 @@ def test_lost_sdus_give_the_counter_steps_of_the_channel_specification():
     assert ctx.traffic.losses == 8
 
 
+def test_the_sim_profile_splits_the_cases_of_lost_sdus_over_the_channels():
+    m, ctx = model(), context(profile=ht.PROFILES["sim"])
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-08"]))
+    assert not any(results.values()), results
+    n, j = 8, 8 // 2 + 1
+    for port in range(4):
+        before, now = ctx.cleared[port], ctx.models[port].counts
+        steps = {k: getattr(now, k) - getattr(before, k) for k in vars(now)}
+        # case (a) on channels 0 and 2, case (b) on channels 1 and 3
+        discarded = n - j - 1 if port % 2 == 0 else n - 1
+        assert steps == {"images_done": 1, "images_aborted": 1, "sdu_errors": 1, "sdus_discarded": discarded}
+    assert ctx.traffic.losses == 4
+
+
 def test_the_system_facts_of_the_composer_file():
     assert [(c.port, c.compressor, c.framer, c.core, c.output_apid, c.end_mark) for c in LAB_SYSTEM.channels] == [
         (k, f"ocp{k}", f"frm{k}", f"ocr{k}", k, 0x01) for k in range(4)]

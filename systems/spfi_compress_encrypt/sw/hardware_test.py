@@ -68,14 +68,17 @@ EQUIPMENT_RATE = 20e6
 @dataclass(frozen=True)
 class Profile:
     """Size of a test run: TC-RS-HW-06 sends one image of every kind of kinds per channel, TC-RS-HW-09 stream images
-    per channel at once. The hardware test runs the lab profile, the system simulation the sim profile."""
+    per channel at once; TC-RS-HW-08 runs both cases of lost SDUs on every channel, or with split_lost case (a) on
+    the channels of even and case (b) on those of odd number. The hardware test runs the lab profile, the system
+    simulation the sim profile."""
 
     name: str
     kinds: tuple[str, ...]
     stream: int
+    split_lost: bool = False
 
 
-PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8), Profile("sim", ("scene",), 2))}
+PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8), Profile("sim", ("scene",), 2, split_lost=True))}
 
 
 @dataclass
@@ -387,17 +390,27 @@ def tc07_counters(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def lost_plan(ctx: Context, port: int, n: int) -> list[tuple[int, ...]]:
+    """The SDUs that TC-RS-HW-08 leaves out, per image of a channel with images of n SDUs (from 0): case (a) an image
+    without an SDU in its middle, then an intact image; case (b) an image without its last SDU, then two intact
+    images (the first SDU of the second one carries the Data Loss Indicator and completes the damaged image)."""
+    case_a, case_b = [(n // 2,), ()], [(n - 1,), (), ()]
+    if ctx.profile.split_lost:
+        return case_a if port % 2 == 0 else case_b
+    return case_a + case_b
+
+
 def tc08_lost_data(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-08: lost SDUs. Per channel: (a) an image without an SDU in its middle, then an intact image; (b) an
-    image without its last SDU, then two intact images. The Space Packet node flags the SDU after each gap; the
-    channel ends the damaged image with an error, discards the rest up to the next end mark and compresses the
-    following images normally. Images, chunks and counters equal the model of the channel."""
+    """TC-RS-HW-08: lost SDUs, both cases of lost_plan per channel (or one case per channel in a profile with
+    split_lost). The Space Packet node flags the SDU after each gap; the channel ends the damaged image with an error,
+    discards the rest up to the next end mark and compresses the following images normally. Images, chunks and
+    counters equal the model of the channel."""
     clear_status(regs, ctx)
     streams = {}
     for ch in ctx.system.channels:
         n = len(image_sdus(ctx, ch, [0] * ocp.samples_per_image(ch.cfg)))
         check(n >= 3, f"{ch.compressor}: an image of {n} SDUs is too short for the lost SDUs of TC-RS-HW-08")
-        plan = [(n // 2,), (), (n - 1,), (), ()]
+        plan = lost_plan(ctx, ch.port, n)
         sdus = []
         for lost in plan:
             sdus += image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images), lost)
