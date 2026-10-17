@@ -168,6 +168,22 @@ def test_an_aborted_image_is_the_start_of_the_model_output_of_the_samples_taken(
     assert ocp.aborted_problems(b"\xff" + good[1:], cfg, taken)[0].startswith("user_defined_data 255")
 
 
+@pytest.mark.skipif(not hasattr(ocp.ocp_model, "compress_aborted"), reason="the model gives no aborted image")
+@pytest.mark.parametrize("cfg", LAB_LIKE, ids=["bip", "bsq", "bil"])
+def test_the_aborted_image_is_the_compressed_image_of_the_samples_taken(cfg):
+    samples = ocp.input_order(cfg, ocp.test_image(cfg, "scene", 2))
+    taken = samples[:len(samples) // 3]
+    aborted = ocp.aborted_image(cfg, taken)
+    # the header of the complete image, a multiple of B bytes, and the codewords that every image with these first
+    # samples starts with
+    assert ocp.header_problems(aborted, cfg) == [] and len(aborted) % cfg["large_b"] == 0
+    assert ocp.aborted_problems(aborted, cfg, taken) == []
+    # the samples after those taken do not matter, and all samples give the compressed image of the image
+    other = ocp.ocp_model.compress_aborted(cfg, ocp.from_input_order(cfg, samples), len(taken))
+    assert other == aborted
+    assert ocp.aborted_image(cfg, samples) == ocp.compress(cfg, ocp.from_input_order(cfg, samples))
+
+
 # --- channel ----------------------------------------------------------------------------------------------------------
 # OpenSPP receive port: User Application in bits 21:14, Data Loss Indicator bit 12, receive buffer error bit 13
 MARKS = UserMarks(last_mask=0x3FC000, last_value=0x004000, error_mask=0x003000)

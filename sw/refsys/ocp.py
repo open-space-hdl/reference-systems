@@ -318,12 +318,27 @@ def header_problems(data: bytes, cfg: dict) -> list[str]:
     return fields or [f"header differs from byte {first} on"]
 
 
+def aborted_image(cfg: dict, taken: list[int]) -> bytes | None:
+    """The compressed image of an aborted image with these samples taken (in the input order): the header of the
+    complete image, the codewords of the samples taken with the end of the image of the entropy coder after the last
+    one, and the fill bits (compress_aborted of the model of OpenCompact, CO-FR-03). None with a version of
+    OpenCompact whose model does not give it; the bytes are then checked with aborted_problems."""
+    if not hasattr(ocp_model, "compress_aborted"):
+        return None
+    lo, _ = sample_range(cfg)
+    # the prediction is causal in the input order: the samples after those taken do not change the codewords
+    img = from_input_order(cfg, list(taken) + [lo] * (samples_per_image(cfg) - len(taken)))
+    return ocp_model.compress_aborted(cfg, img, len(taken))
+
+
 def aborted_problems(data: bytes, cfg: dict, taken: list[int]) -> list[str]:
-    """Differences between the compressed image of an aborted image and what the core may send for it (user guide
-    4.2, In_Last before the last sample): its header, the codewords already produced for the samples taken, which
-    are a prefix of the codewords of every image that starts with these samples, and at least one fill bit up to a
-    multiple of B bytes. The bytes before the last word are therefore those of the model for the samples taken,
-    completed with any samples."""
+    """Differences between the compressed image of an aborted image and what the core may send for it, where the
+    model of OpenCompact does not give the aborted image (aborted_image): its header and a length of a multiple of B
+    bytes up to that of the full image. With the sample-adaptive coder also the codewords already produced for the
+    samples taken, which are a prefix of the codewords of every image that starts with these samples: the bytes
+    before the last word are those of the model for the samples taken, completed with any samples. The hybrid coder
+    writes pending codewords of earlier samples at the end of an image and the block-adaptive coder the incomplete
+    block, so for them the bytes are not checked."""
     problems = header_problems(data, cfg)
     if problems:
         return problems
@@ -332,6 +347,8 @@ def aborted_problems(data: bytes, cfg: dict, taken: list[int]) -> list[str]:
     full = compress(cfg, from_input_order(cfg, list(taken) + [lo] * (samples_per_image(cfg) - len(taken))))
     if len(data) % b or len(data) < len(ocp_model.header(cfg)) or len(data) > len(full) + b:
         return [f"{len(data)} bytes: not a multiple of {b} bytes between the header and the full image"]
+    if cfg["entropy_coder_type"] != 0:
+        return []
     head = len(data) - b
     if data[:head] != full[:head]:
         first = next(i for i, (x, y) in enumerate(zip(data[:head], full)) if x != y)

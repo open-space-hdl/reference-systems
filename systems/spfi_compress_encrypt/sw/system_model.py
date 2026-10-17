@@ -56,6 +56,11 @@ class SystemModel(sysmodel.SystemModel):
         cfg = channel.cfg
         if output.complete:
             return ocp.compress(cfg, ocp.from_input_order(cfg, list(output.samples)))
+        aborted = ocp.aborted_image(cfg, list(output.samples))
+        if aborted is not None:
+            return aborted
+        # a model of OpenCompact without the aborted image: the header and the fill up to a multiple of B bytes, one
+        # of the lengths that ocp.aborted_problems accepts
         header = ocp.ocp_model.header(cfg)
         return header + bytes(cfg["large_b"] - len(header) % cfg["large_b"])
 

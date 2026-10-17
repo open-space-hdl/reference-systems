@@ -30,6 +30,9 @@ SDU_BYTES = 200
 
 
 SYSTEM = ht.System(dims=DIMS)
+# OpenCompact gives the compressed image of an aborted image (compress_aborted of its model): the test then compares
+# aborted images exactly and receives no packet until a channel is quiet
+EXACT_ABORT = hasattr(ocp.ocp_model, "compress_aborted")
 LAB = ht.PROFILES["lab"]
 
 
@@ -123,7 +126,8 @@ def test_a_fifo_of_two_space_packets_feeds_every_compressor():
     ("image", "TC-RS-HW-06", "compressed image 0: 1"),
     ("header", "TC-RS-HW-06", "user_defined_data 5, expected 0"),
     ("counter", "TC-RS-HW-07", "ocp1 IMAGES_DONE = 6, expected 5"),
-    ("loss", "TC-RS-HW-08", "ocp0 SDU_ERRORS = 0, expected 2"),
+    # without the Data Loss Indicator the first image goes on: its exact compressed image, or without it the counter
+    ("loss", "TC-RS-HW-08", "compressed image 0: " if EXACT_ABORT else "ocp0 SDU_ERRORS = 0, expected 2"),
     ("config", "TC-RS-HW-02", "ocp2 PREDICTOR"),
     ("corrupt", "TC-RS-HW-06", "tag does not authenticate"),
 ])
@@ -151,6 +155,19 @@ def test_procedure_detects_a_faulty_system(mutation, test, message):
         m.regs[SYSTEM.base("ocp2") + ht.OCP.PREDICTOR] ^= 1
     results = run(m, context(), ht.select_tests([test]))
     assert message in (results[test] or ""), results
+
+
+@pytest.mark.skipif(not EXACT_ABORT, reason="the model of OpenCompact gives no aborted image")
+def test_an_aborted_image_of_another_length_fails():
+    class Longer(sm.SystemModel):
+        def _image(self, channel, output):
+            data = super()._image(channel, output)
+            # one word of fill bits more than the core writes
+            return data if output.complete or channel.port != 1 else data + bytes(channel.cfg["large_b"])
+
+    m = Longer(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+    results = run(m, context(), ht.select_tests(["TC-RS-HW-08"]))
+    assert "APID 1: compressed image 0: " in (results["TC-RS-HW-08"] or ""), results
 
 
 def test_an_image_that_does_not_fit_tc08_is_reported():

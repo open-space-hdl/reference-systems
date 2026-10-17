@@ -10,7 +10,9 @@ seconds.
 import json
 from pathlib import Path
 
-from refsys import systest, sysvectors
+import pytest
+
+from refsys import ocp, systest, sysvectors
 
 HERE = Path(__file__).resolve().parent
 (vectors,) = systest.system_modules(HERE.parent, "vectors")
@@ -19,6 +21,9 @@ ht, sm = vectors.ht, vectors.sm
 SETUP = ht.Setup()
 SYSTEM = ht.System(dims=(16, 8, 6))           # 768 samples, 1536 bytes per image
 BENCH = vectors.make_bench(SYSTEM, sdu_bytes=200)
+# OpenCompact gives the compressed image of an aborted image: the procedure then knows every chunk in advance
+EXACT_ABORT = hasattr(ocp.ocp_model, "compress_aborted")
+QUIET = pytest.mark.skipif(EXACT_ABORT, reason="with exact aborted images the procedure never waits for quiet")
 
 
 def play(directory: Path, model=None, **kw) -> None:
@@ -49,6 +54,9 @@ def test_only_the_images_with_aborted_ones_are_received_until_the_channel_is_qui
     marks = [i for i, op in enumerate(ops) if op[0] == "mark"]
     tc08 = next(i for i in marks if ops[i][1] == "TC-RS-HW-08")
     quiet = [i for i, op in enumerate(ops) if op[0] == "quiet"]
+    if EXACT_ABORT:
+        assert quiet == []
+        return
     # the images of TC-RS-HW-08 have aborted ones, whose length the model does not give: after the chunks it knows,
     # the procedure receives on the channel of the Space Packets until it is quiet
     assert len(quiet) == 1 and tc08 < quiet[0] < next(m for m in marks if m > tc08)
@@ -63,6 +71,7 @@ def append_last_chunk(directory: Path) -> None:
     path.write_text("\n".join(rx + rx[-1:]) + "\n", encoding="utf-8")
 
 
+@QUIET
 def test_a_chunk_too_many_in_the_quiet_window_fails(tmp_path):
     sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-08"])
     play(tmp_path)
@@ -80,7 +89,7 @@ def test_a_chunk_too_many_in_the_quiet_window_fails(tmp_path):
     assert results((tmp_path / sysvectors.REPORT).read_text(encoding="utf-8"))["TC-RS-HW-08"] == "FAIL"
 
 
-def test_a_chunk_after_the_quiet_window_is_not_taken(tmp_path):
+def test_a_chunk_that_no_request_awaits_fails(tmp_path):
     sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-08"])
     play(tmp_path)
     append_last_chunk(tmp_path)
@@ -88,6 +97,7 @@ def test_a_chunk_after_the_quiet_window_is_not_taken(tmp_path):
     assert "packets that no request awaited" in (tmp_path / sysvectors.REPORT).read_text(encoding="utf-8")
 
 
+@QUIET
 def test_a_channel_that_does_not_become_quiet_fails(tmp_path):
     sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-08"])
     play(tmp_path)

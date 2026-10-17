@@ -219,11 +219,12 @@ def image_sdus(ctx: Context, ch: Channel, samples: list[int], lost: tuple[int, .
 
 
 def expected_image(ch: Channel, output: ocp.Output) -> bytes | None:
-    """The compressed image of an output of the channel: that of the model for a complete image, None for an aborted
-    one, whose bytes are checked with ocp.aborted_problems."""
+    """The compressed image of an output of the channel: that of the model for a complete image, for an aborted one
+    that of the samples taken (ocp.aborted_image), or None with a version of OpenCompact whose model does not give
+    it; the bytes of the aborted image are then checked with ocp.aborted_problems."""
     if output.complete:
         return ocp.compress(ch.cfg, ocp.from_input_order(ch.cfg, list(output.samples)))
-    return None
+    return ocp.aborted_image(ch.cfg, list(output.samples))
 
 
 def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) -> dict[int, list[bytes]]:
@@ -254,11 +255,11 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     aborted = sum(data is None for outs in images.values() for _, data in outs)
     size = sum(len(p) for p in packets) + s.chunk_bytes * (known + aborted)
     transport = regs.transport
-    # at least one chunk of every aborted image
+    # every chunk of the images that the model gives, and at least one chunk of every other aborted image
     received = transport.exchange(setup.spp_channel, packets, setup.spp_channel, known + aborted,
                                   timeout=10.0 + size / EQUIPMENT_RATE)
     if aborted:
-        # the model gives no length of an aborted image: its chunks arrive until the channel is quiet
+        # the model gives no length of these aborted images: their chunks arrive until the channel is quiet
         while (packet := transport.receive(setup.spp_channel, DRAIN_TIMEOUT)) is not None:
             received.append(packet)
     return check_images(ctx, received, images)
