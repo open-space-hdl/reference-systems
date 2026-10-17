@@ -108,6 +108,22 @@ def test_the_system_facts_of_the_composer_file():
     assert [ocp.samples_per_image(c.cfg) for c in SYSTEM.channels] == [768] * 4
 
 
+def test_register_banks_of_the_exported_header_match_the_system():
+    s, f = LAB_SYSTEM, SYSTEM_FILE
+    # bases: the windows of the AXI4-Lite decoder of the Composer file
+    assert s.windows == f.decoder_windows(f.instance_of_block("olo/olo_axi_lite_decoder"))
+    # identifications: the register map identifications of the pinned cores, so that a new version of a register map
+    # shows up here before the system is tested
+    core_ids = {s.node: systest.SPP.REGMAP_ID, s.rmap: systest.OMAP.REGMAP_ID, s.port: systest.OFB.REGMAP_ID}
+    core_ids |= {c.core: systest.OCR.REGMAP_ID for c in s.channels}
+    core_ids |= {c.compressor: ht.OCP.REGMAP_ID for c in s.channels}
+    assert s.ids == core_ids
+    # channels of the ECC monitor: the framers, then the compressors, then the FIFOs, as many as Channels_g
+    assert s.ecc_names == ([f"FRM{k}_ECC_{m}" for k in range(4) for m in range(2)] + [f"OCP{k}_ECC" for k in range(4)]
+                           + [f"RXF{k}_ECC" for k in range(4)])
+    assert s.ecc_channels == f.generic(s.ecc, "Channels_g") == 16
+
+
 def test_a_fifo_of_two_space_packets_feeds_every_compressor():
     # the receive buffer of spp0 is shared by all receive ports and delivers in order: without the FIFO, the next
     # Space Packet of any channel waits until the compressor of the previous one has taken it
