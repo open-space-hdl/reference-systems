@@ -15,7 +15,7 @@
 -- (rx_vc<n>.txt), and the simulated time of its events (events.txt). sim/vectors.py checks the
 -- records with the procedure of the hardware test. The physical adapter is the entity
 -- openfibre.ofb_pa_gty that the simulation compiles: the AMD GTY adapter with the transceiver model
--- or a pin-compatible model.
+-- (xsim) or its behavioural model, the architecture mdl (GHDL).
 --
 -- Documentation: systems/spfi_encrypt/sim/README.md
 
@@ -173,9 +173,12 @@ begin
     -----------------------------------------------------------------------------------------------
     -- Far end: physical adapter and SpaceFibre port
     -----------------------------------------------------------------------------------------------
+    -- ModelIdx_g: the control record of the behavioural model of the adapter (ignored by the GTY
+    -- adapter); the adapter of the system uses record 0
     i_far_pa : entity openfibre.ofb_pa_gty
         generic map (
-            NumLanes_g => NumLanes_g
+            NumLanes_g => NumLanes_g,
+            ModelIdx_g => 1
         )
         port map (
             FreeRunClk             => ClkSys,
