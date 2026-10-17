@@ -7,14 +7,18 @@
 # implementation and device image.
 #
 # Usage (from the repository root, with the submodules in cores/ checked out):
-#   vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <step>]
+#   vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs [<step>] [<refclk>]]
 #   <step>: project (create the project only), rtl (project and RTL elaboration of the design), synth, impl,
 #   all (default: all, device image included)
+#   <refclk>: source of the 156.25 MHz transceiver reference clock, which selects its pins
+#   (constr/spfi_encrypt_vck190_refclk_<refclk>.xdc): 8a34001 (default: clock generator 8A34001, output Q1, to
+#   MGTREFCLK1 of GTY quad 200) or si570 (oscillator Si570 through the clock buffer SI53340 to GTY_REFCLK0 of GTY
+#   quad 201). Both words are optional, in either order, for example -tclargs all si570.
 #
 # The results of a complete build go to <project>/results: the device image, the reports (timing summary,
 # utilisation, methodology, DRC), the constraints that do not apply (invalid_constraints.xdc) and build_info.txt
-# with the Vivado version and the commits of the repository and of its submodules. The step rtl writes
-# invalid_constraints.xdc of the elaborated design.
+# with the step, the reference clock and its pins, the Vivado version and the commits of the repository and of its
+# submodules. The step rtl writes invalid_constraints.xdc and build_info.txt of the elaborated design.
 #
 # The environment variable RS_VIVADO_OUT selects another project directory. On Windows the device image step
 # compiles the platform loader firmware in a deep directory below the project; with a project path of more than
@@ -39,8 +43,19 @@ if {$tcl_platform(platform) eq "windows" && [string length $out] > 40} {
     puts "WARNING: project path $out has more than 40 characters, write_device_image may fail on Windows (path\
         length limit); set RS_VIVADO_OUT to a short directory, for example C:/git/rs"
 }
-set step [expr {[llength $argv] > 0 ? [lindex $argv 0] : "all"}]
-if {$step ni {project rtl synth impl all}} { error "unknown step $step (project, rtl, synth, impl, all)" }
+# Arguments: the step and the source of the reference clock, plain words in either order
+set step all
+set refclk 8a34001
+foreach arg $argv {
+    if {$arg in {project rtl synth impl all}} {
+        set step $arg
+    } elseif {$arg in {8a34001 si570}} {
+        set refclk $arg
+    } else {
+        error "unknown argument $arg (step: project, rtl, synth, impl, all; reference clock: 8a34001, si570)"
+    }
+}
+puts "Step $step, reference clock $refclk"
 if {![string match 2025.2* [version -short]]} {
     puts "WARNING: the build is made for Vivado 2025.2, this is [version -short]"
 }
@@ -95,11 +110,12 @@ add_files -norecurse [make_wrapper -files $bd -top]
 close_bd_design [current_bd_design]
 set_property generic {IncludeCips_g=true} [current_fileset]
 
-# Constraints: board, timing exceptions of the system (scoped to its entity), Open Logic crossings (implementation
-# only). Only the constraints of the Open Logic area base are loaded: the scoped constraints of olo_intf_sync
-# constrain device pins, and the system uses olo_intf_sync for internal asynchronous signals only (the clock pair
-# constraints of the system cover them).
+# Constraints: board, pins of the selected reference clock, timing exceptions of the system (scoped to its entity),
+# Open Logic crossings (implementation only). Only the constraints of the Open Logic area base are loaded: the scoped
+# constraints of olo_intf_sync constrain device pins, and the system uses olo_intf_sync for internal asynchronous
+# signals only (the clock pair constraints of the system cover them).
 add_files -fileset constrs_1 -norecurse [file join $target_dir constr ${name}.xdc]
+add_files -fileset constrs_1 -norecurse [file join $target_dir constr ${name}_refclk_${refclk}.xdc]
 set system_xdc [file join $system_dir hdl ${system}.xdc]
 add_files -fileset constrs_1 -norecurse $system_xdc
 set_property SCOPED_TO_REF $system [get_files $system_xdc]
@@ -111,12 +127,35 @@ update_compile_order -fileset sources_1
 # Implementation: placement and routing explore several directives, physical optimization also after routing
 set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]
 
+# build_info.txt of the open design: the step, the reference clock with the pins of its ports in the design, the
+# Vivado version and the commits of the repository and of its submodules
+proc write_build_info {path} {
+    global name step refclk root
+    set fh [open $path w]
+    puts $fh "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
+    puts $fh "Vivado [version -short], part [get_property PART [current_project]]"
+    set pins {}
+    foreach port {GtRefClk_P GtRefClk_N} { lappend pins "$port [get_property PACKAGE_PIN [get_ports $port]]" }
+    puts $fh "reference clock $refclk: [join $pins {, }]"
+    if {[catch {exec git -C $root log -1 --format=%H} commit]} { set commit "unknown (git not available)" }
+    puts $fh "repository $commit"
+    if {![catch {exec git -C $root submodule status} status]} {
+        puts $fh "submodules:\n$status"
+    }
+    set nested [file join $root cores open-logic-ft]
+    if {![catch {exec git -C $nested submodule status 3rdParty/en_cl_fix} status]} {
+        puts $fh "cores/open-logic-ft/$status"
+    }
+    close $fh
+}
+
 if {$step eq "project"} { return }
 if {$step eq "rtl"} {
     synth_design -rtl -name rtl_1
     # Constraints that do not apply to the elaborated design: a dropped constraint shows up before a synthesis
     file mkdir $results
     write_xdc -force -constraints invalid [file join $results invalid_constraints.xdc]
+    write_build_info [file join $results build_info.txt]
     return
 }
 
@@ -146,17 +185,5 @@ write_xdc -force -constraints invalid [file join $results invalid_constraints.xd
 foreach pdi [glob -nocomplain [file join [get_property DIRECTORY [get_runs impl_1]] *.pdi]] {
     file copy -force $pdi $results
 }
-set fh [open [file join $results build_info.txt] w]
-puts $fh "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
-puts $fh "Vivado [version -short], part [get_property PART [current_project]]"
-if {[catch {exec git -C $root log -1 --format=%H} commit]} { set commit "unknown (git not available)" }
-puts $fh "repository $commit"
-if {![catch {exec git -C $root submodule status} status]} {
-    puts $fh "submodules:\n$status"
-}
-set nested [file join $root cores open-logic-ft]
-if {![catch {exec git -C $nested submodule status 3rdParty/en_cl_fix} status]} {
-    puts $fh "cores/open-logic-ft/$status"
-}
-close $fh
-puts "Results in $results"
+write_build_info [file join $results build_info.txt]
+puts "Results in $results (reference clock $refclk)"

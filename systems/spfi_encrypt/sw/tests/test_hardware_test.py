@@ -6,6 +6,7 @@ By default the model is the system as its cores specify it. The model of the pin
 
 import random
 import sys
+from collections import deque
 from pathlib import Path
 
 import pytest
@@ -14,6 +15,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 import hardware_test as ht  # noqa: E402
+from refsys import transport  # noqa: E402
+from refsys.transport import Transport, TransportError  # noqa: E402
 from system_model import SPECIFIED, SYSTEM, SYSTEM_FILE, SystemModel  # noqa: E402
 
 OLO_TAG = next(source["tag"] for source in SYSTEM_FILE.data["sources"] if source["id"] == "olo")
@@ -132,3 +135,95 @@ def test_register_banks_of_the_exported_header_match_the_system():
     channel = f"{SYSTEM.ecc.upper()}_CH_"
     values = sorted(v for n, v in ht.BANKS.constants().items() if n.startswith(channel))
     assert values == list(range(SYSTEM.ecc_channels))
+
+
+class Channels(Transport):
+    """The channels of the test equipment in front of the model: received packets wait in the order of their arrival
+    and a packet that no request takes stays for the next one, as in the receive buffer of a channel.
+
+    fault "chunks": the first exchange of several packets (TC-RS-HW-06) stops after half of them, as when its receive
+    times out, and the other half stays on the channel. fault "reply": the reply to the first command arrives after its
+    time-out and stays on the channel.
+    """
+
+    def __init__(self, fault: str | None = None):
+        self.model = SystemModel(ht.Setup())
+        self.waiting = {ht.Setup.rmap_channel: deque(), ht.Setup.spp_channel: deque()}
+        self.fault = fault
+
+    def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
+        queue = self.waiting[rx_channel]
+        queue.extend(self.model.exchange(tx_channel, packets, rx_channel, count, timeout))
+        if (self.fault == "chunks" and count > 1) or (self.fault == "reply" and rx_channel == ht.Setup.rmap_channel):
+            self.fault = None
+            for _ in range(count // 2):
+                queue.popleft()
+            raise TransportError(f"receive on channel {rx_channel} did not complete within {timeout} s")
+        return [queue.popleft() for _ in range(count)]
+
+    def receive(self, channel, timeout):
+        queue = self.waiting[channel]
+        return queue.popleft() if queue else None
+
+
+def lab_context(seed: int = 1):
+    return ht.make_context(seed=seed, packets=ht.PROFILES["lab"].packets)
+
+
+def aborted_run(fault: str) -> Channels:
+    """The channels after a run that stopped early and left packets on a channel."""
+    channels = Channels(fault)
+    results = ht.run(channels, lab_context())
+    assert results[-1][1] is not None and any(channels.waiting.values())
+    return channels
+
+
+def test_drain_reads_every_channel_until_it_is_empty(capsys):
+    channels = Channels()
+    channels.waiting[0].extend([b"\x01", b"\x02"])
+    channels.waiting[1].extend([b"\x03", b"\x04", b"\x05"])
+    assert ht.drain(channels, (0, 1)) == {0: 2, 1: 3}
+    assert not any(channels.waiting.values())
+    out = capsys.readouterr().out
+    assert "channel 0: 2 packets of an earlier run discarded" in out
+    assert "channel 1: 3 packets of an earlier run discarded" in out
+    assert ht.drain(channels, (0, 1)) == {0: 0, 1: 0}
+
+
+def test_drain_stops_at_a_channel_that_does_not_empty():
+    class Endless(Transport):
+        def receive(self, channel, timeout):
+            return b"\x00"
+
+    with pytest.raises(TransportError, match="channel 1 still delivers packets after 5 discarded ones"):
+        ht.drain(Endless(), (1,), limit=5)
+
+
+@pytest.mark.parametrize("fault", ["chunks", "reply"])
+def test_a_rerun_without_the_drain_fails_on_the_packets_of_the_aborted_run(fault):
+    channels = aborted_run(fault)
+    results = ht.run(channels, lab_context(seed=2))
+    assert any(error is not None for _, error in results)
+
+
+def test_a_rerun_with_the_same_seed_without_the_drain_passes_on_the_chunks_of_the_aborted_run():
+    # the aborted run sent the same chunks: the rerun checks them instead of its own, which stay on the channel
+    channels = aborted_run("chunks")
+    results = ht.run(channels, lab_context())
+    assert all(error is None for _, error in results) and channels.waiting[ht.Setup.spp_channel]
+
+
+@pytest.mark.parametrize("fault", ["chunks", "reply"])
+def test_the_script_drains_the_channels_before_the_first_test_case(fault, monkeypatch, capsys):
+    channels = aborted_run(fault)
+    left = {channel: len(queue) for channel, queue in channels.waiting.items()}
+    capsys.readouterr()
+    monkeypatch.setattr(transport, "StarSystemTransport", lambda name: channels)
+    monkeypatch.setattr(sys, "argv", ["hardware_test.py", "--device", "STAR-Ultra", "--seed", "1"])
+    assert ht.main() == 0
+    out = capsys.readouterr().out.splitlines()
+    assert out[:2] == [f"channel {channel}: {count} packets of an earlier run discarded"
+                       for channel, count in left.items()]
+    assert out[-1] == f"{len(ht.TESTS)} of {len(ht.TESTS)} test cases passed"
+    # every request of the run got its own reply: nothing is left on the channels
+    assert not any(channels.waiting.values())

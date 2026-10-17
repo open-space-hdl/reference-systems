@@ -26,6 +26,10 @@ class Transport:
         channel; reception is armed before the first packet leaves."""
         raise NotImplementedError
 
+    def receive(self, channel: int, timeout: float) -> bytes | None:
+        """Returns the next packet received on a channel, or None when none arrives within timeout."""
+        raise NotImplementedError
+
     def begin(self, name: str) -> None:
         """Marks the start of a test case; a simulation records the time at which it starts."""
 
@@ -66,7 +70,6 @@ class StarSystemTransport(Transport):
         receive = self._receive(count, receivePackets=True)
         # the whole packet is the content of the stream item, path address included (no separate address)
         transmit = self._transmit([self._stream_item.createPacket([], list(p), eop) for p in packets])
-        operations = [receive, transmit]
         try:
             self._channels[rx_channel].submitTransferOperation(receive)
             self._channels[tx_channel].submitTransferOperation(transmit)
@@ -76,11 +79,28 @@ class StarSystemTransport(Transport):
                     raise TransportError(f"{what} on channel {rx_channel if op is receive else tx_channel} did not "
                                          f"complete within {timeout} s ({status})")
         except BaseException:
-            # a pending operation would take the next packet of its channel
-            for op in operations:
-                try:
-                    op.cancelTransferOperation()
-                except Exception:  # noqa: BLE001 - best effort
-                    pass
+            self._cancel([receive, transmit])
             raise
         return [bytes(item.getPacketData()) for item in receive.getTransferItemList()]
+
+    def receive(self, channel, timeout):
+        receive = self._receive(1, receivePackets=True)
+        try:
+            self._channels[channel].submitTransferOperation(receive)
+            status = receive.waitOnTransferOperationCompletion(timeout=int(timeout * 1000))
+        except BaseException:
+            self._cancel([receive])
+            raise
+        if status != self._enums.STAR_TRANSFER_STATUS.STAR_TRANSFER_STATUS_COMPLETE:
+            self._cancel([receive])
+            return None
+        return bytes(receive.getTransferItemList()[0].getPacketData())
+
+    @staticmethod
+    def _cancel(operations) -> None:
+        # a pending operation would take the next packet of its channel
+        for op in operations:
+            try:
+                op.cancelTransferOperation()
+            except Exception:  # noqa: BLE001 - best effort
+                pass
