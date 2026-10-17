@@ -9,7 +9,10 @@ Usage: python tools/make_offline_bundle.py <out dir> [--ref main]
 Bundles: reference-systems.bundle (the branch --ref, default main), one bundle per submodule in cores/ at the commit
 that --ref records, and en_cl_fix.bundle, the submodule 3rdParty/en_cl_fix of Open Logic FT, whose files the compile
 orders of the systems list. The submodules of the cores themselves (their own open-logic and uvvm) serve the tests of
-the cores and are not needed. README.txt in <out dir> lists the commits and the commands to clone and build.
+the cores and are not needed. README.txt in <out dir> lists the commits and the commands to clone and build. The
+build commands of every board target are those of section 4 (Build) of its hardware test procedure
+(systems/<system>/targets/<board>/docs/hardware_test.md at --ref), with the text in front of them, so that README.txt
+and the procedure cannot differ.
 
 Before it writes the bundles, the script checks the pins against the published repositories (tools/check_pins.py).
 Before it reports success, it clones the bundles into a temporary directory with the commands of README.txt, with
@@ -20,14 +23,18 @@ cores/ must be checked out at the recorded commits.
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
+import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "reference-systems"
 NESTED = ("cores/open-logic-ft", "3rdParty/en_cl_fix", "en_cl_fix")   # submodule, its submodule, bundle name
+HARDWARE_TEST = re.compile(r"systems/([^/]+)/targets/([^/]+)/docs/hardware_test\.md")
+BUILD_SECTION = re.compile(r"^## 4\. Build\n(.*?)^```shell\n(.*?)^```$", re.M | re.S)
 
 
 def git(*args: str, cwd: Path = ROOT, env: dict | None = None) -> str:
@@ -63,6 +70,54 @@ def clone_commands(out: str, branch: str, submodules: list[str]) -> list[str]:
               f"git -C {NESTED[0]} config submodule.{NESTED[1]}.url {out}/{NESTED[2]}.bundle",
               f"git -C {NESTED[0]} -c protocol.file.allow=always submodule update --init {NESTED[1]}"]
     return lines
+
+
+def build_section(text: str, where: str) -> tuple[str, list[str]]:
+    """The text in front of the first command block of section 4 (Build) of a hardware test procedure, as one
+    paragraph without Markdown code marks, and the lines of that block."""
+    match = BUILD_SECTION.search(text)
+    if not match or "\n## " in match.group(1):
+        raise SystemExit(f"{where}: section 4 (Build) has no shell command block")
+    return " ".join(match.group(1).split()).replace("`", ""), match.group(2).splitlines()
+
+
+def build_lines(ref: str) -> list[str]:
+    """The build part of README.txt: per board target, section 4 of its hardware test procedure at ref."""
+    lines = []
+    for path in git("ls-tree", "-r", "--name-only", ref, "systems").splitlines():
+        target = HARDWARE_TEST.fullmatch(path)
+        if not target:
+            continue
+        intro, commands = build_section(git("show", f"{ref}:{path}"), f"{ref}:{path}")
+        lines += ["", f"{target.group(1)} on the {target.group(2).upper()} ({path}, section 4):", ""]
+        lines += textwrap.wrap(intro, 100, initial_indent="  ", subsequent_indent="  ")
+        lines += [""] + ["    " + c for c in commands]
+    if not lines:
+        raise SystemExit(f"no hardware test procedure in systems/ at {ref}")
+    return lines
+
+
+def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], nested_sha: str) -> str:
+    """README.txt of the package: the bundles with their commits, the commands to clone and to build."""
+    lines = [f"Open Space HDL reference systems, offline package: {REPO} {ref} {ref_sha[:12]}", "",
+             f"{REPO}.bundle".ljust(30) + f"repository open-space-hdl/{REPO}, branch {ref}"]
+    for p, sha in links.items():
+        tag = f" (tag {tags[p]})" if tags[p] else ""
+        lines.append(f"{Path(p).name}.bundle".ljust(30) + f"{p} at {sha[:12]}{tag}")
+    lines.append(f"{NESTED[2]}.bundle".ljust(30) + f"{NESTED[0]}/{NESTED[1]} at {nested_sha[:12]}")
+    lines += ["", "Clone (<path> is the directory of the bundles; git submodule status must show every commit without",
+              "a leading - or +):", ""]
+    lines += ["  " + c for c in clone_commands("<path>", ref, list(links))]
+    lines += ["", "Then check the pins against the tags that the bundles carry, without network access; the package",
+              "was written after the same check against the published repositories had passed:", "",
+              "  python tools/check_pins.py --offline"]
+    lines += ["", "Build and hardware test: systems/<system>/targets/<board>/docs/hardware_test.md, sections 3 to 9."]
+    lines += build_lines(ref)
+    lines += ["",
+              "On Windows keep the project path at most about 40 characters long, otherwise write_device_image fails",
+              "while it compiles the platform loader firmware: set RS_VIVADO_OUT to a short directory (for example",
+              "C:/git/rs) before starting Vivado. The results are written to <project>/results."]
+    return "\n".join(lines) + "\n"
 
 
 def verify(out: Path, branch: str, ref_sha: str, links: dict[str, str], nested_sha: str) -> None:
@@ -122,6 +177,7 @@ def main() -> int:
     if git("rev-parse", "HEAD", cwd=ROOT / NESTED[0] / NESTED[1]) != nested_sha:
         raise SystemExit(f"{NESTED[0]}/{NESTED[1]} is not checked out at {nested_sha}: git submodule update --init")
 
+    build_lines(args.ref)   # every hardware test procedure has its build commands
     pins = subprocess.run([sys.executable, "tools/check_pins.py"], cwd=ROOT, capture_output=True, text=True,
                           check=False)
     if pins.returncode != 0:
@@ -138,24 +194,7 @@ def main() -> int:
 
     verify(out, args.ref, ref_sha, links, nested_sha)
 
-    lines = [f"Open Space HDL reference systems, offline package: {REPO} {args.ref} {ref_sha[:12]}", "",
-             f"{REPO}.bundle".ljust(30) + f"repository open-space-hdl/{REPO}, branch {args.ref}"]
-    for p, sha in links.items():
-        lines.append(f"{Path(p).name}.bundle".ljust(30) + f"{p} at {sha[:12]}" + (f" (tag {tags[p]})" if tags[p] else ""))
-    lines.append(f"{NESTED[2]}.bundle".ljust(30) + f"{NESTED[0]}/{NESTED[1]} at {nested_sha[:12]}")
-    lines += ["", "Clone (<path> is the directory of the bundles; git submodule status must show every commit without",
-              "a leading - or +):", ""]
-    lines += ["  " + c for c in clone_commands("<path>", args.ref, list(links))]
-    lines += ["", "Then check the pins against the tags that the bundles carry, without network access; the package",
-              "was written after the same check against the published repositories had passed:", "",
-              "  python tools/check_pins.py --offline"]
-    lines += ["", "Build and hardware test: systems/<system>/targets/<board>/docs/hardware_test.md, sections 3 to 9.",
-              "For spfi_encrypt on the VCK190 (from the repository root):", "",
-              "  vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl", "",
-              "On Windows keep the project path at most about 40 characters long, otherwise write_device_image fails",
-              "while it compiles the platform loader firmware: set RS_VIVADO_OUT to a short directory (for example",
-              "C:/git/rs) before starting Vivado. The results are written to <project>/results."]
-    (out / "README.txt").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    (out / "README.txt").write_text(readme(args.ref, ref_sha, links, tags, nested_sha), encoding="utf-8")
     print(f"Bundles and README.txt in {out}; offline clone checked: {REPO} {ref_sha[:12]}, "
           f"{len(links)} submodules, {NESTED[2]}")
     return 0
