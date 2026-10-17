@@ -53,6 +53,7 @@ from refsys.systest import (  # noqa: E402, F401
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 SYSTEM_FILE = SYSTEM_DIR / "spfi_compress_encrypt.composer.json"
 BANKS_HEADER = SYSTEM_DIR / "hdl" / "spfi_compress_encrypt_regs.h"
+COMPRESSOR = "opencompact/ocp_channel"
 
 # The receive port of the Space Packet node delivers the User Application value of the CPTP packet in bits 21:14 of
 # its user signal and the Data Loss Indicator in bit 12 (OpenSPP user guide 4.2)
@@ -153,7 +154,11 @@ class System(systest.System):
         super().__init__(path, banks or RegisterMap(BANKS_HEADER, "SPFI_COMPRESS_ENCRYPT"))
 
     def channel(self, f: SystemFile, port: int) -> Channel:
+        # the receive port feeds the compressor through a FIFO (Open Logic, In to Out)
         compressor = instance_of(f.connection_from(f"{self.node}.M_Rx[{port}]")["to"])
+        compressors = f.instances_of(COMPRESSOR)
+        while compressor not in compressors:
+            compressor = instance_of(f.connection_from(f"{compressor}.Out")["to"])
         framer = instance_of(f.connection_from(f"{compressor}.Out")["to"])
         generics = f.generics(compressor)
         if self.dims:

@@ -13,9 +13,10 @@ of OpenCompact for the configuration of its channel, byte for byte.
 |  i_dut: spfi_compress_encrypt (hdl/)  i_far: refsys_tb.rs_far_end          |
 |  +------------------------+         +--------------+    +---------------+  |
 |  | ofb0 - pa0 (GTY)       |<------->| i_far_pa     |----| i_far_core    |  |
-|  | rmap0, spp0, ocp0..3,  |  lanes  | ofb_pa_gty   |    | ofb_core      |  |
-|  | frm0..3, ocr0..3       |         +--------------+    +-------+-------+  |
-|  +------------------------+                               VC 0, VC 1, MIB  |
+|  | rmap0, spp0, rxf0..3,  |  lanes  | ofb_pa_gty   |    | ofb_core      |  |
+|  | ocp0..3, frm0..3,      |         +--------------+    +-------+-------+  |
+|  | ocr0..3                |                               VC 0, VC 1, MIB  |
+|  +------------------------+                                                |
 |  sequencer:  stimulus.txt -> virtual channels and MIB of the far end       |
 |  receivers:  virtual channels of the far end -> rx_vc<n>.txt, events.txt   |
 |  RefClk 156.25 MHz and Clk_sys 200 MHz feed both ends                      |

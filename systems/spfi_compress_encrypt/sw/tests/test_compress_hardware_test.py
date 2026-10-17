@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from refsys import ocp, systest
-from refsys.composer import SystemFile
+from refsys.composer import SystemFile, instance_of
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
 
@@ -89,6 +89,20 @@ def test_the_system_facts_of_the_composer_file():
     assert all(LAB_SYSTEM.ids[f"ocp{k}"] == ht.OCP.REGMAP_ID for k in range(4))
     assert all(c.marks == ocp.UserMarks(0x3FC000, 0x004000, 0x003000) for c in LAB_SYSTEM.channels)
     assert [ocp.samples_per_image(c.cfg) for c in SYSTEM.channels] == [768] * 4
+
+
+def test_a_fifo_of_two_space_packets_feeds_every_compressor():
+    # the receive buffer of spp0 is shared by all receive ports and delivers in order: without the FIFO, the next
+    # Space Packet of any channel waits until the compressor of the previous one has taken it
+    f = SYSTEM_FILE
+    for k in range(4):
+        fifo = instance_of(f.connection_from(f"spp0.M_Rx[{k}]")["to"])
+        assert fifo in f.instances_of("olo/olo_ft_fifo_sync")
+        assert instance_of(f.connection_from(f"{fifo}.Out")["to"]) == f"ocp{k}"
+        beat = f.generic(f"ocp{k}", "InStreamWidth_g") // 8
+        assert f.generic(fifo, "Depth_g") * beat >= 2 * LAB_SYSTEM.rx_buffer_bytes
+        # the FIFO carries the data, the byte enables, the last flag and the user signal of the SDUs
+        assert f.generic(fifo, "Width_g") == 8 * beat + beat + 1 + f.generic(f"ocp{k}", "UserWidth_g")
 
 
 @pytest.mark.parametrize("mutation, test, message", [

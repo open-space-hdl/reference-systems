@@ -24,19 +24,20 @@ RMAP node, Space Packet node, framers and AES-GCM cores are those of spfi_encryp
 | Instance | Entity | Function |
 | --- | --- | --- |
 | `pa0`, `ofb0`, `nchar0`, `rmap0`, `spp0` | as in spfi_encrypt | GTY physical adapter, SpaceFibre port with 4 lanes and 2 virtual channels, N-Char bridge and RMAP target on virtual channel 0, Space Packet node on virtual channel 1 with 4 send and 4 receive ports |
+| `rxf0` to `rxf3` | `olo.olo_ft_fifo_sync` | FIFO in front of every compressor: two of the longest Space Packets of the receive buffer of `spp0` (1024 words of 167 bits: data, byte enables, last flag and user signal of the SDUs), memory protected by SECDED |
 | `ocp0` to `ocp3` | `opencompact.ocp_channel` | OpenCompact channel: input adapter (SDUs to samples, end mark, faulty SDUs), CCSDS 123.0-B-2 compressor (`ocp_core`), output adapter and a read-only status interface (configuration, image and SDU counters, memory errors) |
 | `frm0` to `frm3` | `opencrypto.ocr_framer` | Cuts every compressed image into chunks of 4096 bytes and creates one encryption per chunk |
 | `ocr0` to `ocr3` | `opencrypto.ocr_core` | AES-GCM cores, 128-bit data path, one per channel |
 | `dec0` | `olo.olo_axi_lite_decoder` | Splits the AXI4-Lite master of `rmap0` into the register windows |
-| `edac0` | `olo.olo_ft_ecc_monitor_axi` | Counts the corrected and uncorrectable errors of the memories of the framers (channels 0 to 7, as in spfi_encrypt) and of the compressors (channels 8 to 11) |
+| `edac0` | `olo.olo_ft_ecc_monitor_axi` | Counts the corrected and uncorrectable errors of the memories of the framers (channels 0 to 7, as in spfi_encrypt), of the compressors (channels 8 to 11) and of the FIFOs (channels 12 to 15) |
 
 ## Data paths
 
 - **RMAP:** virtual channel 0 of `ofb0` ↔ `nchar0` ↔ `rmap0`, as in spfi_encrypt.
-- **Channel i (i = 0 to 3):** virtual channel 1 of `ofb0` → `spp0` receive port i → `ocp<i>` → `frm<i>` → `ocr<i>` →
-  `spp0` send port i with APID i → virtual channel 1. The receive APID table of `spp0` selects the channel of a
-  received Space Packet. The AES-GCM core of a channel needs a loaded key slot with generated IVs before the first
-  image.
+- **Channel i (i = 0 to 3):** virtual channel 1 of `ofb0` → `spp0` receive port i → `rxf<i>` → `ocp<i>` → `frm<i>` →
+  `ocr<i>` → `spp0` send port i with APID i → virtual channel 1. The receive APID table of `spp0` selects the channel
+  of a received Space Packet. The AES-GCM core of a channel needs a loaded key slot with generated IVs before the
+  first image.
 
 ## Images on the link
 
@@ -83,6 +84,28 @@ bytes of data) 48 times and 288 bytes.
 
 All four use an output word size of 4 bytes and image framing by the end mark. The parameters are generics of the
 compressors: one device image has one configuration per channel.
+
+## Throughput
+
+The four compressors run in parallel, each at one sample per clock cycle in the lab configurations (OpenCompact,
+`tools/ocp_throughput.py`: 196,608 cycles per image of 64 x 64 x 48 samples): 2 bytes of samples per cycle and
+channel, 400 MB/s at 200 MHz, 1.6 GB/s for the four channels. The compressors, not the link, limit the input: the
+four lanes of `ofb0` carry 20 Gbit/s of 8B/10B data (6.25 Gbit/s per lane), the receive path of `spp0` 16 bytes per
+cycle.
+
+The receive buffer of `spp0` (8192 bytes) is shared by all receive ports and delivers the Space Packets in the order
+in which they arrived (OpenSPP user guide, generics `RxBufferBytes_g`): a packet leaves the buffer only after the
+packet before it, of any channel, has been taken. Without the FIFOs the channels would take turns: one SDU of 8186
+bytes fills the buffer, and the next SDU, of any channel, would wait until the compressor of the previous one had
+taken it (4093 cycles, 20.5 us), so the system would compress at the rate of one channel. `rxf<i>` takes the SDUs of
+its channel at the rate of the receive port and holds two of them, so the buffer of `spp0` empties at the rate of the
+link while the compressors work.
+
+What remains: when the FIFO of one channel is full, because its compressor is two SDUs behind, the next Space Packet
+of that channel stays in the buffer of `spp0` and holds back the packets of all channels behind it until the
+compressor has taken one SDU. A sender that interleaves the channels evenly, as the hardware test does, keeps the
+FIFOs from filling up, since all four compressors take one sample per cycle; a channel that receives more than its
+share slows the others down to its own rate.
 
 ## Clocks and reset
 
