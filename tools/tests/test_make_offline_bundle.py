@@ -46,9 +46,11 @@ def test_readme_shows_both_build_commands_after_the_clock_check():
 def test_readme_build_commands_are_the_block_of_section_4():
     block = section_4_commands(mob.git("show", f"HEAD:{DOC}"))
     lines = readme().splitlines()
-    start = lines.index("    " + block[0])
+    # every system has its part; that of spfi_encrypt starts with its heading
+    title = f"spfi_encrypt on the VCK190 ({DOC}, section 4)"
+    heading = next(i for i, line in enumerate(lines) if line.startswith(title))
+    start = lines.index("    " + block[0], heading)
     assert lines[start:start + len(block)] == ["    " + c for c in block]
-    assert any(line.startswith(f"spfi_encrypt on the VCK190 ({DOC}, section 4)") for line in lines)
 
 
 def test_a_procedure_without_build_commands_stops_the_package():
