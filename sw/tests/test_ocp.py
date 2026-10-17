@@ -1,12 +1,15 @@
 """Unit tests of refsys.ocp: the model configuration from the generics of ocp_core, the test images, the samples as
-bytes, the header check and the model of an OpenCompact channel against the error cases of its specification."""
+bytes, the header check, the model of an OpenCompact channel against the error cases of its specification and the
+words of its status interface."""
 
 import copy
+import json
 
 import pytest
 
 from refsys import ocp
 from refsys.ocp import Channel, Counts, UserMarks
+from refsys.regs import RegisterMap
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
 import ocp_generics  # noqa: E402
@@ -271,3 +274,23 @@ def test_end_mark_too_early_and_missing():
     assert [(o.complete, o.error) for o in images] == [(True, True), (True, False)]
     assert images[1].samples == samples_of(2, range(1, 6))
     assert counts == Counts(images_done=1, images_aborted=1)
+
+
+# --- status interface -----------------------------------------------------------------------------------------------
+OCP_REGS = RegisterMap(ocp.TOOLS.parent / "sw" / "ocp_regs.h", "OCP")
+MIB_WORDS = json.loads((ocp.TOOLS / "ocp_mib_words.json").read_text(encoding="utf-8"))
+
+
+def test_the_mib_words_cover_every_configuration():
+    assert sorted(MIB_WORDS) == sorted(ocp_configs.ALL)
+
+
+@pytest.mark.parametrize("name", sorted(MIB_WORDS))
+def test_mib_words_are_those_that_the_opencompact_testbench_reads(name):
+    # the file lists the generics that the words depend on; the others (error limits, tables) come from the
+    # configuration
+    entry = MIB_WORDS[name]
+    generics = ocp_generics.generics(ocp_configs.ALL[name]) | entry["generics"]
+    expected = {register: int(word, 16) for register, word in entry["words"].items()}
+    assert expected.pop("ID") == OCP_REGS.REGMAP_ID
+    assert ocp.mib_words(OCP_REGS, generics) == expected

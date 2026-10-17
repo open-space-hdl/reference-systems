@@ -480,15 +480,16 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
     periodic = cfg["periodic_updating_flag"] and cfg["quantizer_fidelity_control_method"] != 0
     custom = cfg["weight_initialization_method"]
     words = {
-        "GENERICS": word("GENERICS", IN_BYTES=g["InStreamWidth_g"] // 8, OUT_BYTES=g["OutStreamWidth_g"] // 8,
-                         CORE_BYTES=g["OutWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
+        "GENERICS": word("GENERICS", IN_STREAM_BYTES=g["InStreamWidth_g"] // 8,
+                         OUT_STREAM_BYTES=g["OutStreamWidth_g"] // 8,
+                         OUT_BYTES=g["OutWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
                          SPECULATION=flag(g["Speculation_g"])),
         "IMAGE_X": word("IMAGE_X", SIZE=cfg["large_n_x"]),
         "IMAGE_Y": word("IMAGE_Y", SIZE=cfg["large_n_y"]),
         "IMAGE_Z": word("IMAGE_Z", SIZE=cfg["large_n_z"]),
         "SAMPLES": word("SAMPLES", USER_DATA=cfg["user_defined_data"], SIGNED=cfg["sample_type"],
                         DYNAMIC_RANGE=cfg["large_d"]),
-        "ORDER": word("ORDER", SUB_FRAME_DEPTH=cfg["large_m"], BSQ=cfg["sample_encoding_order"]),
+        "ORDER": word("ORDER", SUB_FRAME_DEPTH=cfg["large_m"], ENCODING=cfg["sample_encoding_order"]),
         "CODER": word("CODER", SUP_TABLES=len(cfg["supplementary_information_tables"]),
                       FIDELITY=cfg["quantizer_fidelity_control_method"], ENTROPY_CODER=coder,
                       OUTPUT_WORD_SIZE=cfg["large_b"]),
