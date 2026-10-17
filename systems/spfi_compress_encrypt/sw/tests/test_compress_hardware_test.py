@@ -26,9 +26,10 @@ SPFI_FILE = SystemFile(SPFI / "spfi_encrypt.composer.json")
 # The families of the lab configurations, one per channel (BIP sample-adaptive, BSQ, BIP block-adaptive, BIL
 # near-lossless hybrid)
 FAMILIES = ("c01_lossless_bip", "c25_tp_bsq_lossless", "c27_tp_bip_full", "c26_tp_bil_near_abs")
-CHANNEL_GENERICS = {"InWidth_g": 128, "OutWidth_g": 128, "CoreWidth_g": 32, "UserWidth_g": 22,
-                    "UserLastMask_g": 'x"3FC000"', "UserLastValue_g": 'x"004000"', "UserErrorMask_g": 'x"003000"',
-                    "Speculation_g": True, "RamStyle_g": "auto"}
+# the generics of ocp_channel beyond those of ocp_core (OutWidth_g is the word width of the core)
+CHANNEL_GENERICS = {"InStreamWidth_g": 128, "OutStreamWidth_g": 128, "OutWidth_g": 32, "UserWidth_g": 22,
+                    "UserLastMask_g": '22x"3FC000"', "UserLastValue_g": '22x"004000"',
+                    "UserErrorMask_g": '22x"003000"', "Speculation_g": True, "RamStyle_g": "auto"}
 DIMS = (16, 8, 6)            # 768 samples, 1536 bytes: 8 SDUs of at most 200 bytes
 SDU_BYTES = 200
 
@@ -150,13 +151,18 @@ def test_channels_that_the_test_cannot_drive_are_rejected():
     with pytest.raises(ValueError, match="error limit stream"):
         ht.make_channel(0, "ocp0", periodic, enc)
     with pytest.raises(ValueError, match="User Application"):
-        ht.make_channel(0, "ocp0", lab_generics(FAMILIES[0]) | {"UserLastMask_g": 'x"000001"'}, enc)
+        ht.make_channel(0, "ocp0", lab_generics(FAMILIES[0]) | {"UserLastMask_g": '22x"000001"'}, enc)
 
 
-@pytest.mark.parametrize("value, expected", [('x"3FC000"', 0x3FC000), ('X"00_4000"', 0x4000), ('"0110"', 6),
-                                             ("1", 1), (12, 12)])
+@pytest.mark.parametrize("value, expected", [('22x"3FC000"', 0x3FC000), ('x"3FC000"', 0x3FC000),
+                                             ('X"00_4000"', 0x4000), ('b"0110"', 6), ('"0110"', 6), ("1", 1),
+                                             (12, 12), ('4x"1F"', None), ('x"3G"', None)])
 def test_logic_vector_generics(value, expected):
-    assert ht.logic_vector(value) == expected
+    if expected is None:
+        with pytest.raises(ValueError):
+            ht.logic_vector(value)
+    else:
+        assert ht.logic_vector(value) == expected
 
 
 def test_a_selected_test_case_brings_those_it_builds_on():

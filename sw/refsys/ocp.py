@@ -480,8 +480,8 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
     periodic = cfg["periodic_updating_flag"] and cfg["quantizer_fidelity_control_method"] != 0
     custom = cfg["weight_initialization_method"]
     words = {
-        "GENERICS": word("GENERICS", IN_BYTES=g["InWidth_g"] // 8, OUT_BYTES=g["OutWidth_g"] // 8,
-                         CORE_BYTES=g["CoreWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
+        "GENERICS": word("GENERICS", IN_BYTES=g["InStreamWidth_g"] // 8, OUT_BYTES=g["OutStreamWidth_g"] // 8,
+                         CORE_BYTES=g["OutWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
                          SPECULATION=flag(g["Speculation_g"])),
         "IMAGE_X": word("IMAGE_X", SIZE=cfg["large_n_x"]),
         "IMAGE_Y": word("IMAGE_Y", SIZE=cfg["large_n_y"]),

@@ -32,6 +32,7 @@ Exit code 0 when every test case passes.
 import copy
 import itertools
 import random
+import re
 import sys
 import time
 from dataclasses import dataclass, field
@@ -98,14 +99,23 @@ class Channel:
         return self.marks.last_value >> USER_APPLICATION_SHIFT
 
 
+_BIT_STRING = re.compile(r'^(\d*)([bBxX]?)"([0-9A-Fa-f_]+)"$')
+
+
 def logic_vector(value) -> int:
-    """The value of a std_logic_vector generic: an integer, a hexadecimal literal x"3FC000" or a binary string."""
+    """The value of a std_logic_vector generic: an integer, a bit string literal with or without a length
+    (22x"3FC000", x"3FC000", b"0110") or a string of bits ("0110")."""
     if isinstance(value, int):
         return value
     text = str(value).strip()
-    if text[:2].lower() == 'x"' and text.endswith('"'):
-        return int(text[2:-1].replace("_", ""), 16)
-    return int(text.strip('"').replace("_", ""), 2)
+    m = _BIT_STRING.match(text if text.endswith('"') else f'"{text}"')
+    if not m:
+        raise ValueError(f"std_logic_vector generic {value!r}")
+    width, base, digits = m[1], m[2].lower() or "b", m[3].replace("_", "")
+    number = int(digits, 16 if base == "x" else 2)
+    if width and number >> int(width):
+        raise ValueError(f"std_logic_vector generic {value!r} does not fit into {width} bits")
+    return number
 
 
 def make_channel(port: int, compressor: str, generics: dict, encryption: dict) -> Channel:
@@ -130,7 +140,7 @@ class System(systest.System):
 
     def channel(self, f: SystemFile, port: int) -> Channel:
         compressor = instance_of(f.connection_from(f"{self.node}.M_Rx[{port}]")["to"])
-        framer = instance_of(f.connection_from(f"{compressor}.M_Out")["to"])
+        framer = instance_of(f.connection_from(f"{compressor}.Out")["to"])
         return make_channel(port, compressor, f.generics(compressor), systest.encryption(f, framer))
 
     def id_offsets(self) -> dict[str, int]:
