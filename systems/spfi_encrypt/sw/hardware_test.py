@@ -15,6 +15,8 @@ the header that the Composer exports with the top level (hdl/spfi_encrypt_regs.h
 port, framer, AES-GCM core, send port with its APID) and the key slots from the Composer file of the system, the
 register maps from the headers of the cores. The set-up and the procedure are described with the board target.
 
+Before the first test case the script discards the packets that an earlier run left on both channels (drain).
+
 Usage: python systems/spfi_encrypt/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
        [--packets N] [--test TC-RS-HW-nn ...]
 Exit code 0 when every test case passes.
@@ -35,6 +37,7 @@ from refsys import chunks, rmap  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
+from refsys.transport import TransportError  # noqa: E402
 
 CORES = ROOT / "cores"
 SPP = RegisterMap(CORES / "openspp" / "sw" / "spp_regs.h", "SPP")
@@ -49,6 +52,11 @@ EDAC_INFO, EDAC_IRQ_ENA, EDAC_CNT = 0x00, 0x0C, 0x10
 
 LANE_ACTIVE = 7           # LANE_STATUS.STATE of an active lane (OpenFibre register map)
 LINK_INITIALISED = 3      # DL_STATUS.LINK_STATE of an initialised link
+
+# Packets left on the channels by an earlier run: a channel is empty when no packet arrives within DRAIN_TIMEOUT
+# seconds; one that still delivers after DRAIN_LIMIT packets does not empty
+DRAIN_TIMEOUT = 0.5
+DRAIN_LIMIT = 10000
 
 # Registers of the AES-GCM core that the test accesses with one command each
 OCR_INFO = ("ID", "GENERICS", "GENERICS2", "RELEASE_BYTES")
@@ -478,6 +486,23 @@ def run(transport, ctx: Context, tests: list | None = None,
     return results
 
 
+def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,
+          limit: int = DRAIN_LIMIT) -> dict[int, int]:
+    """Reads every channel until no packet arrives within timeout and discards what it reads: a run that stopped
+    early, for example in TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would
+    otherwise take for its own. Prints and returns the number of discarded packets per channel."""
+    counts = {}
+    for channel in channels:
+        count = 0
+        while transport.receive(channel, timeout) is not None:
+            count += 1
+            if count >= limit:
+                raise TransportError(f"channel {channel} still delivers packets after {count} discarded ones")
+        print(f"channel {channel}: {count} packets of an earlier run discarded")
+        counts[channel] = count
+    return counts
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
@@ -492,6 +517,7 @@ def main() -> int:
     ctx = make_context(args.seed, args.packets or PROFILES[args.profile].packets)
     tests = select_tests(args.test)
     with StarSystemTransport(args.device) as transport:
+        drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
         results = run(transport, ctx, tests)
     return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
 

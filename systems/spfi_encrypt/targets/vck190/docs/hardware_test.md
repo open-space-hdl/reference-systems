@@ -50,23 +50,31 @@ needed.
 
 ## 4. Build
 
-From the root of the repository:
+The transceiver reference clock has two sources on the board, and the device image fixes the pins it takes the clock
+from. Confirm the reference clock on the board first (section 5, step 2), then build the image of that source only,
+from the root of the repository:
 
 ```shell
+# Option A: clock generator 8A34001, output Q1 (default)
 vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl
+# Option B: oscillator Si570 U205
+vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570
 ```
 
 The elaboration alone takes about 6 GB of memory.
 
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
-board top level and the constraints, and runs synthesis, implementation and the device image. `-tclargs rtl` only
-creates the project and elaborates the design, a check of the sources in about ten minutes; it writes
-`results/invalid_constraints.xdc` of the elaborated design, so that a constraint that does not apply shows up before
-a synthesis. In this step the transceiver wizard instance is a black box, so its clocks and constraints are missing:
-the critical warning Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at
-`i_pa0/LaneClk`) are expected there, and `invalid_constraints.xdc` lists the location of the GTY quad and the two
-maximum delays between the lane clock and `Clk_sys`. `Rst` of the system has no false path of its own: every block
+board top level and the constraints, and runs synthesis, implementation and the device image. The pins of the
+reference clock come from `constr/spfi_encrypt_vck190_refclk_8a34001.xdc` or
+`constr/spfi_encrypt_vck190_refclk_si570.xdc`; the frequency (156.25 MHz), the transceiver wizard instance and the
+clock constraint are the same for both sources. `-tclargs rtl` (or `-tclargs rtl si570`) only creates the project and
+elaborates the design, a check of the sources in about ten minutes; it writes `results/invalid_constraints.xdc` of the
+elaborated design, so that a constraint that does not apply shows up before a synthesis, and
+`results/build_info.txt`. In this step the transceiver wizard instance is a black box, so its clocks and constraints
+are missing: the critical warning Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no
+clock at `i_pa0/LaneClk`) are expected there, and `invalid_constraints.xdc` lists the location of the GTY quad and the
+two maximum delays between the lane clock and `Clk_sys`. `Rst` of the system has no false path of its own: every block
 that receives it releases it through `olo_base_reset_gen`, whose scoped constraints cut the paths into its
 synchronisers.
 
@@ -85,19 +93,32 @@ The script writes the results to `results/` in the project directory:
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
 | `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers |
 | `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
-| `build_info.txt` | Vivado version, part, commits of the repository and of its submodules | The commits of the offline package or of the clone |
+| `build_info.txt` | Step, Vivado version, part, the reference clock with the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The reference clock confirmed in section 5 (`8a34001`: AD11, AD10; `si570`: AB11, AB10); the commits of the offline package or of the clone |
 
 Expected messages: Vivado 12-4739 from the scoped constraints of `olo_base_ram_sdp` (retimed registers), TIMING-9 and
 LUTAR-1 in the transceiver wizard and at the reset generators.
 
 ## 5. Board set-up
 
-1. Boot mode switch SW1 to JTAG (VCK190 user guide UG1366).
-2. Reference clock: program the clock generator 8A34001 (U219) so that its output Q1, which drives MGTREFCLK1 of GTY
-   quad 200, runs at 156.25 MHz, with the clock tool of the board's system controller (UG1366).
+1. Boot mode switch SW1 to JTAG (VCK190 Evaluation Board User Guide UG1366 v1.1).
+2. Reference clock, before the build (section 4): the transceivers need 156.25 MHz at the pins of the device image.
+   With the board powered, check the clock in the System Controller of the board, with its board user interface
+   (Board Evaluation and Management Tool) or its command line, over the USB-UART connector J207 (UG1366, section
+   "System Controller"). Use one of two options and build only the image of the option whose clock is confirmed:
+
+   | Item | Option A (default image) | Option B (image `si570`) |
+   | --- | --- | --- |
+   | Source | Clock generator 8A34001 (U219), output Q1 (UG1366, section "GTY200: QSFP1") | Programmable oscillator Si570 (U205, USER_SI570_1) through the clock buffer SI53340 (U206), output Q0 (UG1366, section "Programmable FMCP MGT SI570 Clock with Buffer") |
+   | Pins of the device | MGTREFCLK1 of GTY quad 200: AD11, AD10 | GTY_REFCLK0 of GTY quad 201: AB11, AB10; the transceivers of quad 200 use this reference clock of the adjacent quad |
+   | Setting | The 8A34001 is programmed with configuration files, not with a frequency value, and the frequency of Q1 is not documented: load a configuration whose output Q1 runs at 156.25 MHz | Header J306 off (default: the clock buffer passes the Si570); set the Si570 to 156.250 MHz (default 100.000 MHz) |
+   | Read-back | Read the setting of the 8A34001 back in the System Controller and record what it gives for Q1; if Q1 cannot be confirmed at 156.25 MHz, use option B | Read the frequency of the Si570 back in the System Controller and record it |
+
+   A power cycle sets the Si570 back to 100.000 MHz: set it to 156.250 MHz again before the device is programmed.
+   After every change of the reference clock, program the device again (step 4).
 3. Connect QSFP1 of the VCK190 to port 1 of the STAR-Ultra. Lane i of the system must reach lane i of the far end;
    the system detects inverted receive polarity per lane itself.
-4. Program the device image (Vivado Hardware Manager). LED 0 blinks (about 0.7 s on, 0.7 s off) and LED 1 is on.
+4. Program the device image of the confirmed option (Vivado Hardware Manager); `results/build_info.txt` names its
+   reference clock. LED 0 blinks (about 0.7 s on, 0.7 s off) and LED 1 is on.
 
 ## 6. Far-end configuration
 
@@ -105,13 +126,14 @@ LUTAR-1 in the transceiver wizard and at the reset generators.
 | --- | --- |
 | Port | Port 1 of the STAR-Ultra, four lanes |
 | Line rate | 6.25 Gbit/s per lane, 8B/10B |
-| Data scrambling | On (reset value of the system) |
+| Data scrambling | On. Scrambling is set per direction: each end announces in INIT3 whether it scrambles the data it sends, and the receiver of the other end follows (ECSS-E-ST-50-11C 5.7.6.2). The system scrambles what it sends: DL_CTRL bit 8 (`DATA_SCRAMBLED`) of `ofb0` is this near-end capability, reset value 1; the setting of the STAR-Ultra decides the other direction |
 | Link start | Auto-start. The system starts the link after a reset (`LaneStart_g` of `ofb0` is true in the Composer file) |
-| Channel 0 | Virtual channel 0 of port 1 through the routing switch of the STAR-Ultra: path address 3 leads to port 1, path address 1 leads back to channel 0 |
+| Channel 0 | Virtual channel 0 of port 1 through the routing switch of the STAR-Ultra: path address 3 is the port of the routing switch that leads to port 1, path address 1 the port that leads back to channel 0 |
 | Channel 1 | Virtual channel 1 of port 1 |
 
 The script sends RMAP commands on channel 0 with the path address 3 in front of the packet and the Reply Address 1;
-the system replies with that address and the routing switch delivers the reply on channel 0. Space Packets go on
+the routing switch of the STAR-Ultra sends the command out of its port 3 to port 1, the system replies with the
+address 1 and the routing switch delivers the reply through its port 1 on channel 0. Space Packets go on
 channel 1 directly, without a path address.
 
 ## 7. System configuration
@@ -140,8 +162,11 @@ python systems/spfi_encrypt/sw/hardware_test.py --device <name of the STAR-Ultra
 ```
 
 The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with
-`pycryptodome`, and STAR-System with its Python package. The script prints one line per test case and stops at the
-first failure, since the later test cases build on the earlier ones. `--packets` sets the number of Space Packets of
+`pycryptodome`, and STAR-System with its Python package. Before the first test case the script reads channels 0 and 1
+until no packet arrives within 0.5 s and prints how many packets of an earlier run it discarded per channel: a run
+that stopped early, for example in TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run
+would otherwise take for its own. The script prints one line per test case and stops at the first failure, since the
+later test cases build on the earlier ones. `--packets` sets the number of Space Packets of
 TC-RS-HW-06 (default 40, the profile `lab`), `--seed` the keys and the packets. `--test TC-RS-HW-nn` runs one test
 case and the test cases it builds on. The [system testbench](../../../sim/README.md) runs the same test cases in
 simulation with the profile `sim`.
@@ -164,6 +189,21 @@ and fields from the headers of the cores (`cores/<core>/sw/<prefix>_regs.h`).
 | TC-RS-HW-06 Encryption | Space Packets on the four input APIDs: first 1 byte, one byte less than, equal to and one byte more than a chunk of 4096 bytes, and 8186 bytes (a Space Packet of 8192 bytes, the size of the receive buffer of `spp0`), then random lengths | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
 | TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and the ECC counters of every channel of `edac0` (`SPFI_ENCRYPT_EDAC0_CH_FRM0_ECC_0` to `FRM3_ECC_1`) are 0 |
 
+### When the link does not come up
+
+The registers of the system are reachable only over the link: without it TC-RS-HW-01 fails with a command that does
+not complete on channel 0. Before any rerun, record:
+
+1. The link state of port 1 and the lane state of its four lanes in STAR-System.
+2. The LEDs of the VCK190 (section 5, step 4).
+3. The reference clock: the option, the value read back in the System Controller (section 5, step 2) and the
+   reference clock in `results/build_info.txt` of the programmed image. They must agree; after a power cycle the
+   Si570 of option B runs at 100.000 MHz again.
+
+Then correct what the records show (clock, image, cable) and run the script again. After the QSFP cable was unplugged
+or moved, reset the link of port 1 in STAR-System before the next run; if the link still does not come up, program
+the device image again, which resets the system, and its lanes start the link again (section 6, link start).
+
 ## 9. Records
 
 Keep for every build and every test run, with the date:
@@ -172,7 +212,8 @@ Keep for every build and every test run, with the date:
 | --- | --- |
 | Commits of the repository and of the submodules | `results/build_info.txt` |
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
-| Board state | LEDs after programming (section 5), version of the STAR-System software |
+| Board state | Reference clock: option and the value read back (section 5, step 2); LEDs after programming (section 5), version of the STAR-System software |
+| Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
 | Test run | Command line (profile, seed, packets) and the complete output of the script, for example redirected into a file |
 
 A failing test case is recorded with its output and the register values it reports. These files are what a review of
