@@ -9,6 +9,8 @@ equipment that carries them:
 - regs: register maps from the C headers of the cores
 - composer: register windows, connections and constants of a system from its Composer file
 - transport: the interface to the link equipment
+- ocp: OpenCompact images: model configuration from the generics, test images, samples as bytes, header check and
+  the model of a compression channel
 - systest: the parts of the hardware tests that all systems share (register access, key slots, the test cases of
   link, identification and RMAP, drain, run)
 """
