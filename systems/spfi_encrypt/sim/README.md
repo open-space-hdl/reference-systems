@@ -9,7 +9,7 @@ generated top level of the system instead of the board.
 ```text
 +----------------------------- spfi_encrypt_tb ------------------------------+
 |                                                                            |
-|  i_dut: spfi_encrypt (hdl/)         far end                                |
+|  i_dut: spfi_encrypt (hdl/)         i_far: refsys_tb.rs_far_end           |
 |  +-----------------------+          +--------------+    +---------------+  |
 |  | ofb0 - pa0 (GTY)      |<-------->| i_far_pa     |----| i_far_core    |  |
 |  | rmap0, spp0, ocr0..3  |  lanes   | ofb_pa_gty   |    | ofb_core      |  |
@@ -23,11 +23,12 @@ generated top level of the system instead of the board.
 
 - The system is the generated top level `spfi_encrypt` of `hdl/`. The bench drives and observes its top-level ports
   only: the reset, the system clock, the reference clock and the serial lines.
-- The far end is a second SpaceFibre port: an `ofb_core` with its own physical adapter, joined to the system by the
-  serial lines, lane i to lane i in both directions. It has the generics of `ofb0` of the Composer file
-  (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands for the test equipment of the hardware test and, as the port of
-  the STAR-Ultra, is set to auto-start (`LaneStart_g => false`, `AutoStart_g => true`): the system starts the link
-  (`LaneStart_g` of `ofb0` is true in the Composer file).
+- The far end is the far end of all system testbenches ([sim/](../../../sim/README.md)): a second SpaceFibre port,
+  an `ofb_core` with its own physical adapter, joined to the system by the serial lines, lane i to lane i in both
+  directions. It has the generics of `ofb0` of the Composer file (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands
+  for the test equipment of the hardware test and, as the port of the STAR-Ultra, is set to auto-start
+  (`LaneStart_g => false`, `AutoStart_g => true`): the system starts the link (`LaneStart_g` of `ofb0` is true in the
+  Composer file).
 - The physical adapter of both ends is the entity `openfibre.ofb_pa_gty` that the simulation compiles: the AMD GTY
   adapter with the transceiver model of Vivado (xsim), or its behavioural model, the architecture `mdl` of OpenFibre
   (GHDL), which drives the serial pins with the 8B/10B bit stream (OpenFibre user guide, "System simulation with the
@@ -36,6 +37,8 @@ generated top level of the system instead of the board.
   default timing of the model, that of the transceiver model.
 
 ## Flow
+
+The steps are those of all system testbenches (`sw/refsys/sysvectors.py`, [sim/](../../../sim/README.md)):
 
 1. `vectors.py write` runs the procedure of `sw/hardware_test.py` against the software model of the system
    (`sw/system_model.py`) through a recording transport. The requests become the operations of the far end in
@@ -83,11 +86,11 @@ python systems/spfi_encrypt/sim/run_xsim.py --each                    # one simu
 
 The runner needs AMD Vivado 2025.2 (`VIVADO_PATH` or `vivado` on the `PATH`). It creates the transceiver wizard
 instance `ofb_gtw` with the script of OpenFibre and exports its simulation sources, compiles Open Logic FT, the cores
-and the top level in the order of `hdl/spfi_encrypt_compile_order.txt` and the bench, elaborates the bench, runs the
-simulations and checks them. Results go to `vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another
-directory): the stimulus, the records, the log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of
-the transceivers and the lane states of both ends, for the analysis of a link that does not initialise; the checks do
-not use it.
+and the top level in the order of `hdl/spfi_encrypt_compile_order.txt`, the far end and the bench, elaborates the
+bench, runs the simulations and checks them (`tools/sysbench.py`). Results go to
+`vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another directory): the stimulus, the records, the
+log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of the transceivers and the lane states of
+both ends, for the analysis of a link that does not initialise; the checks do not use it.
 
 The transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`, see the verification
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in
@@ -103,8 +106,8 @@ python systems/spfi_encrypt/sim/run_ghdl.py --each                    # one simu
 
 The runner needs GHDL 6.0 (`GHDL_PATH` or `ghdl` on the `PATH`). It analyses Open Logic FT, the cores and the top
 level in the order of `hdl/spfi_encrypt_compile_order.txt`, with the files of
-`hdl/ofb_pa_gty/compile_order_sim.txt` of OpenFibre in place of the GTY adapter, and the bench, then runs the
-simulations and checks them as `run_xsim.py` does. Results go to `sim_out/ghdl/spfi_encrypt/runs/<name>/`
+`hdl/ofb_pa_gty/compile_order_sim.txt` of OpenFibre in place of the GTY adapter, the far end and the bench, then runs
+the simulations and checks them as `run_xsim.py` does. Results go to `sim_out/ghdl/spfi_encrypt/runs/<name>/`
 (`RS_GHDL_OUT` sets another directory), with the same files.
 
 ### Without a simulator

@@ -13,4 +13,6 @@ equipment that carries them:
   the model of a compression channel
 - systest: the parts of the hardware tests that all systems share (register access, key slots, the test cases of
   link, identification and RMAP, drain, run)
+- sysmodel: the software model of a system as seen from the far end of its link
+- sysvectors: the stimuli and the checks of the system simulations
 """

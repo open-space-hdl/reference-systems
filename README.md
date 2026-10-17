@@ -26,8 +26,9 @@ checks of both, its system testbench and its first board target.
 | `systems/<system>/docs/` | What the system does, address map, initialisation sequence |
 | `systems/<system>/sw/` | Host software of the system, for example its hardware test |
 | `cores/` | Submodules: Open Logic FT and every core, at the commits the system files pin |
-| `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, register maps, facts of a system file, transports, the shared parts of the hardware tests |
-| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order, the AMD simulator (`xsim.py`), the offline package of a build (`make_offline_bundle.py`) |
+| `sim/` | The far end of the system testbenches ([sim/README.md](sim/README.md)) |
+| `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, OpenCompact images and channel model, register maps, facts of a system file, transports, the shared parts of the hardware tests, the system models and the stimuli of the system simulations |
+| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order, the simulators (`xsim.py`, `ghdl.py`) and the runner of the system testbenches (`sysbench.py`), the offline package of a build (`make_offline_bundle.py`) |
 | `lint/` | VSG configuration and lint script of the hand-written VHDL |
 | `run.py` | VUnit run script: compiles the libraries of all systems and runs their testbenches |
 

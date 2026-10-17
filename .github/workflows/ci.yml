@@ -76,5 +76,6 @@ jobs:
           globs: |
             *.md
             docs/**/*.md
+            sim/**/*.md
             systems/**/*.md
             !systems/*/hdl/**

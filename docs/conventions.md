@@ -77,11 +77,13 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
   (`tools/composer_system.py`) and the testbenches of the systems.
 - GHDL is the default simulator; `python run.py --questa` runs the same tests in QuestaSim. Blocks that need vendor
   libraries (for example the AMD Versal GTY adapter of OpenFibre) are simulated with the vendor simulator or replaced
-  by the behavioural models that the cores provide. A system testbench runs in xsim with the vendor models; the
-  QuestaSim evidence (regressions and code coverage) comes from the cores.
+  by the behavioural models that the cores provide. A system testbench runs in xsim with the vendor models and in
+  GHDL with the behavioural models; the QuestaSim evidence (regressions and code coverage) comes from the cores.
 - A system simulation with the AMD transceiver model runs in the AMD simulator xsim, which VUnit does not support:
-  `systems/<system>/sim/run_xsim.py` builds and runs it with `tools/xsim.py` and checks the results with the same
-  Python checks as a VUnit run would.
+  `systems/<system>/sim/run_xsim.py` builds and runs it with `tools/xsim.py`, and `systems/<system>/sim/run_ghdl.py`
+  runs the same testbench in GHDL with the behavioural model of the adapter (`tools/ghdl.py`). Both use the runner
+  `tools/sysbench.py` and the far end of all system testbenches in `sim/`, and check the results with the same Python
+  checks.
 - A system testbench runs the test cases of the hardware test of the system: the stimuli come from its procedure
   against the software model, and its procedure checks the records of the bench, so that simulation and hardware
   test cannot diverge.
