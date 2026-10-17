@@ -95,7 +95,8 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
 
 - The host software of the tests is Python 3.10 or later. `sw/refsys/` holds what all systems share (RMAP, Space
   Packets, the chunks of OpenCrypto, the register maps from the C headers of the cores, the facts of a system file,
-  the transports); `systems/<system>/sw/` holds the tests of a system.
+  the transports, the parts of the hardware tests that every system takes); `systems/<system>/sw/` holds the tests
+  of a system.
 - Register addresses and fields come from the generated headers of the cores (`cores/<core>/sw/<prefix>_regs.h`),
   never from copied numbers, so that they follow the pinned versions of the cores. The register banks of a system
   (base address, size, identification) and the channels of its ECC monitors come from the header that the Composer

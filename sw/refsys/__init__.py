@@ -9,4 +9,6 @@ equipment that carries them:
 - regs: register maps from the C headers of the cores
 - composer: register windows, connections and constants of a system from its Composer file
 - transport: the interface to the link equipment
+- systest: the parts of the hardware tests that all systems share (register access, key slots, the test cases of
+  link, identification and RMAP, drain, run)
 """
