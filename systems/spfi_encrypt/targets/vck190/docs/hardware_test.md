@@ -55,9 +55,9 @@ from. Confirm the reference clock on the board first (section 5, step 2), then b
 from the root of the repository:
 
 ```shell
-# Option A: clock generator 8A34001, output Q1 (default)
+# Option A: clock generator 8A34001, output Q1 at 156.25 MHz (default)
 vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl
-# Option B: oscillator Si570 U205
+# Option B: oscillator Si570 U205 set to 156.250 MHz
 vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570
 ```
 
