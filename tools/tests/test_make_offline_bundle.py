@@ -20,8 +20,9 @@ BUILD = "vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/buil
 
 
 def readme(ref: str = "HEAD") -> str:
+    """README.txt of a package of ref (HEAD: a CI checkout has no local branch)."""
     links = {p: sha for p, sha in mob.gitlinks(ref).items() if p.startswith("cores/")}
-    return mob.readme("main", mob.git("rev-parse", ref), links, {p: "" for p in links}, "0" * 40)
+    return mob.readme(ref, mob.git("rev-parse", ref), links, {p: "" for p in links}, "0" * 40)
 
 
 def section_4_commands(text: str) -> list[str]:
