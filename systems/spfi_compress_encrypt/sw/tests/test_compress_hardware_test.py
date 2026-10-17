@@ -27,32 +27,9 @@ FAMILIES = ("c01_lossless_bip", "c25_tp_bsq_lossless", "c27_tp_bip_full", "c26_t
 LAB_DIMS = (64, 64, 48)
 DIMS = (16, 8, 6)            # 768 samples, 1536 bytes: 8 SDUs of at most 200 bytes
 SDU_BYTES = 200
-ENCRYPTION = ("framer", "core", "output_apid", "slot", "key_slots")
 
 
-def with_dims(generics: dict, dims: tuple[int, int, int]) -> dict:
-    """The generics of a compressor with other image dimensions; in BIP order the sub-frame depth follows the bands."""
-    bip = generics["EncodingOrder_g"] == "BI" and generics["SubFrameDepth_g"] == generics["ZSize_g"]
-    out = generics | {"XSize_g": dims[0], "YSize_g": dims[1], "ZSize_g": dims[2]}
-    if bip:
-        out["SubFrameDepth_g"] = dims[2]
-    return out
-
-
-class SmallSystem(ht.System):
-    """The system of the Composer file with images of other dimensions."""
-
-    def __init__(self, dims: tuple[int, int, int] = DIMS):
-        self.dims = dims
-        super().__init__()
-
-    def channel(self, f, port):
-        ch = super().channel(f, port)
-        return ht.make_channel(port, ch.compressor, with_dims(ch.generics, self.dims),
-                               {k: getattr(ch, k) for k in ENCRYPTION})
-
-
-SYSTEM = SmallSystem()
+SYSTEM = ht.System(dims=DIMS)
 LAB = ht.PROFILES["lab"]
 
 
@@ -149,7 +126,7 @@ def test_procedure_detects_a_faulty_system(mutation, test, message):
 
 
 def test_an_image_that_does_not_fit_tc08_is_reported():
-    tiny = SmallSystem((4, 2, 2))
+    tiny = ht.System(dims=(4, 2, 2))
     results = run(model(tiny), context(system=tiny), ht.select_tests(["TC-RS-HW-08"]))
     assert "too short for the lost SDUs" in results["TC-RS-HW-08"]
 

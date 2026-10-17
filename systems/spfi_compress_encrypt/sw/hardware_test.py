@@ -132,16 +132,33 @@ def make_channel(port: int, compressor: str, generics: dict, encryption: dict) -
     return Channel(port=port, compressor=compressor, generics=generics, cfg=cfg, marks=marks, **encryption)
 
 
-class System(systest.System):
-    """What the test needs to know about spfi_compress_encrypt, from its Composer file."""
+def with_dims(generics: dict, dims: tuple[int, int, int]) -> dict:
+    """The generics of a compressor with other image dimensions (NX, NY, NZ); in BIP order the sub-frame depth
+    follows the number of bands."""
+    bip = generics["EncodingOrder_g"] == "BI" and generics["SubFrameDepth_g"] == generics["ZSize_g"]
+    out = generics | {"XSize_g": dims[0], "YSize_g": dims[1], "ZSize_g": dims[2]}
+    if bip:
+        out["SubFrameDepth_g"] = dims[2]
+    return out
 
-    def __init__(self, path: Path = SYSTEM_FILE, banks: RegisterMap | None = None):
+
+class System(systest.System):
+    """What the test needs to know about spfi_compress_encrypt, from its Composer file. dims: images of other
+    dimensions than those of the Composer file, every compressor with its configuration otherwise (for the tests of
+    the procedure against the software model, which compresses small images in a fraction of the time)."""
+
+    def __init__(self, path: Path = SYSTEM_FILE, banks: RegisterMap | None = None,
+                 dims: tuple[int, int, int] | None = None):
+        self.dims = dims
         super().__init__(path, banks or RegisterMap(BANKS_HEADER, "SPFI_COMPRESS_ENCRYPT"))
 
     def channel(self, f: SystemFile, port: int) -> Channel:
         compressor = instance_of(f.connection_from(f"{self.node}.M_Rx[{port}]")["to"])
         framer = instance_of(f.connection_from(f"{compressor}.Out")["to"])
-        return make_channel(port, compressor, f.generics(compressor), systest.encryption(f, framer))
+        generics = f.generics(compressor)
+        if self.dims:
+            generics = with_dims(generics, self.dims)
+        return make_channel(port, compressor, generics, systest.encryption(f, framer))
 
     def id_offsets(self) -> dict[str, int]:
         return super().id_offsets() | {c.compressor: OCP.ID for c in self.channels}

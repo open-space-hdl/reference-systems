@@ -8,12 +8,13 @@ board top level per target with its constraints and build script, and a hardware
 
 ## Status
 
-Work in progress. The repository holds the first system with its generated top level, its core versions and the
-checks of both, its system testbench and its first board target.
+Work in progress. The repository holds two systems with their generated top levels, their core versions and the
+checks of both, their system testbenches and their first board target.
 
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
-| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model and in GHDL with the behavioural model of the adapter | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | bench, stimuli and checks; not run yet | AMD VCK190 (board top, constraints, build script; not built yet) |
 
 ## Layout
 

@@ -15,7 +15,7 @@ RMAP node, Space Packet node, framers and AES-GCM cores are those of spfi_encryp
 | --- | --- |
 | Composer file ([spfi_compress_encrypt.composer.json](spfi_compress_encrypt.composer.json)) | complete; the Composer reports one warning per channel, see [Aborted images](#aborted-images) |
 | Generated top level (`hdl/`) | exported from the Composer file |
-| System testbench (`sim/`) | not yet |
+| System testbench ([sim/](sim/README.md)) | bench, stimuli and checks in GHDL and xsim; not run yet |
 | AMD VCK190 target ([targets/vck190](targets/vck190/README.md)) | board top level, constraints and build script as in spfi_encrypt; not built yet |
 | Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 
