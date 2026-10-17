@@ -1,8 +1,8 @@
 """Runs the hardware test of spfi_compress_encrypt against the software model of the system (system_model.py).
 
-Until the system has its Composer file, the test runs on a stand-in of the system: the blocks and register windows of
-spfi_encrypt, an OpenCompact channel in front of every framer with the four lab configurations at small image
-dimensions, and status windows for the four compressors.
+The procedure runs on the system of the Composer file with smaller images: every compressor keeps its configuration,
+with other image dimensions, so that the model compresses the images of all test cases in seconds. The Composer file
+itself is checked against the configurations of OpenCompact that its channels use.
 """
 
 import copy
@@ -11,55 +11,48 @@ from pathlib import Path
 import pytest
 
 from refsys import ocp, systest
-from refsys.composer import SystemFile, instance_of
-from refsys.regs import RegisterMap
+from refsys.composer import SystemFile
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
-import ocp_generics  # noqa: E402
 
 HERE = Path(__file__).resolve().parent
 ht, sm = systest.system_modules(HERE.parent, "hardware_test", "system_model")
 
-SPFI = ht.ROOT / "systems" / "spfi_encrypt"
-SPFI_FILE = SystemFile(SPFI / "spfi_encrypt.composer.json")
+SYSTEM_FILE = SystemFile(ht.SYSTEM_FILE)
+LAB_SYSTEM = ht.System()
 
-# The families of the lab configurations, one per channel (BIP sample-adaptive, BSQ, BIP block-adaptive, BIL
-# near-lossless hybrid)
+# The configurations of OpenCompact of the four channels, one per preset of the Composer (BIP sample-adaptive, BSQ,
+# BIP block-adaptive, BIL near-lossless hybrid), and the lab images: 64 x 64 samples in 48 bands
 FAMILIES = ("c01_lossless_bip", "c25_tp_bsq_lossless", "c27_tp_bip_full", "c26_tp_bil_near_abs")
-# the generics of ocp_channel beyond those of ocp_core (OutWidth_g is the word width of the core)
-CHANNEL_GENERICS = {"InStreamWidth_g": 128, "OutStreamWidth_g": 128, "OutWidth_g": 32, "UserWidth_g": 22,
-                    "UserLastMask_g": '22x"3FC000"', "UserLastValue_g": '22x"004000"',
-                    "UserErrorMask_g": '22x"003000"', "Speculation_g": True, "RamStyle_g": "auto"}
+LAB_DIMS = (64, 64, 48)
 DIMS = (16, 8, 6)            # 768 samples, 1536 bytes: 8 SDUs of at most 200 bytes
 SDU_BYTES = 200
+ENCRYPTION = ("framer", "core", "output_apid", "slot", "key_slots")
 
 
-def lab_generics(family: str, dims: tuple[int, int, int] = DIMS, **changes) -> dict:
-    c = copy.deepcopy(ocp_configs.CONFIGS[family])
-    bip = c["sample_encoding_order"] == 0 and c["large_m"] == c["large_n_z"]
-    c.update(large_n_x=dims[0], large_n_y=dims[1], large_n_z=dims[2], **changes)
+def with_dims(generics: dict, dims: tuple[int, int, int]) -> dict:
+    """The generics of a compressor with other image dimensions; in BIP order the sub-frame depth follows the bands."""
+    bip = generics["EncodingOrder_g"] == "BI" and generics["SubFrameDepth_g"] == generics["ZSize_g"]
+    out = generics | {"XSize_g": dims[0], "YSize_g": dims[1], "ZSize_g": dims[2]}
     if bip:
-        c["large_m"] = dims[2]
-    return ocp_generics.generics(c) | CHANNEL_GENERICS
+        out["SubFrameDepth_g"] = dims[2]
+    return out
 
 
-class FixtureSystem(ht.System):
-    """spfi_compress_encrypt as its Composer file will describe it, built on the Composer file of spfi_encrypt."""
+class SmallSystem(ht.System):
+    """The system of the Composer file with images of other dimensions."""
 
-    def __init__(self, generics: list[dict] | None = None):
-        self.lab = generics or [lab_generics(f) for f in FAMILIES]
-        systest.System.__init__(self, SPFI_FILE.path, RegisterMap(SPFI / "hdl" / "spfi_encrypt_regs.h",
-                                                                  "SPFI_ENCRYPT"))
-        for c in self.channels:
-            self.windows[c.compressor] = 0x80000 + 0x10000 * c.port
-            self.ids[c.compressor] = ht.OCP.REGMAP_ID
+    def __init__(self, dims: tuple[int, int, int] = DIMS):
+        self.dims = dims
+        super().__init__()
 
     def channel(self, f, port):
-        framer = instance_of(f.connection_from(f"{self.node}.M_Rx[{port}]")["to"])
-        return ht.make_channel(port, f"ocp{port}", self.lab[port], systest.encryption(f, framer))
+        ch = super().channel(f, port)
+        return ht.make_channel(port, ch.compressor, with_dims(ch.generics, self.dims),
+                               {k: getattr(ch, k) for k in ENCRYPTION})
 
 
-SYSTEM = FixtureSystem()
+SYSTEM = SmallSystem()
 LAB = ht.PROFILES["lab"]
 
 
@@ -68,7 +61,7 @@ def context(seed: int = 3, system=SYSTEM, profile=LAB):
 
 
 def model(system=SYSTEM, **kw):
-    return sm.SystemModel(ht.Setup(), system=system, system_file=SPFI_FILE, **kw)
+    return sm.SystemModel(ht.Setup(), system=system, system_file=SYSTEM_FILE, **kw)
 
 
 def run(transport, ctx, tests=None):
@@ -85,6 +78,20 @@ def test_procedure_passes_against_the_model():
     assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
 
 
+def test_the_compressors_have_the_configurations_of_opencompact():
+    # the presets of the Composer with the image of the lab are the configurations of OpenCompact at that image size
+    for ch, family in zip(LAB_SYSTEM.channels, FAMILIES):
+        expected = copy.deepcopy(ocp_configs.CONFIGS[family])
+        if expected["sample_encoding_order"] == 0 and expected["large_m"] == expected["large_n_z"]:
+            expected["large_m"] = LAB_DIMS[2]
+        expected.update(large_n_x=LAB_DIMS[0], large_n_y=LAB_DIMS[1], large_n_z=LAB_DIMS[2])
+        for key in ("seed", "image"):             # of the test images of OpenCompact, not of the configuration
+            expected.pop(key, None)
+        assert ch.cfg == expected, family
+        assert ch.generics["OutWidth_g"] == 32 and ch.cfg["large_d"] == 16 and ch.cfg["large_b"] == 4
+    assert {ocp.samples_per_image(c.cfg) for c in LAB_SYSTEM.channels} == {64 * 64 * 48}
+
+
 def test_lost_sdus_give_the_counter_steps_of_the_channel_specification():
     m, ctx = model(), context()
     run(m, ctx, ht.select_tests(["TC-RS-HW-08"]))
@@ -98,11 +105,13 @@ def test_lost_sdus_give_the_counter_steps_of_the_channel_specification():
     assert ctx.traffic.losses == 8
 
 
-def test_the_system_facts_of_the_stand_in():
-    assert [(c.port, c.compressor, c.framer, c.core, c.output_apid, c.end_mark) for c in SYSTEM.channels] == [
+def test_the_system_facts_of_the_composer_file():
+    assert [(c.port, c.compressor, c.framer, c.core, c.output_apid, c.end_mark) for c in LAB_SYSTEM.channels] == [
         (k, f"ocp{k}", f"frm{k}", f"ocr{k}", k, 0x01) for k in range(4)]
+    assert [LAB_SYSTEM.base(f"ocp{k}") for k in range(4)] == [0x80000 + 0x10000 * k for k in range(4)]
+    assert all(LAB_SYSTEM.ids[f"ocp{k}"] == ht.OCP.REGMAP_ID for k in range(4))
+    assert all(c.marks == ocp.UserMarks(0x3FC000, 0x004000, 0x003000) for c in LAB_SYSTEM.channels)
     assert [ocp.samples_per_image(c.cfg) for c in SYSTEM.channels] == [768] * 4
-    assert SYSTEM.channels[0].marks == ocp.UserMarks(0x3FC000, 0x004000, 0x003000)
 
 
 @pytest.mark.parametrize("mutation, test, message", [
@@ -132,7 +141,7 @@ def test_procedure_detects_a_faulty_system(mutation, test, message):
                 self.regs[self.system.base(channel.compressor) + ht.OCP.IMAGES_DONE] = 6
             return out
 
-    m = Faulty(ht.Setup(), system=SYSTEM, system_file=SPFI_FILE, corrupt=mutation == "corrupt")
+    m = Faulty(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE, corrupt=mutation == "corrupt")
     if mutation == "config":
         m.regs[SYSTEM.base("ocp2") + ht.OCP.PREDICTOR] ^= 1
     results = run(m, context(), ht.select_tests([test]))
@@ -140,18 +149,18 @@ def test_procedure_detects_a_faulty_system(mutation, test, message):
 
 
 def test_an_image_that_does_not_fit_tc08_is_reported():
-    tiny = FixtureSystem([lab_generics(f, dims=(4, 2, 2)) for f in FAMILIES])
+    tiny = SmallSystem((4, 2, 2))
     results = run(model(tiny), context(system=tiny), ht.select_tests(["TC-RS-HW-08"]))
     assert "too short for the lost SDUs" in results["TC-RS-HW-08"]
 
 
 def test_channels_that_the_test_cannot_drive_are_rejected():
     enc = {"framer": "frm0", "core": "ocr0", "output_apid": 0, "slot": 0, "key_slots": 4}
-    periodic = lab_generics("c26_tp_bil_near_abs", periodic_updating_flag=1, u=1)
+    periodic = LAB_SYSTEM.channels[3].generics | {"PeriodicUpdate_g": True, "UpdatePeriodExp_g": 1}
     with pytest.raises(ValueError, match="error limit stream"):
         ht.make_channel(0, "ocp0", periodic, enc)
     with pytest.raises(ValueError, match="User Application"):
-        ht.make_channel(0, "ocp0", lab_generics(FAMILIES[0]) | {"UserLastMask_g": '22x"000001"'}, enc)
+        ht.make_channel(0, "ocp0", LAB_SYSTEM.channels[0].generics | {"UserLastMask_g": '22x"000001"'}, enc)
 
 
 @pytest.mark.parametrize("value, expected", [('22x"3FC000"', 0x3FC000), ('x"3FC000"', 0x3FC000),

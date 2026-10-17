@@ -13,11 +13,11 @@ RMAP node, Space Packet node, framers and AES-GCM cores are those of spfi_encryp
 
 | Item | Status |
 | --- | --- |
-| Composer file | not yet: it needs the OpenCompact channel (`ocp_channel`) in the catalog of the Composer |
-| Generated top level (`hdl/`) | not yet |
+| Composer file ([spfi_compress_encrypt.composer.json](spfi_compress_encrypt.composer.json)) | complete; the Composer reports one warning per channel, see [Aborted images](#aborted-images) |
+| Generated top level (`hdl/`) | exported from the Composer file |
 | System testbench (`sim/`) | not yet |
-| AMD VCK190 target | not yet; the board top, the constraints and the build script follow those of spfi_encrypt |
-| Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system on a stand-in for its Composer file; not run on hardware yet |
+| AMD VCK190 target ([targets/vck190](targets/vck190/README.md)) | board top level, constraints and build script as in spfi_encrypt; not built yet |
+| Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 
 ## Blocks
 
@@ -28,7 +28,7 @@ RMAP node, Space Packet node, framers and AES-GCM cores are those of spfi_encryp
 | `frm0` to `frm3` | `opencrypto.ocr_framer` | Cuts every compressed image into chunks of 4096 bytes and creates one encryption per chunk |
 | `ocr0` to `ocr3` | `opencrypto.ocr_core` | AES-GCM cores, 128-bit data path, one per channel |
 | `dec0` | `olo.olo_axi_lite_decoder` | Splits the AXI4-Lite master of `rmap0` into the register windows |
-| `edac0` | `olo.olo_ft_ecc_monitor_axi` | Counts the corrected and uncorrectable errors of the framer memories |
+| `edac0` | `olo.olo_ft_ecc_monitor_axi` | Counts the corrected and uncorrectable errors of the memories of the framers (channels 0 to 7, as in spfi_encrypt) and of the compressors (channels 8 to 11) |
 
 ## Data paths
 
@@ -58,6 +58,14 @@ RMAP node, Space Packet node, framers and AES-GCM cores are those of spfi_encryp
   end mark and compresses the following images normally. A compressed image with an error leaves like any other; its
   channel counts it in `IMAGES_ABORTED` of its status interface (OpenCompact, specification of `ocp_channel`,
   section 3).
+
+## Aborted images
+
+The framer `frm<i>` has no input for the error flag of the compressed images (`Out_Error` of `ocp<i>` on the last beat
+of an image): an image that ended with an error is cut into chunks and sent like a good one. The Composer reports this
+once per channel (rule `flag_dropped` of the catalog entry of `ocp_channel`). The system counts these images in
+`IMAGES_ABORTED` of the status interface of the channel, which the far end reads over RMAP; the hardware test checks
+the counter after lost Space Packets (TC-RS-HW-08).
 
 ## Lab configurations
 
