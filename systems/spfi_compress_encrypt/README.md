@@ -87,11 +87,27 @@ compressors: one device image has one configuration per channel.
 
 ## Throughput
 
-The four compressors run in parallel, each at one sample per clock cycle in the lab configurations (OpenCompact,
-`tools/ocp_throughput.py`: 196,608 cycles per image of 64 x 64 x 48 samples): 2 bytes of samples per cycle and
-channel, 400 MB/s at 200 MHz, 1.6 GB/s for the four channels. The compressors, not the link, limit the input: the
-four lanes of `ofb0` carry 20 Gbit/s of 8B/10B data (6.25 Gbit/s per lane), the receive path of `spp0` 16 bytes per
-cycle.
+The four compressors run in parallel. Each takes one sample per clock cycle in the lab configurations (OpenCompact,
+`tools/ocp_throughput.py`: 196,608 cycles per image of 64 x 64 x 48 samples), 2 bytes per cycle: an SDU of 8186
+bytes in 20.5 us, 3.2 Gbit/s per channel at 200 MHz. Each writes the compressed image in words of 4 bytes, at most
+one per cycle, so that a compressor keeps this rate as long as its compressed image takes at most 32 bits per sample.
+The upper bounds on the compressed image that OpenCompact publishes (`max_image_bytes` of its model) are higher for
+three of the configurations, and with them the output limits the rate of a channel:
+
+| Channel | Upper bound on the compressed image | Time per SDU of 8186 bytes at that bound |
+| --- | --- | --- |
+| 0 (c01, sample-adaptive) | 34.0 bits per sample | 21.7 us |
+| 1 (c25, sample-adaptive) | 34.0 bits per sample | 21.7 us |
+| 2 (c27, block-adaptive) | 16.25 bits per sample | 20.5 us (the input) |
+| 3 (c26, hybrid) | 53.0 bits per sample | 33.9 us |
+
+When the Space Packets are spread evenly over the channels, the slowest channel sets the rate of all (see below):
+12.8 Gbit/s for the four channels when every compressed image takes at most 32 bits per sample (at most twice the
+size of its samples), 7.7 Gbit/s (4 x 65.5 kbit in 33.9 us) at the upper bound of channel 3. The receive side does
+not limit it: the four lanes of `ofb0` carry 20 Gbit/s of 8B/10B data (6.25 Gbit/s per lane), the receive path of
+`spp0` 16 bytes per cycle. On the send side the four send ports of `spp0` share one path to the link, which carries
+8.38 Gbit/s in the throughput budget of the Composer: the encrypted chunks of the four channels together stay below
+it when the images compress by a ratio of about 1.5 or more at the full input rate.
 
 The receive buffer of `spp0` (8192 bytes) is shared by all receive ports and delivers the Space Packets in the order
 in which they arrived (OpenSPP user guide, generics `RxBufferBytes_g`): a packet leaves the buffer only after the
@@ -104,8 +120,8 @@ link while the compressors work.
 What remains: when the FIFO of one channel is full, because its compressor is two SDUs behind, the next Space Packet
 of that channel stays in the buffer of `spp0` and holds back the packets of all channels behind it until the
 compressor has taken one SDU. A sender that interleaves the channels evenly, as the hardware test does, keeps the
-FIFOs from filling up, since all four compressors take one sample per cycle; a channel that receives more than its
-share slows the others down to its own rate.
+FIFOs from filling up as long as all four compressors take one sample per cycle; a channel that receives more than
+its share, or whose compressed images exceed 32 bits per sample, slows the others down to its own rate.
 
 ## Clocks and reset
 
