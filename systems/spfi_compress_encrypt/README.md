@@ -115,7 +115,10 @@ packet before it, of any channel, has been taken. Without the FIFOs the channels
 bytes fills the buffer, and the next SDU, of any channel, would wait until the compressor of the previous one had
 taken it (4093 cycles, 20.5 us), so the system would compress at the rate of one channel. `rxf<i>` takes the SDUs of
 its channel at the rate of the receive port and holds two of them, so the buffer of `spp0` empties at the rate of the
-link while the compressors work.
+link while the compressors work. The throughput budget of the Composer (section "Throughput" of the brief in the
+system file) rates the four receive ports together: with the FIFOs the delivery in order reaches the rate of
+decoupled ports, 7.83 Gbit/s at packets of 1024 bytes at the upper bounds of the compressed images; without them it
+would be 2.71 Gbit/s.
 
 What remains: when the FIFO of one channel is full, because its compressor is two SDUs behind, the next Space Packet
 of that channel stays in the buffer of `spp0` and holds back the packets of all channels behind it until the
