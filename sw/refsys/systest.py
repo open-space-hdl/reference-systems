@@ -16,7 +16,9 @@ The register maps of the cores come from their headers (cores/<core>/sw/<prefix>
 """
 
 import argparse
+import importlib
 import random
+import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -444,3 +446,19 @@ def run_on_device(device: str, ctx: Context, tests: list) -> int:
         drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
         results = run(transport, ctx, tests)
     return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
+
+
+def system_modules(directory: Path, *names: str) -> list:
+    """Imports the modules `names` of the software of one system (systems/<system>/sw or sim, for example
+    hardware_test and system_model, in this order) and returns them, without leaving them in sys.modules under their
+    names: every system has a hardware_test.py, and the tests of all systems run in one process. The modules of
+    another system that are imported under these names stay as they are."""
+    saved = {name: sys.modules.pop(name) for name in names if name in sys.modules}
+    sys.path.insert(0, str(directory))
+    try:
+        return [importlib.import_module(name) for name in names]
+    finally:
+        sys.path.remove(str(directory))
+        for name in names:
+            sys.modules.pop(name, None)
+        sys.modules.update(saved)

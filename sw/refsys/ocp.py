@@ -456,3 +456,57 @@ class Channel:
         else:
             self.counts.images_done += 1
         return image
+
+
+# ------------------------------------------------------------------------------------------------
+# Status interface of the channel
+# ------------------------------------------------------------------------------------------------
+# Counters of the status interface of the channel (ocp_mib), cleared by a write, and their names in Counts
+COUNTERS = {"IMAGES_DONE": "images_done", "IMAGES_ABORTED": "images_aborted", "SDU_ERRORS": "sdu_errors",
+            "SDUS_DISCARDED": "sdus_discarded"}
+ECC_COUNTERS = ("ECC_CORRECTED", "ECC_UNCORRECTABLE")
+
+
+def mib_words(regs, generics: dict) -> dict[str, int]:
+    """The configuration registers of the status interface (ocp_mib) of an OpenCompact channel with these generics,
+    register name -> value, with the fields of its register map regs (sw/ocp_regs.h of OpenCompact)."""
+    g = generics
+    cfg = model_config(g)
+
+    def word(register: str, **fields) -> int:
+        return sum(regs.field(register, name, value) for name, value in fields.items())
+
+    coder = cfg["entropy_coder_type"]
+    periodic = cfg["periodic_updating_flag"] and cfg["quantizer_fidelity_control_method"] != 0
+    custom = cfg["weight_initialization_method"]
+    words = {
+        "GENERICS": word("GENERICS", IN_BYTES=g["InWidth_g"] // 8, OUT_BYTES=g["OutWidth_g"] // 8,
+                         CORE_BYTES=g["CoreWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
+                         SPECULATION=flag(g["Speculation_g"])),
+        "IMAGE_X": word("IMAGE_X", SIZE=cfg["large_n_x"]),
+        "IMAGE_Y": word("IMAGE_Y", SIZE=cfg["large_n_y"]),
+        "IMAGE_Z": word("IMAGE_Z", SIZE=cfg["large_n_z"]),
+        "SAMPLES": word("SAMPLES", USER_DATA=cfg["user_defined_data"], SIGNED=cfg["sample_type"],
+                        DYNAMIC_RANGE=cfg["large_d"]),
+        "ORDER": word("ORDER", SUB_FRAME_DEPTH=cfg["large_m"], BSQ=cfg["sample_encoding_order"]),
+        "CODER": word("CODER", SUP_TABLES=len(cfg["supplementary_information_tables"]),
+                      FIDELITY=cfg["quantizer_fidelity_control_method"], ENTROPY_CODER=coder,
+                      OUTPUT_WORD_SIZE=cfg["large_b"]),
+        "PREDICTOR": word("PREDICTOR", UPDATE_PERIOD_EXP=cfg["u"] if periodic else 0, PERIODIC_UPDATE=int(periodic),
+                          SAMPLE_REP_RESOLUTION=cfg["large_theta"], REGISTER_SIZE=cfg["large_r"],
+                          LOCAL_SUM=cfg["local_sum_type"], REDUCED=cfg["prediction_mode"], BANDS=cfg["large_p"]),
+        "WEIGHTS": word("WEIGHTS", INIT_RESOLUTION=cfg["large_q"] if custom else 0, CUSTOM_INIT=custom,
+                        EXP_OFFSETS=cfg["weight_exponent_offset_flag"], VMAX=cfg["v_max"] & 0x1F,
+                        VMIN=cfg["v_min"] & 0x1F, UPDATE_INTERVAL=cfg["log_two_t_inc"],
+                        RESOLUTION=cfg["large_omega"]),
+        "ADAPTIVE": 0,
+        "BLOCK": 0,
+    }
+    if coder == 2:
+        words["BLOCK"] = word("BLOCK", REF_INTERVAL=cfg["r"], RESTRICTED=cfg["restricted_code_options_flag"],
+                              BLOCK_SIZE=cfg["large_j"])
+    else:
+        accu = 0 if coder == 1 else 15 if cfg["band_varying_k_flag"] else cfg["k_prime_prime_vector"][0]
+        words["ADAPTIVE"] = word("ADAPTIVE", ACCU_INIT=accu, INITIAL_COUNT=cfg["gamma_0"],
+                                 RESCALE_SIZE=cfg["gamma_star"], UNARY_LIMIT=cfg["large_u_max"])
+    return words
