@@ -13,3 +13,6 @@
 [submodule "cores/opencrypto"]
 	path = cores/opencrypto
 	url = https://github.com/open-space-hdl/opencrypto.git
+[submodule "cores/opencompact"]
+	path = cores/opencompact
+	url = https://github.com/open-space-hdl/opencompact.git
