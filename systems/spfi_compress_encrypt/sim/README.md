@@ -42,8 +42,10 @@ Every error path of the channel (the abort after the Data Loss Indicator, the im
 discarded SDUs and the counters) is thus simulated at the configuration of the device image, two channels per case.
 TC-RS-HW-09 measures the sustained rate of the test equipment and runs on hardware only; in simulation, TC-RS-HW-06
 shows the data path with the four compressors in parallel. The procedure takes the expected compressed images from
-the reference model of OpenCompact; for an image that ended with an error, the model gives no length, so after the
-chunks that it knows the procedure receives until the channel is quiet (operation `quiet` of the far end, 100 us).
+the reference model of OpenCompact, for an image that ended with an error the compressed image of the samples that
+the channel took (`aborted_image` of `sw/refsys/ocp.py`). With a version of OpenCompact whose model does not give
+that image, the procedure receives after the chunks that it knows until the channel is quiet (operation `quiet` of
+the far end, 100 us) and checks the header and the length of the aborted image (`aborted_problems`).
 
 ## Running
 
@@ -59,13 +61,35 @@ section "Running"), with the directories `sim_out/ghdl/spfi_compress_encrypt/` a
 every test image with the reference model of OpenCompact, a few seconds per image.
 
 `python -m pytest systems/spfi_compress_encrypt/sim` checks the stimuli and the checks without a simulator, on the
-system of the Composer file with smaller images: the records of the model pass, the procedure receives until the
-channel is quiet only in TC-RS-HW-08, and a chunk too many in the window, a chunk after the window and a channel that
-does not become quiet fail.
+system of the Composer file with smaller images: the records of the model pass, the procedure never waits for a
+quiet channel, and a chunk that no request awaits fails. With a version of OpenCompact whose model does not give the
+aborted images, the tests also check that the procedure receives until the channel is quiet only in TC-RS-HW-08, and
+that a chunk too many in the window and a channel that does not become quiet fail.
 
 ## Results
 
-Not yet simulated.
+GHDL 6.0 with the behavioural model of the adapter at both ends, profile `sim`, seed 1, runs of 2026-10-18 with the
+VHDL sources of the core versions that the system file pins (OpenFibre, OpenRMAP, OpenSPP, OpenCrypto and
+OpenCompact v0.1.0, Open Logic FT 4.7.0-ft.8). TC-RS-HW-06 and TC-RS-HW-08 run in two simulations; each starts with
+the reset, the link initialisation and TC-RS-HW-05.
+
+| Step | Simulated time | Wall-clock time | Result |
+| --- | --- | --- | --- |
+| Transmitters of both ends ready | 64.9 us | | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | | |
+| TC-RS-HW-05 Configuration | 114.3 us | 6.0 min | Pass |
+| TC-RS-HW-06 Compression and encryption (one image of 64 x 64 x 48 samples per channel, 228 chunks) | 1276.9 us | 4.5 h | Pass |
+| TC-RS-HW-08 Lost data (case (a) on channels 0 and 2, case (b) on channels 1 and 3, 392 chunks) | 3644.1 us | 9.3 h | Pass |
+
+- The four compressed images of TC-RS-HW-06, one per configuration (c01, c25, c27, c26), equal the images of the
+  reference model of OpenCompact byte for byte, header included, and every chunk authenticates and decrypts with the
+  key of its channel.
+- The four compressors work in parallel: TC-RS-HW-06 takes 1.28 ms for one image per channel, where one compressor
+  takes 0.98 ms for its image at one sample per cycle.
+- In TC-RS-HW-08 every image that ended with an error equals the compressed image of the samples that its channel
+  took (`aborted_image` of `sw/refsys/ocp.py`, with the model of OpenCompact): in case (a) the samples of Space
+  Packets 1 to 24 and 26, in case (b) those of the image and the first 144 samples of the next one. The other images
+  equal the model, and the counters of every channel and `RX_LOSS` of `spp0` match the case of the channel.
 
 ## Limits
 
@@ -73,3 +97,9 @@ Not yet simulated.
   interoperability (spfi_encrypt, sim/README.md, section "Limits").
 - The compressors are compared with the reference model of OpenCompact, which OpenCompact verifies against the CNES
   reference software; the simulation does not decode the compressed images.
+- The bench does not run in xsim with the versions of the cores that the system file pins: the AMD simulator stops at
+  0 fs with an index out of range in the predictor of the channel with the configuration c26 (`ocp3`, process
+  `p_comb` of `ocp_predictor`), at the initial values, before the first clock edge. GHDL does not report it, and the
+  results above are not affected; the synthesis is not affected either. It is a known issue of OpenCompact v0.1.0
+  ([release notes](https://github.com/open-space-hdl/opencompact/releases/tag/v0.1.0)); the xsim run of the bench
+  follows the correction in OpenCompact.

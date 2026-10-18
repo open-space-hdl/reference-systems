@@ -119,40 +119,36 @@ that did not end.
 
 ## Results
 
-Profile `sim`, seed 1, all test cases in one simulation, with the versions of the cores that the system file pins:
-xsim of Vivado 2025.2 with the transceiver model at both ends, and GHDL 6.0 with the behavioural model of the adapter
-at both ends.
+Profile `sim`, seed 1, all test cases in one simulation, runs of 2026-10-18 with the VHDL sources of the core versions
+that the system file pins (OpenFibre, OpenRMAP, OpenSPP and OpenCrypto v0.1.0, Open Logic FT 4.7.0-ft.8): xsim of
+Vivado 2025.2 with the transceiver model at both ends, and GHDL 6.0 with the behavioural model of the adapter at both
+ends.
 
 | Step | xsim, simulated time | GHDL, simulated time | Result |
 | --- | --- | --- | --- |
-| Transmitters of both ends ready | 64.9 us | 60.7 us | |
-| Link initialised (all lanes Active at both ends) | 92.6 us | 88.4 us | |
+| Transmitters of both ends ready | 64.9 us | 64.9 us | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | 92.6 us | |
 | TC-RS-HW-01 Link | 8.6 us | 8.1 us | Pass |
 | TC-RS-HW-02 Identification | 11.4 us | 10.8 us | Pass |
 | TC-RS-HW-03 RMAP | 10.1 us | 9.5 us | Pass |
-| TC-RS-HW-04 Commands of several words | 25.2 us | 23.8 us | Pass |
+| TC-RS-HW-04 Commands of several words | 25.2 us | 23.9 us | Pass |
 | TC-RS-HW-05 Configuration | 83.6 us | 79.4 us | Pass |
 | TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | 30.3 us | 29.4 us | Pass |
 | TC-RS-HW-07 Counters | 65.7 us | 62.2 us | Pass |
-| Total | 327.4 us | 311.8 us | 7 of 7 in both |
+| Total | 327.4 us | 316.0 us | 7 of 7 in both |
 
 An RMAP command and its reply take about 1.4 us with the transceiver model. The xsim simulation of the whole profile
-takes about 40 minutes of wall-clock time on a workstation, after about 17 minutes of compilation and elaboration;
-the GHDL simulation takes about 13 minutes, after a few seconds of analysis. `report.txt` gives the wall-clock time of
+takes 40 to 50 minutes of wall-clock time on a workstation, after about 17 minutes of compilation and elaboration;
+the GHDL simulation takes about 10 minutes, after a few seconds of analysis. `report.txt` gives the wall-clock time of
 every test case. Both cores hold their link in Near-End Reset until the transmitters of their adapter are ready
 (`Stat_TxReady` to `Phy_TxReady`). The lanes of both ends then reach Wait together; the lanes of `ofb0` go on to
 Started at once (`LaneStart_g`), while the lanes of the far end stay in Wait until they detect the signal of `ofb0`
 (`probes.vcd`): the system starts the link.
 
-The two adapters differ where the model description of OpenFibre says they do:
-
-- The behavioural model counts the reset sequence of the transmitters from the end of the stretched reset of the
-  adapter (1000 cycles of the 200 MHz system clock after the release of `Rst` at 1 us); the transceiver model is
-  ready at 64.9 us. From the ready transmitters on, the link initialisation takes the same time with both: all lanes
-  are Active 26.6 us later, within 0.1 us.
-- The far end detects the signal of `ofb0` at once with the model, 0.25 to 0.47 us later with the transceiver model.
-- The datapath latency of the model is a little shorter: the test cases with many RMAP commands take about 5 % less
-  simulated time.
+The two adapters give the same link initialisation: the transmitters are ready at the same time, the lanes of the far
+end leave Wait at the same time within 0.22 us, and all lanes are Active at the same time within 0.1 us. The datapath
+latency of the behavioural model is a little shorter than that of the transceiver model (model description of
+OpenFibre, section "Limits"): the test cases with many RMAP commands take about 5 % less simulated time.
 
 ## Limits
 

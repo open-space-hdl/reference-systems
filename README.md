@@ -8,13 +8,14 @@ board top level per target with its constraints and build script, and a hardware
 
 ## Status
 
-Work in progress. The repository holds two systems with their generated top levels, their core versions and the
-checks of both, their system testbenches and their first board target.
+Release v0.1.0 ([CHANGELOG.md](CHANGELOG.md)). The repository holds two systems with their generated top levels,
+their core versions and the checks of both, their system testbenches and their first board target. Neither system has
+been tested on hardware yet.
 
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
 | [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model and in GHDL with the behavioural model of the adapter | AMD VCK190 (board top, constraints, build script; not built yet) |
-| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | bench, stimuli and checks; not run yet | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | test cases of the compression and of lost data pass in GHDL with the behavioural model of the adapter; xsim stops in OpenCompact v0.1.0 (known issue) | AMD VCK190 (board top, constraints, build script; not built yet) |
 
 ## Layout
 
