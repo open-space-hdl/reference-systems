@@ -7,8 +7,9 @@
 Usage: python tools/make_offline_bundle.py <out dir> [--ref main]
 
 Bundles: reference-systems.bundle (the branch --ref, default main), one bundle per submodule in cores/ at the commit
-that --ref records, and en_cl_fix.bundle, the submodule 3rdParty/en_cl_fix of Open Logic FT, whose files the compile
-orders of the systems list. The submodules of the cores themselves (their own open-logic and uvvm) serve the tests of
+that --ref records (that of Open Logic FT with the tag of the systems and the tags their cores were verified with),
+and en_cl_fix.bundle, the submodule 3rdParty/en_cl_fix of Open Logic FT, whose files the compile orders of the
+systems list. The submodules of the cores themselves (their own open-logic and uvvm) serve the tests of
 the cores and are not needed. README.txt in <out dir> lists the commits and the commands to clone and build. The
 build commands of every board target are those of section 4 (Build) of its hardware test procedure
 (systems/<system>/targets/<board>/docs/hardware_test.md at --ref), with the text in front of them, so that README.txt
@@ -22,6 +23,7 @@ cores/ must be checked out at the recorded commits.
 """
 
 import argparse
+import json
 import os
 import re
 import subprocess
@@ -54,6 +56,19 @@ def gitlinks(ref: str, path: str = "", cwd: Path = ROOT) -> dict[str, str]:
         if kind == "commit":
             links[p] = sha
     return links
+
+
+def olo_tags(ref: str) -> list[str]:
+    """The tags of Open Logic FT that the system files at ref name: the tag that every system pins and the tags that
+    its cores were verified with (verifiedWith). The bundle of Open Logic FT carries them all, since the check of the
+    pins on the offline clone resolves each of them."""
+    tags = set()
+    for path in git("ls-tree", "-r", "--name-only", ref, "systems").splitlines():
+        parts = path.split("/")
+        if len(parts) == 3 and parts[2] == f"{parts[1]}.composer.json":
+            for source in json.loads(git("show", f"{ref}:{path}"))["sources"]:
+                tags.update(t for t in (source.get("tag"), source.get("verifiedWith")) if t)
+    return sorted(tags)
 
 
 def bundle(repo: Path, out: Path, refs: list[str]) -> None:
@@ -189,7 +204,14 @@ def main() -> int:
         tag = subprocess.run(["git", "describe", "--tags", "--exact-match", sha], cwd=ROOT / p, capture_output=True,
                              text=True, check=False).stdout.strip()
         tags[p] = tag
-        bundle(ROOT / p, out / f"{Path(p).name}.bundle", ["HEAD"] + ([f"refs/tags/{tag}"] if tag else []))
+        names = [tag] if tag else []
+        if p == NESTED[0]:
+            names += [t for t in olo_tags(args.ref) if t != tag]
+            for name in names:
+                if subprocess.run(["git", "rev-parse", "-q", "--verify", f"refs/tags/{name}"], cwd=ROOT / p,
+                                  capture_output=True, check=False).returncode != 0:
+                    raise SystemExit(f"{p} has no tag {name}: git -C {p} fetch --tags")
+        bundle(ROOT / p, out / f"{Path(p).name}.bundle", ["HEAD"] + [f"refs/tags/{n}" for n in names])
     bundle(ROOT / NESTED[0] / NESTED[1], out / f"{NESTED[2]}.bundle", ["HEAD"])
 
     verify(out, args.ref, ref_sha, links, nested_sha)

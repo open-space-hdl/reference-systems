@@ -5,6 +5,7 @@
 """Tests of the README.txt of tools/make_offline_bundle.py: its build commands are the command block of section 4
 (Build) of the hardware test procedure, with the text in front of it, read from the repository at a commit."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -57,3 +58,13 @@ def test_a_procedure_without_build_commands_stops_the_package():
     text = "## 4. Build\n\nText only.\n\n## 5. Board set-up\n\n```shell\nvivado\n```\n"
     with pytest.raises(SystemExit, match=r"section 4 \(Build\) has no shell command block"):
         mob.build_section(text, "doc")
+
+
+def test_the_bundle_of_open_logic_carries_every_tag_that_the_system_files_name():
+    tags = mob.olo_tags("HEAD")
+    for path in Path(mob.ROOT / "systems").glob("*/*.composer.json"):
+        data = json.loads(mob.git("show", f"HEAD:{path.relative_to(mob.ROOT).as_posix()}"))
+        for source in data["sources"]:
+            for tag in (source.get("tag"), source.get("verifiedWith")):
+                assert tag is None or tag in tags
+    assert all(tag.startswith("4.") and "-ft." in tag for tag in tags)
