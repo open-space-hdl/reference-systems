@@ -43,8 +43,8 @@ First release of the reference systems.
 
 ### Known issues
 
-- The system testbench of spfi_compress_encrypt does not run in xsim: the AMD simulator stops at 0 fs with an index
-  out of range in the predictor of OpenCompact v0.1.0 for the configuration c26
-  ([release notes of OpenCompact v0.1.0](https://github.com/open-space-hdl/opencompact/releases/tag/v0.1.0)). GHDL
-  and synthesis are not affected.
+- The system testbench of spfi_compress_encrypt does not run in xsim: the AMD Vivado simulator stops at time 0 in
+  `ocp_predictor` of OpenCompact v0.1.0; see the
+  [release notes of OpenCompact v0.1.0](https://github.com/open-space-hdl/opencompact/releases/tag/v0.1.0). GHDL and
+  synthesis are not affected.
 - Neither system has been tested on hardware yet.

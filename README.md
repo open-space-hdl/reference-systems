@@ -15,7 +15,7 @@ been tested on hardware yet.
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
 | [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model and in GHDL with the behavioural model of the adapter | AMD VCK190 (board top, constraints, build script; not built yet) |
-| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | test cases of the compression and of lost data pass in GHDL with the behavioural model of the adapter; xsim stops in OpenCompact v0.1.0 (known issue) | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | test cases of the compression and of lost data pass in GHDL with the behavioural model of the adapter; xsim stops at time 0 in `ocp_predictor` of OpenCompact v0.1.0 (known issue) | AMD VCK190 (board top, constraints, build script; not built yet) |
 
 ## Layout
 

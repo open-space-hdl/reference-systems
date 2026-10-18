@@ -97,9 +97,8 @@ the reset, the link initialisation and TC-RS-HW-05.
   interoperability (spfi_encrypt, sim/README.md, section "Limits").
 - The compressors are compared with the reference model of OpenCompact, which OpenCompact verifies against the CNES
   reference software; the simulation does not decode the compressed images.
-- The bench does not run in xsim with the versions of the cores that the system file pins: the AMD simulator stops at
-  0 fs with an index out of range in the predictor of the channel with the configuration c26 (`ocp3`, process
-  `p_comb` of `ocp_predictor`), at the initial values, before the first clock edge. GHDL does not report it, and the
-  results above are not affected; the synthesis is not affected either. It is a known issue of OpenCompact v0.1.0
-  ([release notes](https://github.com/open-space-hdl/opencompact/releases/tag/v0.1.0)); the xsim run of the bench
-  follows the correction in OpenCompact.
+- The bench does not run in xsim with the versions of the cores that the system file pins: the AMD Vivado simulator
+  stops at time 0 in `ocp_predictor` of OpenCompact v0.1.0; see the
+  [release notes of OpenCompact v0.1.0](https://github.com/open-space-hdl/opencompact/releases/tag/v0.1.0). GHDL does
+  not report it, and the results above are not affected; the synthesis is not affected either. The xsim run of the
+  bench follows the correction in OpenCompact.
