@@ -14,6 +14,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 import vectors  # noqa: E402
+from refsys import sysvectors  # noqa: E402
 from vectors import ht  # noqa: E402
 from system_model import SystemModel  # noqa: E402
 
@@ -23,50 +24,7 @@ SYSTEM = ht.System()
 
 def play(directory: Path, model=None, drop_last: bool = False, reply_address: bytes | None = None) -> None:
     """Plays stimulus.txt as the bench does and writes events.txt and rx_vc<n>.txt."""
-    model = model or SystemModel(SETUP)
-    by_vc = {r.vc: (ch, r) for ch, r in vectors.routes(SYSTEM, SETUP).items()}
-    events = ["900 ready -1"]
-    rx = {vc: [] for vc in by_vc}
-    pending = {vc: [] for vc in by_vc}
-    ns, index = 1000, -1
-    for text in (directory / vectors.STIMULUS).read_text(encoding="utf-8").splitlines():
-        if not text or text.startswith("#"):
-            continue
-        index += 1
-        ns += 100
-        f = text.split()
-        if f[0] == "mark":
-            events.append(f"{ns} mark {index} {f[1]}")
-        elif f[0] == "mibp":
-            events.append(f"{ns} mibp {index} 3")
-        elif f[0] == "send":
-            assert len(bytes.fromhex(f[3])) == int(f[2])
-            pending[int(f[1])].append(bytes.fromhex(f[3]))
-        elif f[0] in ("recv", "poll"):
-            vc = int(f[1])
-            channel, route = by_vc[vc]
-            if f[0] == "poll":
-                packets, count = [bytes.fromhex(f[7])], 1
-            else:
-                packets, count = pending[vc], int(f[2])
-                pending[vc] = []
-            replies = model.exchange(channel, [route.tx_path + p for p in packets], channel, count)
-            for reply in replies:
-                data = (route.rx_path if reply_address is None else reply_address) + reply
-                rx[vc].append(f"{ns} {len(data)} 0 {data.hex()}")
-            if f[0] == "poll":
-                events.append(f"{ns} poll {index} 1")
-            elif drop_last and count > 1:
-                rx[vc].pop()
-                events.append(f"{ns + REQUEST_NS} timeout {index}")
-                break
-        elif f[0] == "end":
-            events.append(f"{ns} end {index}")
-        else:
-            assert f[0] == "mibw" and len(f) == 3
-    (directory / vectors.EVENTS).write_text("\n".join(events) + "\n", encoding="utf-8")
-    for vc, lines in rx.items():
-        (directory / vectors.rx_file(vc)).write_text("".join(f"{t}\n" for t in lines), encoding="utf-8")
+    sysvectors.play(directory, model or SystemModel(SETUP), SYSTEM, SETUP, drop_last, reply_address)
 
 
 REQUEST_NS = vectors.REQUEST_TIMEOUT_NS

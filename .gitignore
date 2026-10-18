@@ -22,3 +22,6 @@ vivado_out/
 
 # Composer checkout of tools/check_hdl.py
 .composer/
+
+# GHDL system simulations
+sim_out/

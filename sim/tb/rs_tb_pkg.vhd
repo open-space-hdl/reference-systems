@@ -6,10 +6,11 @@
 ---------------------------------------------------------------------------------------------------
 -- Description
 ---------------------------------------------------------------------------------------------------
--- Text helpers of the system testbench of spfi_encrypt: the words, hexadecimal numbers and packets
--- of the stimulus file (written by sim/vectors.py) and the hexadecimal packets of the records.
+-- Text helpers of the far end of the system testbenches (rs_far_end): the words, hexadecimal
+-- numbers and packets of the stimulus file (written by sw/refsys/sysvectors.py) and the hexadecimal
+-- packets of the records.
 --
--- Documentation: systems/spfi_encrypt/sim/README.md
+-- Documentation: sim/README.md
 
 ---------------------------------------------------------------------------------------------------
 -- Libraries
@@ -24,7 +25,7 @@ library std;
 ---------------------------------------------------------------------------------------------------
 -- Package Header
 ---------------------------------------------------------------------------------------------------
-package spfi_encrypt_tb_pkg is
+package rs_tb_pkg is
 
     subtype Byte_t is std_logic_vector(7 downto 0);
     type ByteArray_t is array (natural range <>) of Byte_t;
@@ -62,7 +63,7 @@ end package;
 ---------------------------------------------------------------------------------------------------
 -- Package Body
 ---------------------------------------------------------------------------------------------------
-package body spfi_encrypt_tb_pkg is
+package body rs_tb_pkg is
 
     constant Digits_c : string(1 to 16) := "0123456789abcdef";
 
@@ -78,7 +79,7 @@ package body spfi_encrypt_tb_pkg is
             when 'A' to 'F' =>
                 return character'pos(C) - character'pos('A') + 10;
             when others =>
-                report "spfi_encrypt_tb_pkg: '" & C & "' is not a hexadecimal digit"
+                report "rs_tb_pkg: '" & C & "' is not a hexadecimal digit"
                     severity failure;
                 return 0;
         end case;
@@ -124,7 +125,7 @@ package body spfi_encrypt_tb_pkg is
     begin
         readWord(L, W_v, Len_v);
         assert Len_v > 0
-            report "spfi_encrypt_tb_pkg: hexadecimal number missing"
+            report "rs_tb_pkg: hexadecimal number missing"
             severity failure;
 
         for I in 1 to Len_v loop

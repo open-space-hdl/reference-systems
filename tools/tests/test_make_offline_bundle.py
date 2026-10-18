@@ -5,6 +5,7 @@
 """Tests of the README.txt of tools/make_offline_bundle.py: its build commands are the command block of section 4
 (Build) of the hardware test procedure, with the text in front of it, read from the repository at a commit."""
 
+import json
 import sys
 from pathlib import Path
 
@@ -46,12 +47,24 @@ def test_readme_shows_both_build_commands_after_the_clock_check():
 def test_readme_build_commands_are_the_block_of_section_4():
     block = section_4_commands(mob.git("show", f"HEAD:{DOC}"))
     lines = readme().splitlines()
-    start = lines.index("    " + block[0])
+    # every system has its part; that of spfi_encrypt starts with its heading
+    title = f"spfi_encrypt on the VCK190 ({DOC}, section 4)"
+    heading = next(i for i, line in enumerate(lines) if line.startswith(title))
+    start = lines.index("    " + block[0], heading)
     assert lines[start:start + len(block)] == ["    " + c for c in block]
-    assert any(line.startswith(f"spfi_encrypt on the VCK190 ({DOC}, section 4)") for line in lines)
 
 
 def test_a_procedure_without_build_commands_stops_the_package():
     text = "## 4. Build\n\nText only.\n\n## 5. Board set-up\n\n```shell\nvivado\n```\n"
     with pytest.raises(SystemExit, match=r"section 4 \(Build\) has no shell command block"):
         mob.build_section(text, "doc")
+
+
+def test_the_bundle_of_open_logic_carries_every_tag_that_the_system_files_name():
+    tags = mob.olo_tags("HEAD")
+    for path in Path(mob.ROOT / "systems").glob("*/*.composer.json"):
+        data = json.loads(mob.git("show", f"HEAD:{path.relative_to(mob.ROOT).as_posix()}"))
+        for source in data["sources"]:
+            for tag in (source.get("tag"), source.get("verifiedWith")):
+                assert tag is None or tag in tags
+    assert all(tag.startswith("4.") and "-ft." in tag for tag in tags)

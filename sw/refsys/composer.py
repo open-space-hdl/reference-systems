@@ -39,6 +39,10 @@ class SystemFile:
                 return g["value"]
         raise KeyError(f"{instance} has no generic {name}")
 
+    def generics(self, instance: str) -> dict:
+        """All generics of an instance as resolved (default values included): name -> value."""
+        return {g["name"]: g["value"] for g in self._instances[instance]["generics"]}
+
     def connection_from(self, source: str) -> dict:
         """The connection whose source is the interface "<instance>.<interface>[<index>]"."""
         found = [c for c in self.connections if c["from"] == source]

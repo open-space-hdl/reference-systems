@@ -9,7 +9,7 @@ generated top level of the system instead of the board.
 ```text
 +----------------------------- spfi_encrypt_tb ------------------------------+
 |                                                                            |
-|  i_dut: spfi_encrypt (hdl/)         far end                                |
+|  i_dut: spfi_encrypt (hdl/)         i_far: refsys_tb.rs_far_end           |
 |  +-----------------------+          +--------------+    +---------------+  |
 |  | ofb0 - pa0 (GTY)      |<-------->| i_far_pa     |----| i_far_core    |  |
 |  | rmap0, spp0, ocr0..3  |  lanes   | ofb_pa_gty   |    | ofb_core      |  |
@@ -23,16 +23,22 @@ generated top level of the system instead of the board.
 
 - The system is the generated top level `spfi_encrypt` of `hdl/`. The bench drives and observes its top-level ports
   only: the reset, the system clock, the reference clock and the serial lines.
-- The far end is a second SpaceFibre port: an `ofb_core` with its own physical adapter, joined to the system by the
-  serial lines, lane i to lane i in both directions. It has the generics of `ofb0` of the Composer file
-  (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands for the test equipment of the hardware test and, as the port of
-  the STAR-Ultra, is set to auto-start (`LaneStart_g => false`, `AutoStart_g => true`): the system starts the link
-  (`LaneStart_g` of `ofb0` is true in the Composer file).
+- The far end is the far end of all system testbenches ([sim/](../../../sim/README.md)): a second SpaceFibre port,
+  an `ofb_core` with its own physical adapter, joined to the system by the serial lines, lane i to lane i in both
+  directions. It has the generics of `ofb0` of the Composer file (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands
+  for the test equipment of the hardware test and, as the port of the STAR-Ultra, is set to auto-start
+  (`LaneStart_g => false`, `AutoStart_g => true`): the system starts the link (`LaneStart_g` of `ofb0` is true in the
+  Composer file).
 - The physical adapter of both ends is the entity `openfibre.ofb_pa_gty` that the simulation compiles: the AMD GTY
-  adapter with the transceiver model of Vivado, or a pin-compatible model of OpenFibre. The bench does not depend on
-  the variant.
+  adapter with the transceiver model of Vivado (xsim), or its behavioural model, the architecture `mdl` of OpenFibre
+  (GHDL), which drives the serial pins with the 8B/10B bit stream (OpenFibre user guide, "System simulation with the
+  behavioural adapter"). The bench does not depend on the variant. The adapter of the far end uses the control
+  record 1 of the model (`ModelIdx_g => 1`), the adapter of the system the default record 0; the bench keeps the
+  default timing of the model, that of the transceiver model.
 
 ## Flow
+
+The steps are those of all system testbenches (`sw/refsys/sysvectors.py`, [sim/](../../../sim/README.md)):
 
 1. `vectors.py write` runs the procedure of `sw/hardware_test.py` against the software model of the system
    (`sw/system_model.py`) through a recording transport. The requests become the operations of the far end in
@@ -67,8 +73,8 @@ and the link initialisation.
 
 ## Running
 
-The system testbench runs in xsim with the AMD transceiver model; the cores carry their own QuestaSim evidence
-(regressions and code coverage).
+The system testbench runs in xsim with the AMD transceiver model and in GHDL with the behavioural model of the
+adapter; the cores carry their own QuestaSim evidence (regressions and code coverage).
 
 ### xsim with the AMD transceiver model
 
@@ -80,15 +86,29 @@ python systems/spfi_encrypt/sim/run_xsim.py --each                    # one simu
 
 The runner needs AMD Vivado 2025.2 (`VIVADO_PATH` or `vivado` on the `PATH`). It creates the transceiver wizard
 instance `ofb_gtw` with the script of OpenFibre and exports its simulation sources, compiles Open Logic FT, the cores
-and the top level in the order of `hdl/spfi_encrypt_compile_order.txt` and the bench, elaborates the bench, runs the
-simulations and checks them. Results go to `vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another
-directory): the stimulus, the records, the log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of
-the transceivers and the lane states of both ends, for the analysis of a link that does not initialise; the checks do
-not use it.
+and the top level in the order of `hdl/spfi_encrypt_compile_order.txt`, the far end and the bench, elaborates the
+bench, runs the simulations and checks them (`tools/sysbench.py`). Results go to
+`vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another directory): the stimulus, the records, the
+log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of the transceivers and the lane states of
+both ends, for the analysis of a link that does not initialise; the checks do not use it.
 
 The transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`, see the verification
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in
 total, and reports every repetition.
+
+### GHDL with the behavioural model of the adapter
+
+```shell
+python systems/spfi_encrypt/sim/run_ghdl.py                           # all test cases in one simulation
+python systems/spfi_encrypt/sim/run_ghdl.py TC-RS-HW-04               # one test case
+python systems/spfi_encrypt/sim/run_ghdl.py --each                    # one simulation per test case
+```
+
+The runner needs GHDL 6.0 (`GHDL_PATH` or `ghdl` on the `PATH`). It analyses Open Logic FT, the cores and the top
+level in the order of `hdl/spfi_encrypt_compile_order.txt`, with the files of
+`hdl/ofb_pa_gty/compile_order_sim.txt` of OpenFibre in place of the GTY adapter, the far end and the bench, then runs
+the simulations and checks them as `run_xsim.py` does. Results go to `sim_out/ghdl/spfi_encrypt/runs/<name>/`
+(`RS_GHDL_OUT` sets another directory), with the same files.
 
 ### Without a simulator
 
@@ -99,28 +119,36 @@ that did not end.
 
 ## Results
 
-xsim of Vivado 2025.2 with the transceiver model at both ends, profile `sim`, seed 1, all test cases in one
-simulation, with the versions of the cores that the system file pins:
+Profile `sim`, seed 1, all test cases in one simulation, runs of 2026-10-18 with the VHDL sources of the core versions
+that the system file pins (OpenFibre, OpenRMAP, OpenSPP and OpenCrypto v0.1.0, Open Logic FT 4.7.0-ft.8): xsim of
+Vivado 2025.2 with the transceiver model at both ends, and GHDL 6.0 with the behavioural model of the adapter at both
+ends.
 
-| Step | Simulated time | Result |
-| --- | --- | --- |
-| Transmitters of both ends ready | 64.9 us | |
-| Link initialised (all lanes Active at both ends) | 92.6 us | |
-| TC-RS-HW-01 Link | 8.6 us | Pass |
-| TC-RS-HW-02 Identification | 11.4 us | Pass |
-| TC-RS-HW-03 RMAP | 10.1 us | Pass |
-| TC-RS-HW-04 Commands of several words | 25.2 us | Pass |
-| TC-RS-HW-05 Configuration | 83.6 us | Pass |
-| TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | 30.3 us | Pass |
-| TC-RS-HW-07 Counters | 65.7 us | Pass |
-| Total | 327.4 us | 7 of 7 |
+| Step | xsim, simulated time | GHDL, simulated time | Result |
+| --- | --- | --- | --- |
+| Transmitters of both ends ready | 64.9 us | 64.9 us | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | 92.6 us | |
+| TC-RS-HW-01 Link | 8.6 us | 8.1 us | Pass |
+| TC-RS-HW-02 Identification | 11.4 us | 10.8 us | Pass |
+| TC-RS-HW-03 RMAP | 10.1 us | 9.5 us | Pass |
+| TC-RS-HW-04 Commands of several words | 25.2 us | 23.9 us | Pass |
+| TC-RS-HW-05 Configuration | 83.6 us | 79.4 us | Pass |
+| TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | 30.3 us | 29.4 us | Pass |
+| TC-RS-HW-07 Counters | 65.7 us | 62.2 us | Pass |
+| Total | 327.4 us | 316.0 us | 7 of 7 in both |
 
-An RMAP command and its reply take about 1.4 us. The simulation of the whole profile takes about 40 minutes of
-wall-clock time on a workstation, after about 17 minutes of compilation and elaboration; `report.txt` gives the
-wall-clock time of every test case. Both cores hold their link in Near-End Reset until the transmitters of their
-adapter are ready (`Stat_TxReady` to `Phy_TxReady`). The lanes of both ends then reach Wait together; the lanes of
-`ofb0` go on to Started at once (`LaneStart_g`), while the lanes of the far end stay in Wait until they detect the
-signal of `ofb0` (`probes.vcd`): the system starts the link.
+An RMAP command and its reply take about 1.4 us with the transceiver model. The xsim simulation of the whole profile
+takes 40 to 50 minutes of wall-clock time on a workstation, after about 17 minutes of compilation and elaboration;
+the GHDL simulation takes about 10 minutes, after a few seconds of analysis. `report.txt` gives the wall-clock time of
+every test case. Both cores hold their link in Near-End Reset until the transmitters of their adapter are ready
+(`Stat_TxReady` to `Phy_TxReady`). The lanes of both ends then reach Wait together; the lanes of `ofb0` go on to
+Started at once (`LaneStart_g`), while the lanes of the far end stay in Wait until they detect the signal of `ofb0`
+(`probes.vcd`): the system starts the link.
+
+The two adapters give the same link initialisation: the transmitters are ready at the same time, the lanes of the far
+end leave Wait at the same time within 0.22 us, and all lanes are Active at the same time within 0.1 us. The datapath
+latency of the behavioural model is a little shorter than that of the transceiver model (model description of
+OpenFibre, section "Limits"): the test cases with many RMAP commands take about 5 % less simulated time.
 
 ## Limits
 
