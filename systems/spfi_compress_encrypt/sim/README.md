@@ -68,10 +68,13 @@ that a chunk too many in the window and a channel that does not become quiet fai
 
 ## Results
 
-GHDL 6.0 with the behavioural model of the adapter at both ends, profile `sim`, seed 1, runs of 2026-10-18 with the
-VHDL sources of the core versions that the system file pins (OpenFibre, OpenRMAP, OpenSPP, OpenCrypto and
-OpenCompact v0.1.0, Open Logic FT 4.7.0-ft.8). TC-RS-HW-06 and TC-RS-HW-08 run in two simulations; each starts with
-the reset, the link initialisation and TC-RS-HW-05.
+### GHDL
+
+GHDL 6.0 with the behavioural model of the adapter at both ends, profile `sim`, seed 1, runs of 2026-10-18 with
+OpenFibre, OpenRMAP, OpenSPP, OpenCrypto and OpenCompact v0.1.0 and Open Logic FT 4.7.0-ft.8. OpenCompact v0.1.1,
+which the system file pins, changes only the types of the array fields of `ocp_predictor`, with the same behaviour in
+every simulator; the stimuli and the expected images are the same. TC-RS-HW-06 and TC-RS-HW-08 run in two
+simulations; each starts with the reset, the link initialisation and TC-RS-HW-05.
 
 | Step | Simulated time | Wall-clock time | Result |
 | --- | --- | --- | --- |
@@ -91,14 +94,28 @@ the reset, the link initialisation and TC-RS-HW-05.
   Packets 1 to 24 and 26, in case (b) those of the image and the first 144 samples of the next one. The other images
   equal the model, and the counters of every channel and `RX_LOSS` of `spp0` match the case of the channel.
 
+### xsim
+
+xsim of Vivado 2025.2 with the transceiver model at both ends, profile `sim`, seed 1, TC-RS-HW-01 to 05 in one
+simulation, run of 2026-10-19 with the versions of the cores that the system file pins (OpenCompact v0.1.1):
+
+| Step | Simulated time | Wall-clock time | Result |
+| --- | --- | --- | --- |
+| Transmitters of the far end ready | 64.9 us | | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | | |
+| TC-RS-HW-01 Link | 8.6 us | 1.6 min | Pass |
+| TC-RS-HW-02 Identification (with the status registers of the four compressors) | 79.9 us | 14.5 min | Pass |
+| TC-RS-HW-03 RMAP | 10.1 us | 1.6 min | Pass |
+| TC-RS-HW-04 Commands of several words | 25.1 us | 3.9 min | Pass |
+| TC-RS-HW-05 Configuration | 120.3 us | 18.4 min | Pass |
+| Total | 336.5 us | 50.3 min | 5 of 5 |
+
+The transceiver model gives the same link initialisation as the behavioural model. The compression test cases at
+the image size of the lab run in GHDL (above).
+
 ## Limits
 
 - The far end is an OpenFibre port like `ofb0`; the hardware test against the STAR-Ultra is the check of
   interoperability (spfi_encrypt, sim/README.md, section "Limits").
 - The compressors are compared with the reference model of OpenCompact, which OpenCompact verifies against the CNES
   reference software; the simulation does not decode the compressed images.
-- The bench does not run in xsim with the versions of the cores that the system file pins: the AMD Vivado simulator
-  stops at time 0 in `ocp_predictor` of OpenCompact v0.1.0; see the
-  [release notes of OpenCompact v0.1.0](https://github.com/open-space-hdl/opencompact/releases/tag/v0.1.0). GHDL does
-  not report it, and the results above are not affected; the synthesis is not affected either. The xsim run of the
-  bench follows the correction in OpenCompact.
