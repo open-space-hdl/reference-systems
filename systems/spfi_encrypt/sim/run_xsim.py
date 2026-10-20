@@ -5,7 +5,7 @@
 """System simulation of spfi_encrypt with the AMD transceiver model at both ends of the link (xsim).
 
 Usage: python systems/spfi_encrypt/sim/run_xsim.py [--profile sim] [--seed N] [--each] [--hdl DIR]
-       [TC-RS-HW-nn ...]
+       [--refclk-mhz 156.25|100] [TC-RS-HW-nn ...]
 
 tools/sysbench.py describes the runs and their results (vivado_out/xsim/spfi_encrypt, or RS_XSIM_OUT).
 """

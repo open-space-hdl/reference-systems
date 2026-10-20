@@ -82,6 +82,7 @@ adapter; the cores carry their own QuestaSim evidence (regressions and code cove
 python systems/spfi_encrypt/sim/run_xsim.py                           # all test cases in one simulation
 python systems/spfi_encrypt/sim/run_xsim.py TC-RS-HW-04               # one test case
 python systems/spfi_encrypt/sim/run_xsim.py --each                    # one simulation per test case
+python systems/spfi_encrypt/sim/run_xsim.py --refclk-mhz 100 TC-RS-HW-01   # reference clock 100 MHz
 ```
 
 The runner needs AMD Vivado 2025.2 (`VIVADO_PATH` or `vivado` on the `PATH`). It creates the transceiver wizard
@@ -91,6 +92,12 @@ bench, runs the simulations and checks them (`tools/sysbench.py`). Results go to
 `vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another directory): the stimulus, the records, the
 log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of the transceivers and the lane states of
 both ends, for the analysis of a link that does not initialise; the checks do not use it.
+
+`--refclk-mhz` sets the frequency of the transceiver reference clock, 156.25 MHz (default) or 100 MHz, the two
+frequencies of the VCK190 targets: the runner creates `ofb_gtw` for it in its own directory (`ip_refclk_100`) and
+the bench drives `RefClk` of both ends at it (`RefClkKhz_g`); the run directory gets the suffix `_refclk_100`.
+The line rate and the lane clock are the same at both frequencies. The behavioural model of GHDL takes only
+156.25 MHz: its lane clock is the reference clock.
 
 The transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`, see the verification
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in

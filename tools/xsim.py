@@ -59,13 +59,14 @@ def run(cmd: list[str], cwd: Path, log: str) -> None:
         raise SystemExit(f"{Path(cmd[0]).stem} failed, see {cwd / log}")
 
 
-def generate_gtw(out: Path) -> Path:
-    """Creates ofb_gtw and exports its simulation sources once per version of the wizard script; returns the export
-    directory, in which the libraries are compiled and the simulations run."""
+def generate_gtw(out: Path, refclk_mhz: str = REFCLK_MHZ) -> Path:
+    """Creates ofb_gtw for the reference clock refclk_mhz and exports its simulation sources once per version of the
+    wizard script and frequency; returns the export directory, in which the libraries are compiled and the simulations
+    run."""
     export = out / "export" / "ofb_gtw" / "xsim"
     prj = export / "vlog.prj"
     stamp = out / ".gtw_generated"
-    digest = hashlib.sha1(GTW_TCL.read_bytes()).hexdigest()
+    digest = hashlib.sha1(GTW_TCL.read_bytes() + (b"" if refclk_mhz == REFCLK_MHZ else refclk_mhz.encode())).hexdigest()
     if prj.exists() and prj.stat().st_size > 0 and stamp.exists() and stamp.read_text() == digest:
         return export
     if export.exists():
@@ -77,7 +78,7 @@ def generate_gtw(out: Path) -> Path:
     script.write_text(
         f"create_project -force ip {out.as_posix()}/project -part {PART}\n"
         f"source {GTW_TCL.as_posix()}\n"
-        f"ofb_gtw_create ofb_gtw {REFCLK_MHZ}\n"
+        f"ofb_gtw_create ofb_gtw {refclk_mhz}\n"
         "generate_target all [get_ips ofb_gtw]\n"
         "export_simulation -of_objects [get_files ofb_gtw.xci] -simulator xsim "
         f"-directory {(out / 'export').as_posix()} -force\n",

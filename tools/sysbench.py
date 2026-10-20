@@ -7,7 +7,8 @@ far end of sim/tb/, the stimuli and the checks of its sim/vectors.py, in xsim wi
 (tools/xsim.py) or in GHDL with the behavioural model of the adapter (tools/ghdl.py).
 
 Usage of the runner of a system:
-  python systems/<system>/sim/run_xsim.py [--profile sim] [--seed N] [--each] [--hdl DIR] [TC-RS-HW-nn ...]
+  python systems/<system>/sim/run_xsim.py [--profile sim] [--seed N] [--each] [--hdl DIR] [--refclk-mhz F]
+         [TC-RS-HW-nn ...]
   python systems/<system>/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR] [TC-RS-HW-nn ...]
 
 Without test cases, one simulation runs all test cases; with test cases, the simulation runs them and the test
@@ -15,7 +16,10 @@ cases they build on; --each runs one simulation per test case. Every simulation 
 initialisation. Each simulation gets a directory in <out>/runs/ with the stimulus, the records of the bench and
 report.txt (result, simulated and wall-clock time per test case). <out> is vivado_out/xsim/<system> or RS_XSIM_OUT
 (xsim), sim_out/ghdl/<system> or RS_GHDL_OUT (GHDL). --hdl takes the top level from another directory than
-systems/<system>/hdl. Exit code 0 when every simulation passes.
+systems/<system>/hdl. --refclk-mhz (xsim) sets the frequency of the transceiver reference clock, 156.25 (default) or
+100 MHz, for the wizard instance and the bench; the behavioural model of GHDL takes only 156.25 MHz, its lane clock
+is the reference clock. A run at another frequency than 156.25 MHz has its own wizard instance (<out>/ip_refclk_<F>)
+and its own directory (<out>/runs/<name>_refclk_<F>). Exit code 0 when every simulation passes.
 """
 
 import argparse
@@ -49,6 +53,7 @@ class Simulation:
 
     name: str
     vectors: ModuleType
+    refclk_mhz: str = xsim.REFCLK_MHZ   # reference clock of the transceivers (xsim)
 
     @property
     def directory(self) -> Path:
@@ -118,7 +123,8 @@ def xsim_out(sim: Simulation) -> Path:
 def xsim_build(sim: Simulation, hdl: Path) -> tuple[Path, list[str]]:
     """Generates the wizard instance, compiles everything and elaborates the bench; returns the directory of the
     simulation and the libraries."""
-    export = xsim.generate_gtw(xsim_out(sim) / "ip")
+    ip = "ip" if sim.refclk_mhz == xsim.REFCLK_MHZ else f"ip_refclk_{sim.refclk_mhz}"
+    export = xsim.generate_gtw(xsim_out(sim) / ip, sim.refclk_mhz)
     files = sim.files(xsim.compile_order(hdl / f"{sim.name}_compile_order.txt"))
     xsim.compile_all(export, files)
     libraries = list(dict.fromkeys(library for library, _ in files))
@@ -127,8 +133,10 @@ def xsim_build(sim: Simulation, hdl: Path) -> tuple[Path, list[str]]:
 
 
 def xsim_elaborate(sim: Simulation, export: Path, libraries: list[str], again: bool = False) -> None:
-    xsim.elaborate(export, f"{sim.library}.{sim.top}", libraries, sim.far_end_generics(), sim.top, trace=True,
-                   again=again)
+    generics: dict[str, object] = dict(sim.far_end_generics())
+    if sim.refclk_mhz != xsim.REFCLK_MHZ:
+        generics["RefClkKhz_g"] = round(float(sim.refclk_mhz) * 1000)
+    xsim.elaborate(export, f"{sim.library}.{sim.top}", libraries, generics, sim.top, trace=True, again=again)
 
 
 def xsim_simulate(sim: Simulation, export: Path, libraries: list[str], name: str, profile: str, seed: int,
@@ -196,14 +204,21 @@ def main(sim: Simulation, simulator: str, description: str) -> int:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--each", action="store_true", help="one simulation per test case")
     parser.add_argument("--hdl", type=Path, default=sim.directory / "hdl", help="directory of the generated top level")
+    if simulator == "xsim":
+        parser.add_argument("--refclk-mhz", choices=(xsim.REFCLK_MHZ, "100"), default=xsim.REFCLK_MHZ,
+                            help="frequency of the transceiver reference clock in MHz")
     args = parser.parse_args()
+    suffix = ""
+    if simulator == "xsim" and args.refclk_mhz != xsim.REFCLK_MHZ:
+        sim.refclk_mhz = args.refclk_mhz
+        suffix = f"_refclk_{args.refclk_mhz}"
 
     names = args.tests or None
     ht.select_tests(names)                  # unknown names stop here, before the build
     if args.each:
-        runs = [(t, [t]) for t in (names or [ht.test_name(t) for t in ht.TESTS])]
+        runs = [(t + suffix, [t]) for t in (names or [ht.test_name(t) for t in ht.TESTS])]
     else:
-        runs = [("_".join(names) if names else "all", names)]
+        runs = [(("_".join(names) if names else "all") + suffix, names)]
     if simulator == "xsim":
         export, libraries = xsim_build(sim, args.hdl)
         failed = [name for name, tests in runs
