@@ -121,3 +121,11 @@ def test_the_package_options_set_the_directories_of_build_bat_and_readme():
     flat = " ".join(mob.readme("develop", mob.git("rev-parse", "HEAD"), links, {p: "" for p in links}, "0" * 40,
                                own).split())
     assert "(default D:\\build\\rs)" in flat and "set RS_VIVADO_OUT=D:/build/out2" in flat
+
+
+def test_build_bat_finds_python_or_the_launcher_for_the_check_of_the_pins():
+    lines = bat().splitlines()
+    python = lines.index('    python --version >nul 2>&1 && set "RS_PYTHON=python"')
+    launcher = lines.index('    py -3 --version >nul 2>&1 && set "RS_PYTHON=py -3"')
+    check = next(i for i, line in enumerate(lines) if "%RS_PYTHON% tools/check_pins.py --offline" in line)
+    assert python < launcher < check
