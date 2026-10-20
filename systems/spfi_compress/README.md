@@ -128,7 +128,14 @@ With the Space Packets spread evenly over the channels, the four channels take 9
 compressed image takes at most 32 bits per sample, and 5.8 Gbit/s at the upper bound of channel 3; the FIFOs `rxf<i>`
 keep the shared receive buffer of `spp0` from holding back the channels, as in spfi_compress_encrypt.
 
-The send side does not limit the system:
+The throughput budget of the Composer (section "Throughput" of the brief in the system file) gives every channel the
+rate of its compressor at the upper bound of its compressed images. At input packets of 1024 bytes that is 2.29 Gbit/s
+of samples on channels 0 and 1 and 1.47 Gbit/s on channel 3, limited by the output of the compressor, and
+2.43 Gbit/s on channel 2, limited by its input. The four receive ports together take 5.87 Gbit/s with the packets
+spread evenly over them, as in spfi_compress_encrypt. The chunker and the send side carry more on every path.
+
+The budget rates every path on its own. The four send ports of `spp0` share one path to the link, and the channels
+together do not exceed it either:
 
 - The chunker passes every beat in the cycle in which it arrives (Open Logic documentation of `olo_base_chunker`,
   section Timing): it adds neither cycles nor latency.
@@ -139,8 +146,8 @@ The send side does not limit the system:
   19.0 Gbit/s of chunks at 150 MHz. Virtual channel 1 of `ofb0` and its four lanes carry 17.9 Gbit/s already at
   packets of 1024 bytes (OpenFibre user guide, section 7).
 
-The Composer does not compute this budget yet: its catalog has no rate data of `olo_base_chunker`, which ends the
-paths through the chunkers in section "Throughput" of the brief in the system file.
+`spp0` sends Space Packets of at most 4102 bytes (section "Packet sizes and buffers" of the brief), which the
+receive buffer of the far end must hold.
 
 ## Clocks and reset
 
