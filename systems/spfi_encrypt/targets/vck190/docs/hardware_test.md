@@ -92,7 +92,7 @@ The script writes the results to `results/` in the project directory:
 | File | Content | Expected |
 | --- | --- | --- |
 | `spfi_encrypt_vck190_top.pdi` | Device image | Present |
-| `timing_summary.rpt` | Timing of all clocks | The clock summary lists `clk_pl_0` (200 MHz), `gt_refclk` and the lane clock `ch0_txoutclk` (156.25 MHz); check_timing finds no register without a clock (`no_clock` 0); WNS and WHS at least 0 ns; no pulse width violation |
+| `timing_summary.rpt` | Timing of all clocks | The clock summary lists `clk_pl_0` (150 MHz), `gt_refclk` and the lane clock `ch0_txoutclk` (156.25 MHz); check_timing finds no register without a clock (`no_clock` 0); WNS and WHS at least 0 ns; no pulse width violation |
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
 | `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers |
 | `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
@@ -131,7 +131,7 @@ Expected messages: TIMING-9 and LUTAR-1 in the transceiver wizard and at the res
 3. Connect QSFP1 of the VCK190 to port 1 of the STAR-Ultra. Lane i of the system must reach lane i of the far end;
    the system detects inverted receive polarity per lane itself.
 4. Program the device image of the option (Vivado Hardware Manager); `results/build_info.txt` names its reference
-   clock and frequency. LED 0 blinks (about 0.7 s on, 0.7 s off) and LED 1 is on.
+   clock and frequency. LED 0 blinks (about 0.9 s on, 0.9 s off) and LED 1 is on.
 
 ## 6. Far-end configuration
 

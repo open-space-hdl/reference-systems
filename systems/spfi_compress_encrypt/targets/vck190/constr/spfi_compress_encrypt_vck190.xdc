@@ -12,7 +12,7 @@
 # Documentation: systems/spfi_compress_encrypt/targets/vck190/README.md
 #---------------------------------------------------------------------------------------------------
 
-# System clock: the constraints of the CIPS IP create clk_pl_0 (200 MHz); the lane clock of the system is the
+# System clock: the constraints of the CIPS IP create clk_pl_0 (150 MHz); the lane clock of the system is the
 # transmit clock of the transceivers.
 
 # Transceiver reference clock gt_refclk: tcl/build.tcl writes its clock constraint at the selected frequency
