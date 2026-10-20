@@ -35,28 +35,31 @@ the register map of its status interface (`sw/ocp_regs.h`) come from there.
 ## 4. Build
 
 The transceiver reference clock has two sources on the board, and the device image fixes the pins it takes the clock
-from. Confirm the reference clock on the board first (section 5, step 2), then build the image of that source only,
-from the root of the repository:
+from and its frequency. Confirm the reference clock on the board first (section 5, step 2), then build the image of
+that option only, from the root of the repository:
 
 ```shell
-# Option A: clock generator 8A34001, output Q1 at 156.25 MHz (default)
+# Option A: oscillator Si570 U205 at 100.000 MHz, its frequency after power-up (default)
 vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl
 # Option B: oscillator Si570 U205 set to 156.250 MHz
-vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570
+vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570 156.25
+# Option C: clock generator 8A34001, output Q1 at 156.25 MHz
+vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl -tclargs all 8a34001
 ```
 
-The script and its steps, the reference clock files, the project path limit on Windows (`RS_VIVADO_OUT`, for example
-`C:/git/rs`) and the files in `results/` are those of spfi_encrypt (its procedure, section 4), with the name
-`spfi_compress_encrypt_vck190` for the project and the device image. The timing summary must show WNS and WHS of at
-least 0 ns for `Clk_sys` at the frequency of the Composer file and for the lane clock at 156.25 MHz; the
-hierarchical utilisation report gives the resources of every OpenCompact channel.
+The script and its steps, the reference clock files and the clock constraint of the selected frequency, the project path
+limit on Windows (`RS_VIVADO_OUT`, for example `C:/git/rs`) and the files in `results/` are those of spfi_encrypt (its
+procedure, section 4), with the name `spfi_compress_encrypt_vck190` for the project and the device image. The timing
+summary must show WNS and WHS of at least 0 ns for `Clk_sys` at the frequency of the Composer file and for the lane
+clock at 156.25 MHz; the hierarchical utilisation report gives the resources of every OpenCompact channel.
 
 ## 5. Board set-up
 
-As for spfi_encrypt (its procedure, section 5): boot mode JTAG, the reference clock confirmed in the System Controller
-before the build (option A: 8A34001 output Q1 at 156.25 MHz; option B: Si570 at 156.250 MHz, set again after every
-power cycle), QSFP1 of the VCK190 to port 1 of the STAR-Ultra, then the device image of the confirmed option
-programmed with the Vivado Hardware Manager. `results/build_info.txt` names the reference clock of the image.
+As for spfi_encrypt (its procedure, section 5): boot mode JTAG, the reference clock of the option (option A: Si570 at
+100.000 MHz, its frequency after power-up, no setting; option B: Si570 set to 156.250 MHz in the System Controller after
+every power cycle; option C: 8A34001 output Q1 at 156.25 MHz), QSFP1 of the VCK190 to port 1 of the STAR-Ultra, then the
+device image of the option programmed with the Vivado Hardware Manager. `results/build_info.txt` names the
+reference clock and the frequency of the image.
 
 ## 6. Far-end configuration
 

@@ -15,8 +15,9 @@
 # System clock: the constraints of the CIPS IP create clk_pl_0 (200 MHz); the lane clock of the system is the
 # transmit clock of the transceivers.
 
-# Transceiver reference clock, 156.25 MHz with either source (pins in spfi_encrypt_vck190_refclk_<source>.xdc)
-create_clock -period 6.400 -name gt_refclk [get_ports GtRefClk_P]
+# Transceiver reference clock gt_refclk: tcl/build.tcl writes its clock constraint at the selected frequency
+# into the project directory (spfi_encrypt_vck190_refclk_clock.xdc), the pins are in
+# spfi_encrypt_vck190_refclk_<source>.xdc.
 
 # QSFP1: GTY quad 200 (GTY_QUAD_X1Y0), channels 0 to 3 = lanes 0 to 3
 set_property LOC GTY_QUAD_X1Y0 [get_cells -hierarchical -filter {REF_NAME == GTYE5_QUAD}]

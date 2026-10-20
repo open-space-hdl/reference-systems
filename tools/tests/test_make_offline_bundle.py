@@ -33,14 +33,15 @@ def section_4_commands(text: str) -> list[str]:
     return lines[start + 1:lines.index("```", start + 1)]
 
 
-def test_readme_shows_both_build_commands_after_the_clock_check():
+def test_readme_shows_the_build_commands_of_every_clock_option_after_the_clock_check():
     text = readme()
     lines = text.splitlines()
     assert "    " + BUILD in lines
-    assert "    " + BUILD + " -tclargs all si570" in lines
+    assert "    " + BUILD + " -tclargs all si570 156.25" in lines
+    assert "    " + BUILD + " -tclargs all 8a34001" in lines
     flat = " ".join(text.split())
     assert "Confirm the reference clock on the board first (section 5, step 2)" in flat
-    assert "build the image of that source only" in flat
+    assert "build the image of that option only" in flat
     assert flat.index("Confirm the reference clock") < flat.index(BUILD)
 
 

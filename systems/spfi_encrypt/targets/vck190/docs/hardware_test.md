@@ -51,14 +51,16 @@ needed.
 ## 4. Build
 
 The transceiver reference clock has two sources on the board, and the device image fixes the pins it takes the clock
-from. Confirm the reference clock on the board first (section 5, step 2), then build the image of that source only,
-from the root of the repository:
+from and its frequency. Confirm the reference clock on the board first (section 5, step 2), then build the image of
+that option only, from the root of the repository:
 
 ```shell
-# Option A: clock generator 8A34001, output Q1 at 156.25 MHz (default)
+# Option A: oscillator Si570 U205 at 100.000 MHz, its frequency after power-up (default)
 vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl
 # Option B: oscillator Si570 U205 set to 156.250 MHz
-vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570
+vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570 156.25
+# Option C: clock generator 8A34001, output Q1 at 156.25 MHz
+vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tclargs all 8a34001
 ```
 
 The elaboration alone takes about 6 GB of memory.
@@ -66,16 +68,18 @@ The elaboration alone takes about 6 GB of memory.
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
 board top level and the constraints, and runs synthesis, implementation and the device image. The pins of the reference
-clock come from `constr/spfi_encrypt_vck190_refclk_8a34001.xdc` or `constr/spfi_encrypt_vck190_refclk_si570.xdc`; the
-frequency (156.25 MHz), the transceiver wizard instance and the clock constraint are the same for both sources.
-`-tclargs rtl` (or `-tclargs rtl si570`) only creates the project and elaborates the design, a check of the sources in
-about ten minutes; it writes `results/invalid_constraints.xdc` of the elaborated design, so that a constraint that does
-not apply shows up before a synthesis, and `results/build_info.txt`. In this step the transceiver wizard instance is a
-black box, so its clocks and constraints are missing: the critical warning Constraints 18-5119
-(`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at the net `pa0_LaneClk_s`) are expected there, and
-`invalid_constraints.xdc` lists the location of the GTY quad and the two maximum delays between the lane clock and
-`Clk_sys`. `Rst` of the system has no false path of its own: every block that receives it releases it through
-`olo_base_reset_gen`, whose scoped constraints cut the paths into its synchronisers.
+clock come from `constr/spfi_encrypt_vck190_refclk_si570.xdc` or `constr/spfi_encrypt_vck190_refclk_8a34001.xdc`. The
+frequency sets the transceiver wizard instance and the clock `gt_refclk`, whose constraint the script writes into the
+project directory (`spfi_encrypt_vck190_refclk_clock.xdc`); the line rate (6.25 Gbit/s) and the lane clock (156.25 MHz)
+are the same for every option. `-tclargs rtl` (or, for example, `-tclargs rtl si570 156.25`) only creates the project
+and elaborates the design, a check of the sources in about ten minutes; it writes `results/invalid_constraints.xdc` of
+the elaborated design, so that a constraint that does not apply shows up before a synthesis, and
+`results/build_info.txt`. In this step the transceiver wizard instance is a black box, so its clocks and constraints are
+missing: the critical warning Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at
+the net `pa0_LaneClk_s`) are expected there, and `invalid_constraints.xdc` lists the location of the GTY quad and the
+two maximum delays between the lane clock and `Clk_sys`. `Rst` of the system has no false path of its own: every block
+that receives it releases it through `olo_base_reset_gen`, whose scoped constraints cut the paths into its
+synchronisers.
 
 On Windows the project path must not be longer than about 40 characters: the device image step compiles the platform
 loader firmware in a deep directory below the project, and with a longer path `write_device_image` fails ("opening
@@ -92,7 +96,7 @@ The script writes the results to `results/` in the project directory:
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
 | `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers |
 | `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
-| `build_info.txt` | Step, Vivado version, part, the reference clock with the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The reference clock confirmed in section 5 (`8a34001`: AD11, AD10; `si570`: AB11, AB10); the commits of the offline package or of the clone |
+| `build_info.txt` | Step, Vivado version, part, the reference clock with its frequency, the period of `gt_refclk` and the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The option confirmed in section 5 (`si570`: AB11, AB10; `8a34001`: AD11, AD10; period 10.000 ns at 100 MHz, 6.400 ns at 156.25 MHz); the commits of the offline package or of the clone |
 
 The implementation run stops before `opt_design` when a constraint did not apply (`tools/vivado/check_constraints.tcl`):
 an object query of a constraint that matched nothing (Vivado 12-180, 12-507, 12-508, 12-584, 12-1008, 12-4739) or the
@@ -108,24 +112,26 @@ Expected messages: TIMING-9 and LUTAR-1 in the transceiver wizard and at the res
 ## 5. Board set-up
 
 1. Boot mode switch SW1 to JTAG (VCK190 Evaluation Board User Guide UG1366 v1.1).
-2. Reference clock, before the build (section 4): the transceivers need 156.25 MHz at the pins of the device image.
-   With the board powered, check the clock in the System Controller of the board, with its board user interface
-   (Board Evaluation and Management Tool) or its command line, over the USB-UART connector J207 (UG1366, section
-   "System Controller"). Use one of two options and build only the image of the option whose clock is confirmed:
+2. Reference clock, before the build (section 4): the transceivers need the frequency of the device image at its pins.
+   Use one of three options and build only the image of that option. Option A needs no setting: the Si570 runs at
+   100.000 MHz after every power-up (UG1366, section "Programmable FMCP MGT SI570 Clock with Buffer"). Options B and C
+   need the clock set in the System Controller of the board, with its board user interface (Board Evaluation and
+   Management Tool) or its command line, over the USB-UART connector J207 (UG1366, section "System Controller"):
 
-   | Item | Option A (default image) | Option B (image `si570`) |
-   | --- | --- | --- |
-   | Source | Clock generator 8A34001 (U219), output Q1 (UG1366, section "GTY200: QSFP1") | Programmable oscillator Si570 (U205, USER_SI570_1) through the clock buffer SI53340 (U206), output Q0 (UG1366, section "Programmable FMCP MGT SI570 Clock with Buffer") |
-   | Pins of the device | MGTREFCLK1 of GTY quad 200: AD11, AD10 | GTY_REFCLK0 of GTY quad 201: AB11, AB10; the transceivers of quad 200 use this reference clock of the adjacent quad |
-   | Setting | The 8A34001 is programmed with configuration files, not with a frequency value, and the frequency of Q1 is not documented: load a configuration whose output Q1 runs at 156.25 MHz | Header J306 off (default: the clock buffer passes the Si570); set the Si570 to 156.250 MHz (default 100.000 MHz) |
-   | Read-back | Read the setting of the 8A34001 back in the System Controller and record what it gives for Q1; if Q1 cannot be confirmed at 156.25 MHz, use option B | Read the frequency of the Si570 back in the System Controller and record it |
+   | Item | Option A (default image) | Option B (image `si570 156.25`) | Option C (image `8a34001`) |
+   | --- | --- | --- | --- |
+   | Source | Programmable oscillator Si570 (U205, USER_SI570_1) through the clock buffer SI53340 (U206), output Q0 (UG1366, section "Programmable FMCP MGT SI570 Clock with Buffer") | As option A | Clock generator 8A34001 (U219), output Q1 (UG1366, section "GTY200: QSFP1") |
+   | Pins of the device | GTY_REFCLK0 of GTY quad 201: AB11, AB10; the transceivers of quad 200 use this reference clock of the adjacent quad | As option A | MGTREFCLK1 of GTY quad 200: AD11, AD10 |
+   | Frequency | 100.000 MHz | 156.250 MHz | 156.25 MHz |
+   | Setting | Header J306 off (default: the clock buffer passes the Si570); no setting of the Si570. If the Si570 was set to another frequency since the board was switched on, switch the board off and on again | Header J306 off; set the Si570 to 156.250 MHz after every power-up | The 8A34001 is programmed with configuration files, not with a frequency value, and the frequency of Q1 is not documented: load a configuration whose output Q1 runs at 156.25 MHz |
+   | Read-back | Optional: read the frequency of the Si570 back in the System Controller and record it | Read the frequency of the Si570 back in the System Controller and record it | Read the setting of the 8A34001 back in the System Controller and record what it gives for Q1; if Q1 cannot be confirmed at 156.25 MHz, use option A |
 
-   A power cycle sets the Si570 back to 100.000 MHz: set it to 156.250 MHz again before the device is programmed.
-   After every change of the reference clock, program the device again (step 4).
+   A power cycle sets the Si570 back to 100.000 MHz: with option B, set it to 156.250 MHz again before the device is
+   programmed. After every change of the reference clock, program the device again (step 4).
 3. Connect QSFP1 of the VCK190 to port 1 of the STAR-Ultra. Lane i of the system must reach lane i of the far end;
    the system detects inverted receive polarity per lane itself.
-4. Program the device image of the confirmed option (Vivado Hardware Manager); `results/build_info.txt` names its
-   reference clock. LED 0 blinks (about 0.7 s on, 0.7 s off) and LED 1 is on.
+4. Program the device image of the option (Vivado Hardware Manager); `results/build_info.txt` names its reference
+   clock and frequency. LED 0 blinks (about 0.7 s on, 0.7 s off) and LED 1 is on.
 
 ## 6. Far-end configuration
 
@@ -203,9 +209,9 @@ not complete on channel 0. Before any rerun, record:
 
 1. The link state of port 1 and the lane state of its four lanes in STAR-System.
 2. The LEDs of the VCK190 (section 5, step 4).
-3. The reference clock: the option, the value read back in the System Controller (section 5, step 2) and the
-   reference clock in `results/build_info.txt` of the programmed image. They must agree; after a power cycle the
-   Si570 of option B runs at 100.000 MHz again.
+3. The reference clock: the option, the value read back in the System Controller (section 5, step 2) and the reference
+   clock with its frequency in `results/build_info.txt` of the programmed image. They must agree; after a power cycle
+   the Si570 runs at 100.000 MHz again, the frequency of option A.
 
 Then correct what the records show (clock, image, cable) and run the script again. After the QSFP cable was unplugged
 or moved, reset the link of port 1 in STAR-System before the next run; if the link still does not come up, program
