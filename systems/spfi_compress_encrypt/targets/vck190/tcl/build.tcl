@@ -146,10 +146,11 @@ update_compile_order -fileset sources_1
 # CIPS it can leave the constraint file of the CIPS unread (no clk_pl_0)
 set_property AUTO_INCREMENTAL_CHECKPOINT 0 [get_runs synth_1]
 
-# Implementation: placement and routing explore several directives, physical optimization also after routing. The
-# run stops before opt_design when a constraint did not apply (an object query that matched nothing, the constraint
-# file of a module that is not in the netlist): tools/vivado/check_constraints.tcl.
-set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]
+# Implementation: strategy Performance_Explore, placement and routing explore several directives, without a physical
+# optimization after routing (in that step Vivado 2025.2 stopped once with an access violation). The run stops before
+# opt_design when a constraint did not apply (an object query that matched nothing, the constraint file of a module
+# that is not in the netlist): tools/vivado/check_constraints.tcl.
+set_property strategy Performance_Explore [get_runs impl_1]
 set_property STEPS.OPT_DESIGN.TCL.PRE [file join $root tools vivado check_constraints.tcl] [get_runs impl_1]
 
 # build_info.txt of the open design: the step, the reference clock with its frequency, the period of its clock and

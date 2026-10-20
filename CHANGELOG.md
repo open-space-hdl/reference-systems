@@ -24,6 +24,9 @@
 
 ### Fixed
 
+- VCK190 targets of both systems: the implementation run uses the strategy Performance_Explore, without the
+  physical optimization after routing of Performance_ExplorePostRoutePhysOpt. In that step Vivado 2025.2 stopped
+  once with an access violation, after a complete routing, and the build ended without a device image.
 - The system testbench of spfi_compress_encrypt runs in xsim with the AMD transceiver model; TC-RS-HW-01 to 05 pass
   (known issue of v0.1.0).
 - The timing exceptions of the clock crossings between the lane clock and the system clock apply in the builds of
