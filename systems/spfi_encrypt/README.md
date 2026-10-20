@@ -46,7 +46,7 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 
 | Clock | Frequency | Source | Used by |
 | --- | --- | --- | --- |
-| `Clk_sys` | 200 MHz | top-level port | all blocks; user, management and free-running clock of `ofb0` and `pa0` |
+| `Clk_sys` | 150 MHz | top-level port | all blocks; user, management and free-running clock of `ofb0` and `pa0` |
 | lane clock | 156.25 MHz | `pa0` (transmit user clock of the GTY quad) | core and lane clock of `ofb0` |
 
 `Rst` is the asynchronous, high-active reset of the system. `auto_rst_sys` releases it synchronously to `Clk_sys` for
@@ -60,7 +60,7 @@ the transceivers and their reset controller with it. `ofb0` holds its link in Ne
 | Port | Direction | Type | Function |
 | --- | --- | --- | --- |
 | `Rst` | in | `std_logic` | Asynchronous reset, high-active |
-| `Clk_sys` | in | `std_logic` | System clock, 200 MHz |
+| `Clk_sys` | in | `std_logic` | System clock, 150 MHz |
 | `pa0_Gt_TxP`, `pa0_Gt_TxN` | out | `std_logic_vector(3 downto 0)` | Transmit lanes of the GTY quad |
 | `pa0_Gt_RxP`, `pa0_Gt_RxN` | in | `std_logic_vector(3 downto 0)` | Receive lanes of the GTY quad |
 | `pa0_RefClk` | in | `std_logic` | Reference clock of the quad at the frequency of the transceiver wizard instance of the target (VCK190: 100 MHz or 156.25 MHz), output O of the IBUFDS_GTE5 in the board top level |

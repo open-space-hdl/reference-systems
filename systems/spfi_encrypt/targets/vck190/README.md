@@ -17,7 +17,7 @@ the fabric reset, the buffer of the transceiver reference clock and two LEDs.
 
 | Clock | Frequency | Source | Use |
 | --- | --- | --- | --- |
-| `clk_pl_0` | 200 MHz | PMC clock generator of the CIPS (`pl0_ref_clk`) | `Clk_sys` of the system; free-running clock of the transceivers |
+| `clk_pl_0` | 150 MHz | PMC clock generator of the CIPS (`pl0_ref_clk`) | `Clk_sys` of the system; free-running clock of the transceivers |
 | `gt_refclk` | 100 MHz (default) or 156.25 MHz | Oscillator Si570 (U205) through the clock buffer SI53340 (U206) to GTY_REFCLK0 of GTY quad 201 (default), or clock generator 8A34001 (U219), output Q1, to MGTREFCLK1 of GTY quad 200 | Reference clock of the transceivers (`pa0_RefClk` through IBUFDS_GTE5) |
 | lane clock | 156.25 MHz | Transmit clock of the transceivers (BUFG_GT in `ofb_pa_gty`) | Core and lane clock of the SpaceFibre port, generated inside the system |
 
@@ -53,7 +53,7 @@ synchronises its reset itself, the fabric reset drives `Rst` of the system direc
 | `GtRefClk_P`, `GtRefClk_N` | AD11, AD10 (`8a34001`) or AB11, AB10 (`si570`) | MGTREFCLK1 of GTY quad 200 or GTY_REFCLK0 of GTY quad 201 |
 | `Qsfp_TxP(i)`, `Qsfp_TxN(i)` | lane 0: AF7, AF6; 1: AE9, AE8; 2: AD7, AD6; 3: AC9, AC8 | QSFP1 transmit, channel i of quad 200 (GTY_QUAD_X1Y0) |
 | `Qsfp_RxP(i)`, `Qsfp_RxN(i)` | lane 0: AF2, AF1; 1: AE4, AE3; 2: AD2, AD1; 3: AC4, AC3 | QSFP1 receive |
-| `Led(0)` | H34 (GPIO_LED_0) | Toggles every 2^27 cycles of the system clock (about 0.7 s): the device is configured and the clock runs |
+| `Led(0)` | H34 (GPIO_LED_0) | Toggles every 2^27 cycles of the system clock (about 0.9 s): the device is configured and the clock runs |
 | `Led(1)` | J33 (GPIO_LED_1) | On when the reset of the system is released |
 
 Lane i of the system is channel i of the quad and must be connected to lane i of the far end; the SpaceFibre port
