@@ -94,7 +94,7 @@ The script writes the results to `results/` in the project directory:
 | `spfi_encrypt_vck190_top.pdi` | Device image | Present |
 | `timing_summary.rpt` | Timing of all clocks | The clock summary lists `clk_pl_0` (150 MHz), `gt_refclk` and the lane clock `ch0_txoutclk` (156.25 MHz); check_timing finds no register without a clock (`no_clock` 0); WNS and WHS at least 0 ns; no pulse width violation |
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
-| `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers |
+| `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers, apart from the two TIMING-54 below |
 | `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
 | `build_info.txt` | Step, Vivado version, part, the reference clock with its frequency, the period of `gt_refclk` and the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The option confirmed in section 5 (`si570`: AB11, AB10; `8a34001`: AD11, AD10; period 10.000 ns at 100 MHz, 6.400 ns at 156.25 MHz); the commits of the offline package or of the clone |
 
@@ -107,7 +107,12 @@ CIPS was not read and the clock `clk_pl_0` was missing; the incremental synthesi
 earlier netlist, is the likely cause. Change the system clock in the Composer file and in `tcl/build.tcl`
 (`clk_sys_mhz`) and run the script again, not in the CIPS of the open project.
 
-Expected messages: TIMING-9 and LUTAR-1 in the transceiver wizard and at the reset generators.
+Expected messages: TIMING-9 and LUTAR-1 in the transceiver wizard and at the reset generators, and two TIMING-54
+(critical warning) for the clock pair maximum delays of the system constraints (`set_max_delay -datapath_only` from the
+lane clock to `Clk_sys` and back, `hdl/spfi_encrypt.xdc`). The system constraints are read scoped to the system entity,
+and Vivado reports every exception between two clocks in a scoped file, because the exception applies to all paths
+between the clocks, also outside the scope. Here that is intended: the lane clock exists only inside the system, so
+every path between the two clocks is a crossing of the system.
 
 ## 5. Board set-up
 

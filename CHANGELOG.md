@@ -18,6 +18,9 @@
   156.25 MHz, for the transceiver wizard instance and the clock constraint. The default image takes the oscillator
   Si570 at 100 MHz, its frequency after every power-up (UG1366), and needs no setting in the System Controller. The
   images of v0.1.0 are built with `-tclargs si570 156.25` and `-tclargs 8a34001`.
+- VCK190 hardware test procedure: the methodology report of an implemented build holds two TIMING-54 (critical
+  warning) for the clock pair exceptions of the system constraints, which are read scoped to the system. The
+  procedure lists them as expected: the lane clock exists only inside the system.
 
 ### Fixed
 
