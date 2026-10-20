@@ -25,7 +25,9 @@ Where the build computer or the test computer has no network access, the reposit
 travel as Git bundles: `reference-systems.bundle`, one bundle per core in `cores/` (`open-logic-ft`, `openrmap`,
 `openspp`, `openfibre`, `opencrypto`) and `en_cl_fix.bundle`, the submodule of Open Logic FT whose files the compile
 order lists. `python tools/make_offline_bundle.py <directory>` writes them with a `README.txt` that names every commit,
-and checks them by a clone without network access before it reports success. Clone with the commands of
+and checks them by a clone without network access before it reports success. On Windows, `build.bat` of the
+package runs the clone, the checks and the build of one system in one step (`build.bat <system> [<words>]`, see
+`README.txt`). Clone with the commands of
 `README.txt` (`<path>` is the directory of the bundles):
 
 ```shell

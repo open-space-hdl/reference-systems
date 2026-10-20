@@ -4,7 +4,10 @@
 # ---------------------------------------------------------------------------------------------------
 """Writes the repository and the sources a build needs as Git bundles, for a build computer without network access.
 
-Usage: python tools/make_offline_bundle.py <out dir> [--ref main]
+Usage: python tools/make_offline_bundle.py <out dir> [--ref main] [--bat-rs-dir <dir>] [--bat-vivado-out <dir>]
+
+Writes the bundles, README.txt and build.bat to <out dir>. --bat-rs-dir and --bat-vivado-out set the defaults of
+RS_DIR and RS_VIVADO_OUT in build.bat and README.txt, for the directories of the build computer.
 
 Bundles: reference-systems.bundle (the branch --ref, default main), one bundle per submodule in cores/ at the commit
 that --ref records (that of Open Logic FT with the tag of the systems and the tags their cores were verified with),
@@ -13,7 +16,8 @@ systems list. The submodules of the cores themselves (their own open-logic and u
 the cores and are not needed. README.txt in <out dir> lists the commits and the commands to clone and build. The
 build commands of every board target are those of section 4 (Build) of its hardware test procedure
 (systems/<system>/targets/<board>/docs/hardware_test.md at --ref), with the text in front of them, so that README.txt
-and the procedure cannot differ.
+and the procedure cannot differ. build.bat in <out dir> runs the same commands on Windows in one step: the clone from
+the bundles next to it, the check of the pins and the build of one system, with RS_VIVADO_OUT set.
 
 Before it writes the bundles, the script checks the pins against the published repositories (tools/check_pins.py).
 Before it reports success, it clones the bundles into a temporary directory with the commands of README.txt, with
@@ -34,6 +38,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "reference-systems"
+# Defaults of build.bat: the clone, the project directory of Vivado (short, see README.txt) and the installation of
+# Vivado 2025.2 when vivado is not on the PATH; the options --bat-rs-dir and --bat-vivado-out replace the first two
+BAT_DEFAULTS = {"RS_DIR": r"C:\git\reference-systems", "RS_VIVADO_OUT": "C:/git/rs",
+                "VIVADO": r"C:\AMDDesignTools\2025.2\Vivado\bin\vivado.bat"}
+BUILD_COMMAND = re.compile(r"vivado -mode batch -source systems/([^/]+)/targets/([^/]+)/tcl/build\.tcl"
+                           r"(?: -tclargs (.+))?")
 NESTED = ("cores/open-logic-ft", "3rdParty/en_cl_fix", "en_cl_fix")   # submodule, its submodule, bundle name
 HARDWARE_TEST = re.compile(r"systems/([^/]+)/targets/([^/]+)/docs/hardware_test\.md")
 BUILD_SECTION = re.compile(r"^## 4\. Build\n(.*?)^```shell\n(.*?)^```$", re.M | re.S)
@@ -112,7 +122,158 @@ def build_lines(ref: str) -> list[str]:
     return lines
 
 
-def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], nested_sha: str) -> str:
+def build_options(ref: str) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """Per board target at ref: system, board and the options of section 4 of its hardware test procedure, each as
+    the comment line in front of its command and the words after -tclargs (empty for the default image)."""
+    targets = []
+    for path in git("ls-tree", "-r", "--name-only", ref, "systems").splitlines():
+        target = HARDWARE_TEST.fullmatch(path)
+        if not target:
+            continue
+        options, comment = [], ""
+        for line in build_section(git("show", f"{ref}:{path}"), f"{ref}:{path}")[1]:
+            command = BUILD_COMMAND.fullmatch(line.strip())
+            if line.strip().startswith("#"):
+                comment = line.strip().lstrip("#").strip()
+            elif command:
+                if command.group(1, 2) != target.group(1, 2):
+                    raise SystemExit(f"{ref}:{path}: section 4 builds {command.group(1)} for {command.group(2)}")
+                options.append((comment, command.group(3) or ""))
+                comment = ""
+        if not options:
+            raise SystemExit(f"{ref}:{path}: section 4 has no command of tcl/build.tcl")
+        targets.append((target.group(1), target.group(2), options))
+    return targets
+
+
+def build_bat(ref: str, ref_sha: str, links: dict[str, str], defaults: dict[str, str] = BAT_DEFAULTS) -> str:
+    """build.bat of the package: the commands of README.txt on Windows in one step (clone from the bundles in the
+    folder of the script when RS_DIR does not exist yet, check of the pins, build of one system with Vivado). A clone
+    at another commit stops it; it deletes nothing."""
+    targets = build_options(ref)
+    first, _, first_options = targets[0]
+    calls = [f"rem   build.bat {first} {words}".rstrip() for _, words in first_options]
+    width = max(len(c) for c in calls) + 2
+    usage = [c.ljust(width) + comment for c, (comment, _) in zip(calls, first_options)]
+    systems = ", ".join(f"{s} ({b})" for s, b, _ in targets)
+    clone = [f'git clone -b %REF% "%PKG%/{REPO}.bundle" "%RS_DIR%" || exit /b 1', 'cd /d "%RS_DIR%" || exit /b 1']
+    clone += [f'git config submodule.{p}.url "%PKG%/{Path(p).name}.bundle" || exit /b 1' for p in links]
+    clone += ["git -c protocol.file.allow=always submodule update --init || exit /b 1",
+              f'git -C {NESTED[0]} config submodule.{NESTED[1]}.url "%PKG%/{NESTED[2]}.bundle" || exit /b 1',
+              f"git -C {NESTED[0]} -c protocol.file.allow=always submodule update --init {NESTED[1]} || exit /b 1"]
+    lines = [
+        "@echo off",
+        f"rem Open Space HDL reference systems, offline package: {REPO} {ref} {ref_sha[:12]}",
+        "rem",
+        "rem The commands of README.txt in one step: clones the repository from the bundles in the folder of this",
+        "rem script when RS_DIR does not exist yet, checks the pins without network access and builds one system with",
+        "rem Vivado, with RS_VIVADO_OUT set. Confirm the reference clock on the board first (hardware_test.md of the",
+        "rem target, section 5, step 2), then build the image of that option only:",
+        "rem",
+        "rem   build.bat <system> [<words of build.tcl>]",
+        "rem",
+        *usage,
+        "rem",
+        f"rem Systems: {systems}; the other systems take the same words.",
+        "rem",
+        "rem Settings: environment variables set before the call, else the defaults below.",
+        "rem   RS_DIR         clone of the repository; an existing clone must be at the commit of this package",
+        "rem   RS_VIVADO_OUT  project directory of Vivado, at most about 40 characters (write_device_image); the",
+        "rem                  project of an earlier build in it is replaced",
+        "rem   VIVADO         vivado.bat of Vivado 2025.2 (default: vivado on the PATH, else the path below)",
+        "setlocal EnableExtensions",
+        *[f'if not defined {k} set "{k}={v}"' for k, v in defaults.items() if k != "VIVADO"],
+        f'set "REF={ref}"',
+        f'set "REF_SHA={ref_sha}"',
+        'set "PKG=%~dp0"',
+        'set "PKG=%PKG:~0,-1%"',
+        'set "PKG=%PKG:\\=/%"',
+        "",
+        'set "SYSTEM=%~1"',
+        'set "BOARD="',
+        *[f'if /i "%SYSTEM%"=="{s}" set "BOARD={b}"' for s, b, _ in targets],
+        "if not defined BOARD (",
+        "    echo usage: build.bat ^<system^> [^<words of build.tcl^>]; systems: "
+        + ", ".join(s for s, _, _ in targets),
+        "    exit /b 2",
+        ")",
+        'set "WORDS="',
+        ":words",
+        "shift",
+        'if "%~1"=="" goto words_done',
+        'set "WORDS=%WORDS% %~1"',
+        "goto words",
+        ":words_done",
+        "",
+        "where git >nul 2>&1 || (echo git is not on the PATH & exit /b 2)",
+        "if not defined VIVADO (",
+        '    where vivado >nul 2>&1 && set "VIVADO=vivado"',
+        ")",
+        f'if not defined VIVADO if exist "{BAT_DEFAULTS["VIVADO"]}" set "VIVADO={BAT_DEFAULTS["VIVADO"]}"',
+        "if not defined VIVADO (",
+        "    echo Vivado not found: set VIVADO to vivado.bat of Vivado 2025.2, or run its settings64.bat first",
+        "    exit /b 2",
+        ")",
+        "",
+        'if exist "%RS_DIR%\\.git" goto have_clone',
+        'if exist "%RS_DIR%" (',
+        "    echo %RS_DIR% exists and is no clone: set RS_DIR to a new directory",
+        "    exit /b 1",
+        ")",
+        "echo Cloning %REF% from %PKG% into %RS_DIR%",
+        *clone,
+        "goto check_clone",
+        ":have_clone",
+        'cd /d "%RS_DIR%" || exit /b 1',
+        ":check_clone",
+        'set "HEAD="',
+        "for /f %%h in ('git rev-parse HEAD') do set \"HEAD=%%h\"",
+        'if /i not "%HEAD%"=="%REF_SHA%" (',
+        "    echo %RS_DIR% is at %HEAD%, this package is %REF% %REF_SHA%.",
+        "    echo Rename or remove %RS_DIR%, or set RS_DIR to a new directory, and run build.bat again.",
+        "    exit /b 1",
+        ")",
+        'set "SUBMODULES_OK=1"',
+        "for /f \"delims=\" %%l in ('git submodule status') do (",
+        "    echo %%l",
+        '    echo %%l| findstr /b /r "[-+U]" >nul && set "SUBMODULES_OK="',
+        ")",
+        "if not defined SUBMODULES_OK (",
+        "    echo A submodule is not at the recorded commit ^(leading - or + above^)",
+        "    exit /b 1",
+        ")",
+        "python --version >nul 2>&1",
+        "if errorlevel 1 (",
+        "    echo Python not found: the check of the pins ^(tools/check_pins.py --offline^) is skipped",
+        ") else (",
+        "    python tools/check_pins.py --offline || (echo The pins do not match the bundles & exit /b 1)",
+        ")",
+        'set "CHANGED=0"',
+        "for /f %%c in ('git status --porcelain ^| find /c /v \"\"') do set \"CHANGED=%%c\"",
+        'if not "%CHANGED%"=="0" (',
+        "    echo WARNING: %CHANGED% files of %RS_DIR% differ from the commit, and the build takes them:",
+        "    git status --short",
+        ")",
+        "",
+        "echo Building %SYSTEM% for the %BOARD%, RS_VIVADO_OUT=%RS_VIVADO_OUT%, build.tcl words:%WORDS%",
+        "if defined WORDS (",
+        '    call "%VIVADO%" -mode batch -source systems/%SYSTEM%/targets/%BOARD%/tcl/build.tcl -tclargs%WORDS%',
+        ") else (",
+        '    call "%VIVADO%" -mode batch -source systems/%SYSTEM%/targets/%BOARD%/tcl/build.tcl',
+        ")",
+        "if errorlevel 1 (",
+        "    echo The build failed: vivado.log in %RS_DIR% has the messages",
+        "    exit /b 1",
+        ")",
+        "echo Results in %RS_VIVADO_OUT%/results",
+        "endlocal",
+        "exit /b 0",
+    ]
+    return "\r\n".join(lines) + "\r\n"
+
+
+def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], nested_sha: str,
+           defaults: dict[str, str] = BAT_DEFAULTS) -> str:
     """README.txt of the package: the bundles with their commits, the commands to clone and to build."""
     lines = [f"Open Space HDL reference systems, offline package: {REPO} {ref} {ref_sha[:12]}", "",
              f"{REPO}.bundle".ljust(30) + f"repository open-space-hdl/{REPO}, branch {ref}"]
@@ -132,6 +293,20 @@ def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], 
               "On Windows keep the project path at most about 40 characters long, otherwise write_device_image fails",
               "while it compiles the platform loader firmware: set RS_VIVADO_OUT to a short directory (for example",
               "C:/git/rs) before starting Vivado. The results are written to <project>/results."]
+    example = next((w for _, _, options in build_options(ref) for _, w in options if w), "<words>")
+    lines += ["",
+              "build.bat in this folder runs these commands on Windows in one step: it clones the repository from the",
+              f"bundles next to it into RS_DIR (default {defaults['RS_DIR']}) when that directory does not exist "
+              "yet,",
+              "checks the submodules and the pins (with Python), sets RS_VIVADO_OUT and builds one system:", "",
+              "  build.bat <system>                       the default image",
+              f"  build.bat <system> {example}".ljust(43) + "an option: the words after -tclargs above", "",
+              "A clone at another commit stops it: rename that directory or set RS_DIR to a new one. The build creates",
+              f"the project with create_project -force, so it replaces the project in RS_VIVADO_OUT (default",
+              f"{defaults['RS_VIVADO_OUT']}). To keep an earlier project, set another short directory before the "
+              "call, for",
+              f"example: set RS_VIVADO_OUT={defaults['RS_VIVADO_OUT']}2. VIVADO selects vivado.bat when Vivado is not "
+              "on the PATH."]
     return "\n".join(lines) + "\n"
 
 
@@ -176,6 +351,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("out", type=Path, help="directory of the bundles (outside the repository)")
     parser.add_argument("--ref", default="main", help="branch of this repository to bundle (default main)")
+    parser.add_argument("--bat-rs-dir", default=BAT_DEFAULTS["RS_DIR"],
+                        help=f"default RS_DIR of build.bat, the clone (default {BAT_DEFAULTS['RS_DIR']})")
+    parser.add_argument("--bat-vivado-out", default=BAT_DEFAULTS["RS_VIVADO_OUT"],
+                        help=f"default RS_VIVADO_OUT of build.bat (default {BAT_DEFAULTS['RS_VIVADO_OUT']})")
     args = parser.parse_args()
     out = args.out.resolve()
     if out == ROOT or ROOT in out.parents:
@@ -193,6 +372,7 @@ def main() -> int:
         raise SystemExit(f"{NESTED[0]}/{NESTED[1]} is not checked out at {nested_sha}: git submodule update --init")
 
     build_lines(args.ref)   # every hardware test procedure has its build commands
+    build_options(args.ref)
     pins = subprocess.run([sys.executable, "tools/check_pins.py"], cwd=ROOT, capture_output=True, text=True,
                           check=False)
     if pins.returncode != 0:
@@ -216,8 +396,10 @@ def main() -> int:
 
     verify(out, args.ref, ref_sha, links, nested_sha)
 
-    (out / "README.txt").write_text(readme(args.ref, ref_sha, links, tags, nested_sha), encoding="utf-8")
-    print(f"Bundles and README.txt in {out}; offline clone checked: {REPO} {ref_sha[:12]}, "
+    defaults = dict(BAT_DEFAULTS, RS_DIR=args.bat_rs_dir, RS_VIVADO_OUT=args.bat_vivado_out)
+    (out / "README.txt").write_text(readme(args.ref, ref_sha, links, tags, nested_sha, defaults), encoding="utf-8")
+    (out / "build.bat").write_bytes(build_bat(args.ref, ref_sha, links, defaults).encode("ascii"))
+    print(f"Bundles, README.txt and build.bat in {out}; offline clone checked: {REPO} {ref_sha[:12]}, "
           f"{len(links)} submodules, {NESTED[2]}")
     return 0
 
