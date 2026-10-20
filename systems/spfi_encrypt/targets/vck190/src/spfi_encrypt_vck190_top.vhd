@@ -8,7 +8,7 @@
 ---------------------------------------------------------------------------------------------------
 -- Board top level of the system spfi_encrypt for the AMD VCK190 evaluation board: the SpaceFibre
 -- port of the system on the QSFP1 cage (GTY quad 200, four lanes). The CIPS supplies the system
--- clock (200 MHz) and the fabric reset; two LEDs show the system clock and the released reset.
+-- clock (150 MHz) and the fabric reset; two LEDs show the system clock and the released reset.
 --
 -- Documentation: systems/spfi_encrypt/targets/vck190/README.md
 
@@ -52,7 +52,7 @@ end entity;
 ---------------------------------------------------------------------------------------------------
 architecture struct of spfi_encrypt_vck190_top is
 
-    -- Clock and reset: ClkSys (CIPS pl0, 200 MHz), fabric reset of the CIPS
+    -- Clock and reset: ClkSys (CIPS pl0, 150 MHz), fabric reset of the CIPS
     signal ClkSys    : std_logic             := '0';
     signal PlRstN    : std_logic             := '1';
     signal PorIn     : std_logic;
@@ -94,7 +94,7 @@ begin
 
     -- Simulation: model of the system clock of the CIPS
     g_clk_model : if not IncludeCips_g generate
-        ClkSys <= not ClkSys after 2500 ps;
+        ClkSys <= not ClkSys after 3333 ps;
     end generate;
 
     PorIn <= not PlRstN;

@@ -11,6 +11,9 @@
 
 ### Changed
 
+- Both systems: system clock 150 MHz for the hardware bring-up (Composer file, generated top level and
+  constraints, `clk_sys_mhz` of the VCK190 `tcl/build.tcl`), with the throughput figures of spfi_compress_encrypt at
+  150 MHz. The CIPS derives the clock from its 1200 MHz PLL by the divisor 8.
 - VCK190 targets of both systems: `tcl/build.tcl` takes the frequency of the transceiver reference clock, 100 MHz or
   156.25 MHz, for the transceiver wizard instance and the clock constraint. The default image takes the oscillator
   Si570 at 100 MHz, its frequency after every power-up (UG1366), and needs no setting in the System Controller. The

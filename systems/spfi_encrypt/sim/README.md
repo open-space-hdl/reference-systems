@@ -23,6 +23,8 @@ generated top level of the system instead of the board.
 
 - The system is the generated top level `spfi_encrypt` of `hdl/`. The bench drives and observes its top-level ports
   only: the reset, the system clock, the reference clock and the serial lines.
+- The bench runs `Clk_sys` at 200 MHz, the hardware builds at 150 MHz. The frequency enters the generated top level
+  only as `ClkFreqHz_g`, the clock of the memory scrubbers, which the system leaves off (`ScrubPeriod_g` 0.0).
 - The far end is the far end of all system testbenches ([sim/](../../../sim/README.md)): a second SpaceFibre port,
   an `ofb_core` with its own physical adapter, joined to the system by the serial lines, lane i to lane i in both
   directions. It has the generics of `ofb0` of the Composer file (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands

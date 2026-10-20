@@ -73,7 +73,7 @@ if {![string match 2025.2* [version -short]]} {
 set results [file join $out results]
 
 # Frequency of the clock domain sys of the Composer file (port Clk_sys of the system)
-set clk_sys_mhz 200
+set clk_sys_mhz 150
 
 create_project -force $name $out -part xcvc1902-vsva2197-2MP-e-S
 set_property target_language VHDL [current_project]

@@ -89,36 +89,36 @@ compressors: one device image has one configuration per channel.
 
 The four compressors run in parallel. Each takes one sample per clock cycle in the lab configurations (OpenCompact,
 `tools/ocp_throughput.py`: 196,608 cycles per image of 64 x 64 x 48 samples), 2 bytes per cycle: an SDU of 8186
-bytes in 20.5 us, 3.2 Gbit/s per channel at 200 MHz. Each writes the compressed image in words of 4 bytes, at most
+bytes in 27.3 us, 2.4 Gbit/s per channel at 150 MHz. Each writes the compressed image in words of 4 bytes, at most
 one per cycle, so that a compressor keeps this rate as long as its compressed image takes at most 32 bits per sample.
 The upper bounds on the compressed image that OpenCompact publishes (`max_image_bytes` of its model) are higher for
 three of the configurations, and with them the output limits the rate of a channel:
 
 | Channel | Upper bound on the compressed image | Time per SDU of 8186 bytes at that bound |
 | --- | --- | --- |
-| 0 (c01, sample-adaptive) | 34.0 bits per sample | 21.7 us |
-| 1 (c25, sample-adaptive) | 34.0 bits per sample | 21.7 us |
-| 2 (c27, block-adaptive) | 16.25 bits per sample | 20.5 us (the input) |
-| 3 (c26, hybrid) | 53.0 bits per sample | 33.9 us |
+| 0 (c01, sample-adaptive) | 34.0 bits per sample | 29.0 us |
+| 1 (c25, sample-adaptive) | 34.0 bits per sample | 29.0 us |
+| 2 (c27, block-adaptive) | 16.25 bits per sample | 27.3 us (the input) |
+| 3 (c26, hybrid) | 53.0 bits per sample | 45.2 us |
 
 When the Space Packets are spread evenly over the channels, the slowest channel sets the rate of all (see below):
-12.8 Gbit/s for the four channels when every compressed image takes at most 32 bits per sample (at most twice the
-size of its samples), 7.7 Gbit/s (4 x 65.5 kbit in 33.9 us) at the upper bound of channel 3. The receive side does
+9.6 Gbit/s for the four channels when every compressed image takes at most 32 bits per sample (at most twice the
+size of its samples), 5.8 Gbit/s (4 x 65.5 kbit in 45.2 us) at the upper bound of channel 3. The receive side does
 not limit it: the four lanes of `ofb0` carry 20 Gbit/s of 8B/10B data (6.25 Gbit/s per lane), the receive path of
 `spp0` 16 bytes per cycle. On the send side the four send ports of `spp0` share one path to the link, which carries
-8.38 Gbit/s in the throughput budget of the Composer: the encrypted chunks of the four channels together stay below
+6.29 Gbit/s in the throughput budget of the Composer: the encrypted chunks of the four channels together stay below
 it when the images compress by a ratio of about 1.5 or more at the full input rate.
 
 The receive buffer of `spp0` (8192 bytes) is shared by all receive ports and delivers the Space Packets in the order
 in which they arrived (OpenSPP user guide, generics `RxBufferBytes_g`): a packet leaves the buffer only after the
 packet before it, of any channel, has been taken. Without the FIFOs the channels would take turns: one SDU of 8186
 bytes fills the buffer, and the next SDU, of any channel, would wait until the compressor of the previous one had
-taken it (4093 cycles, 20.5 us), so the system would compress at the rate of one channel. `rxf<i>` takes the SDUs of
+taken it (4093 cycles, 27.3 us), so the system would compress at the rate of one channel. `rxf<i>` takes the SDUs of
 its channel at the rate of the receive port and holds two of them, so the buffer of `spp0` empties at the rate of the
 link while the compressors work. The throughput budget of the Composer (section "Throughput" of the brief in the
 system file) rates the four receive ports together: with the FIFOs the delivery in order reaches the rate of
-decoupled ports, 7.83 Gbit/s at packets of 1024 bytes at the upper bounds of the compressed images; without them it
-would be 2.71 Gbit/s.
+decoupled ports, 5.87 Gbit/s at packets of 1024 bytes at the upper bounds of the compressed images; without them it
+would be 2.03 Gbit/s.
 
 What remains: when the FIFO of one channel is full, because its compressor is two SDUs behind, the next Space Packet
 of that channel stays in the buffer of `spp0` and holds back the packets of all channels behind it until the
