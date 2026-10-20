@@ -150,7 +150,7 @@ def build_bat(ref: str, ref_sha: str, links: dict[str, str], defaults: dict[str,
     """build.bat of the package: the commands of README.txt on Windows in one step (clone from the bundles in the
     folder of the script when RS_DIR does not exist yet, check of the pins, build of one system with Vivado). A clone
     at another commit stops it; it deletes nothing."""
-    targets = build_options(ref)
+    targets = build_options(ref_sha)
     first, _, first_options = targets[0]
     calls = [f"rem   build.bat {first} {words}".rstrip() for _, words in first_options]
     width = max(len(c) for c in calls) + 2
@@ -288,12 +288,12 @@ def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], 
               "was written after the same check against the published repositories had passed:", "",
               "  python tools/check_pins.py --offline"]
     lines += ["", "Build and hardware test: systems/<system>/targets/<board>/docs/hardware_test.md, sections 3 to 9."]
-    lines += build_lines(ref)
+    lines += build_lines(ref_sha)
     lines += ["",
               "On Windows keep the project path at most about 40 characters long, otherwise write_device_image fails",
               "while it compiles the platform loader firmware: set RS_VIVADO_OUT to a short directory (for example",
               "C:/git/rs) before starting Vivado. The results are written to <project>/results."]
-    example = next((w for _, _, options in build_options(ref) for _, w in options if w), "<words>")
+    example = next((w for _, _, options in build_options(ref_sha) for _, w in options if w), "<words>")
     lines += ["",
               "build.bat in this folder runs these commands on Windows in one step: it clones the repository from the",
               f"bundles next to it into RS_DIR (default {defaults['RS_DIR']}) when that directory does not exist "
@@ -371,8 +371,8 @@ def main() -> int:
     if git("rev-parse", "HEAD", cwd=ROOT / NESTED[0] / NESTED[1]) != nested_sha:
         raise SystemExit(f"{NESTED[0]}/{NESTED[1]} is not checked out at {nested_sha}: git submodule update --init")
 
-    build_lines(args.ref)   # every hardware test procedure has its build commands
-    build_options(args.ref)
+    build_lines(ref_sha)   # every hardware test procedure has its build commands
+    build_options(ref_sha)
     pins = subprocess.run([sys.executable, "tools/check_pins.py"], cwd=ROOT, capture_output=True, text=True,
                           check=False)
     if pins.returncode != 0:
