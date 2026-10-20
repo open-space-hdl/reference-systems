@@ -1,15 +1,17 @@
-"""Parts of the system tests that every reference system with a SpaceFibre link, RMAP and AES-GCM cores shares.
+"""Parts of the system tests that every reference system with a SpaceFibre link and RMAP shares.
 
 The hardware test of a system (systems/<system>/sw/hardware_test.py) tests the system from the far end of its
 SpaceFibre link: RMAP over one channel of the test equipment, Space Packets over another. This module holds what does
 not depend on the processing of the system:
 
 - the facts that every such system has in its Composer file: the SpaceFibre port, the RMAP node, the Space Packet
-  node, the ECC monitor, the register banks of the exported header, the framers and AES-GCM cores (System);
+  node, the ECC monitor, the register banks of the exported header and, in a system that encrypts, the framers and
+  AES-GCM cores (System);
 - the channels and addresses of the test set-up (Setup) and the register access over RMAP (Registers);
 - the key slots of the AES-GCM cores (load_slot, query_slot);
-- the test cases TC-RS-HW-01 to TC-RS-HW-04 (link, identification, RMAP, commands of several words) and the steps
-  of TC-RS-HW-05 (configuration) and TC-RS-HW-07 (counters) that all systems take;
+- the test cases TC-RS-HW-01 to TC-RS-HW-03 (link, identification, RMAP), TC-RS-HW-04 (commands of several words)
+  of the systems that encrypt, and the steps of TC-RS-HW-05 (configuration) and TC-RS-HW-07 (counters) that the
+  systems take;
 - the drain of the channels and the run of a list of test cases.
 
 The register maps of the cores come from their headers (cores/<core>/sw/<prefix>_regs.h).
@@ -20,7 +22,7 @@ import importlib
 import random
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from refsys import rmap
@@ -79,7 +81,9 @@ class System:
         # names of the channels of the ECC monitor in channel order, for example FRM0_ECC_0
         self.ecc_names = [n.removeprefix(channel) for n, _ in sorted(
             ((n, v) for n, v in constants.items() if n.startswith(channel)), key=lambda item: item[1])]
-        self.chunk_bytes = f.generic(f.instances_of("opencrypto/ocr_framer")[0], "ChunkBytes_g")
+        # bytes of a chunk of the framers, in a system that encrypts
+        framers = f.instances_of("opencrypto/ocr_framer")
+        self.chunk_bytes = f.generic(framers[0], "ChunkBytes_g") if framers else None
         self.rx_buffer_bytes = f.generic(self.node, "RxBufferBytes_g")
         self.ecc_channels = len(self.ecc_names)
         self.ecc_info = f.generic(self.ecc, "Channels_g") | (f.generic(self.ecc, "CounterWidth_g") << 8)
@@ -91,7 +95,12 @@ class System:
 
     def id_offsets(self) -> dict[str, int]:
         """The offset of the identification register of every block with an identification, in its register map."""
-        return {self.node: SPP.ID, self.rmap: OMAP.ID, self.port: OFB.ID} | {c.core: OCR.ID for c in self.channels}
+        return {self.node: SPP.ID, self.rmap: OMAP.ID, self.port: OFB.ID} | {c.core: OCR.ID for c in self.cores()}
+
+    def cores(self) -> list:
+        """The channels with an AES-GCM core (attribute core): all channels of a system that encrypts, none of one
+        that does not."""
+        return [c for c in self.channels if getattr(c, "core", None)]
 
     def base(self, instance: str) -> int:
         return self.windows[instance]
@@ -195,18 +204,19 @@ class Registers:
 
 @dataclass
 class Context:
-    """State of a test run that the test cases share: the keys, fixed fields and first invocation counters of the
-    channels and the key material of TC-RS-HW-04. A system adds what its own test cases need."""
+    """State of a test run that the test cases share: in a system that encrypts, the keys, fixed fields and first
+    invocation counters of the channels and the key material of TC-RS-HW-04 (key_material). A system adds what its own
+    test cases need."""
 
     system: System
     setup: Setup
     seed: int
-    keys: list[bytes]
-    fixed: list[int]
-    counter: list[int]
-    test_key: bytes
-    test_fixed: int
-    test_counter: int
+    keys: list[bytes] = field(default_factory=list, kw_only=True)
+    fixed: list[int] = field(default_factory=list, kw_only=True)
+    counter: list[int] = field(default_factory=list, kw_only=True)
+    test_key: bytes = field(default=b"", kw_only=True)
+    test_fixed: int = field(default=0, kw_only=True)
+    test_counter: int = field(default=0, kw_only=True)
 
 
 def key_material(rng: random.Random, count: int) -> dict:

@@ -1,0 +1,293 @@
+"""Runs the hardware test of spfi_compress against the software model of the system (system_model.py).
+
+The procedure runs on the system of the Composer file with smaller images and chunks: every compressor keeps its
+configuration, with other image dimensions, so that the model compresses the images of all test cases in seconds,
+and every compressed image takes several chunks. The Composer file itself is checked against the configurations of
+OpenCompact that its channels use and against the bounds that the system README states.
+"""
+
+import copy
+from pathlib import Path
+
+import pytest
+
+from refsys import ocp, systest
+from refsys.composer import SystemFile, instance_of
+
+import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
+
+HERE = Path(__file__).resolve().parent
+ht, sm = systest.system_modules(HERE.parent, "hardware_test", "system_model")
+
+SYSTEM_FILE = SystemFile(ht.SYSTEM_FILE)
+LAB_SYSTEM = ht.System()
+
+# The configurations of OpenCompact of the four channels, one per preset of the Composer (BIP sample-adaptive, BSQ,
+# BIP block-adaptive, BIL near-lossless hybrid), and the lab images: 64 x 64 samples in 48 bands
+FAMILIES = ("c01_lossless_bip", "c25_tp_bsq_lossless", "c27_tp_bip_full", "c26_tp_bil_near_abs")
+LAB_DIMS = (64, 64, 48)
+DIMS = (16, 8, 6)            # 768 samples, 1536 bytes: 8 SDUs of at most 200 bytes
+SDU_BYTES = 200
+CHUNK_BYTES = 256            # compressed images of several chunks
+# The upper bound of the compressed image of every lab channel (max_image_bytes of the model of OpenCompact) and the
+# Space Packets of 4096 bytes that it takes, as the system README states them
+BOUNDS = [(835496, 204), (835496, 204), (399380, 98), (1303256, 319)]
+
+SYSTEM = ht.System(dims=DIMS, chunk_bytes=CHUNK_BYTES)
+LAB = ht.PROFILES["lab"]
+
+
+def context(seed: int = 3, system=SYSTEM, profile=LAB):
+    return ht.make_context(seed, profile, system=system, sdu_bytes=SDU_BYTES)
+
+
+def model(system=SYSTEM, **kw):
+    return sm.SystemModel(ht.Setup(), system=system, system_file=SYSTEM_FILE, **kw)
+
+
+def run(transport, ctx, tests=None):
+    results = ht.run(transport, ctx, tests)
+    return dict(results)
+
+
+def test_procedure_passes_against_the_model():
+    m, ctx = model(), context()
+    results = run(m, ctx)
+    assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
+    per_channel = len(LAB.kinds) + 5 + LAB.stream
+    assert ctx.images == 4 * per_channel and not m.pending
+    assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
+
+
+def test_the_compressed_images_take_several_chunks_in_the_tests():
+    m, ctx = model(), context()
+    run(m, ctx, ht.select_tests(["TC-RS-HW-06"]))
+    assert ctx.traffic.packets > 2 * 4 * len(LAB.kinds)
+
+
+def test_the_compressors_have_the_configurations_of_opencompact():
+    # the presets of the Composer with the image of the lab are the configurations of OpenCompact at that image size
+    for ch, family in zip(LAB_SYSTEM.channels, FAMILIES):
+        expected = copy.deepcopy(ocp_configs.CONFIGS[family])
+        if expected["sample_encoding_order"] == 0 and expected["large_m"] == expected["large_n_z"]:
+            expected["large_m"] = LAB_DIMS[2]
+        expected.update(large_n_x=LAB_DIMS[0], large_n_y=LAB_DIMS[1], large_n_z=LAB_DIMS[2])
+        for key in ("seed", "image"):             # of the test images of OpenCompact, not of the configuration
+            expected.pop(key, None)
+        assert ch.cfg == expected, family
+        assert ch.generics["OutWidth_g"] == 32 and ch.cfg["large_d"] == 16 and ch.cfg["large_b"] == 4
+    assert {ocp.samples_per_image(c.cfg) for c in LAB_SYSTEM.channels} == {64 * 64 * 48}
+
+
+def test_the_bounds_of_the_compressed_images_and_their_space_packets():
+    for ch, (bound, packets) in zip(LAB_SYSTEM.channels, BOUNDS):
+        assert ocp.ocp_model.max_image_bytes(ch.cfg) == bound, ch.compressor
+        assert -(-bound // ch.chunk_bytes) == packets, ch.compressor
+        # every image needs several Space Packets: one compressed image is longer than a Packet Data Field
+        assert bound > 65536
+
+
+def test_every_chunk_fits_the_send_buffer_twice_and_a_packet_data_field():
+    f, node = SYSTEM_FILE, LAB_SYSTEM.node
+    for ch in LAB_SYSTEM.channels:
+        assert ch.chunk_bytes == 4096
+        # the send buffer of a port holds two chunks, so that the next chunk enters while one leaves
+        assert 2 * ch.chunk_bytes <= f.generic(node, "TxBufferBytes_g") and f.generic(node, "TxMaxPackets_g") >= 2
+        assert ch.chunk_bytes <= 65536
+        assert ch.chunk_bytes % ch.cfg["large_b"] == 0
+
+
+def test_lost_sdus_give_the_counter_steps_of_the_channel_specification():
+    m, ctx = model(), context()
+    run(m, ctx, ht.select_tests(["TC-RS-HW-08"]))
+    n = 8                                        # SDUs per image; (a) loses SDU n // 2 (from 0), (b) the last one
+    j = n // 2 + 1                               # the lost SDU of (a) counted from 1
+    for port in range(4):
+        before, now = ctx.cleared[port], ctx.models[port].counts
+        steps = {k: getattr(now, k) - getattr(before, k) for k in vars(now)}
+        assert steps == {"images_done": 2, "images_aborted": 2, "sdu_errors": 2,
+                         "sdus_discarded": (n - j - 1) + (n - 1)}
+    assert ctx.traffic.losses == 8
+
+
+def test_the_sim_profile_splits_the_cases_of_lost_sdus_over_the_channels():
+    m, ctx = model(), context(profile=ht.PROFILES["sim"])
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-08"]))
+    assert not any(results.values()), results
+    n, j = 8, 8 // 2 + 1
+    for port in range(4):
+        before, now = ctx.cleared[port], ctx.models[port].counts
+        steps = {k: getattr(now, k) - getattr(before, k) for k in vars(now)}
+        # case (a) on channels 0 and 2, case (b) on channels 1 and 3
+        discarded = n - j - 1 if port % 2 == 0 else n - 1
+        assert steps == {"images_done": 1, "images_aborted": 1, "sdu_errors": 1, "sdus_discarded": discarded}
+    assert ctx.traffic.losses == 4
+
+
+def test_the_system_facts_of_the_composer_file():
+    assert [(c.port, c.compressor, c.chunker, c.chunk_bytes, c.output_apid, c.end_mark)
+            for c in LAB_SYSTEM.channels] == [(k, f"ocp{k}", f"chunk{k}", 4096, k, 0x01) for k in range(4)]
+    assert [LAB_SYSTEM.base(f"ocp{k}") for k in range(4)] == [0x40000 + 0x10000 * k for k in range(4)]
+    assert all(LAB_SYSTEM.ids[f"ocp{k}"] == ht.OCP.REGMAP_ID for k in range(4))
+    assert all(c.marks == ocp.UserMarks(0x3FC000, 0x004000, 0x003000) for c in LAB_SYSTEM.channels)
+    assert [ocp.samples_per_image(c.cfg) for c in SYSTEM.channels] == [768] * 4
+    assert LAB_SYSTEM.chunk_bytes is None and LAB_SYSTEM.cores() == [] and LAB_SYSTEM.rmap_windows == 4
+
+
+def test_register_banks_of_the_exported_header_match_the_system():
+    s, f = LAB_SYSTEM, SYSTEM_FILE
+    # bases: the windows of the AXI4-Lite decoder of the Composer file
+    assert s.windows == f.decoder_windows(f.instance_of_block("olo/olo_axi_lite_decoder"))
+    # identifications: the register map identifications of the pinned cores, so that a new version of a register map
+    # shows up here before the system is tested
+    core_ids = {s.node: systest.SPP.REGMAP_ID, s.rmap: systest.OMAP.REGMAP_ID, s.port: systest.OFB.REGMAP_ID}
+    core_ids |= {c.compressor: ht.OCP.REGMAP_ID for c in s.channels}
+    assert s.ids == core_ids
+    # channels of the ECC monitor: the compressors, then the FIFOs, as many as Channels_g
+    assert s.ecc_names == [f"OCP{k}_ECC" for k in range(4)] + [f"RXF{k}_ECC" for k in range(4)]
+    assert s.ecc_channels == f.generic(s.ecc, "Channels_g") == 8
+
+
+def test_a_fifo_of_two_space_packets_feeds_every_compressor():
+    # the receive buffer of spp0 is shared by all receive ports and delivers in order: without the FIFO, the next
+    # Space Packet of any channel waits until the compressor of the previous one has taken it
+    f = SYSTEM_FILE
+    for k in range(4):
+        fifo = instance_of(f.connection_from(f"spp0.M_Rx[{k}]")["to"])
+        assert fifo in f.instances_of("olo/olo_ft_fifo_sync")
+        assert instance_of(f.connection_from(f"{fifo}.Out")["to"]) == f"ocp{k}"
+        beat = f.generic(f"ocp{k}", "InStreamWidth_g") // 8
+        assert f.generic(fifo, "Depth_g") * beat >= 2 * LAB_SYSTEM.rx_buffer_bytes
+        # the FIFO carries the data, the byte enables, the last flag and the user signal of the SDUs
+        assert f.generic(fifo, "Width_g") == 8 * beat + beat + 1 + f.generic(f"ocp{k}", "UserWidth_g")
+
+
+def test_the_chunker_passes_the_compressed_images_at_the_width_of_the_send_ports():
+    f = SYSTEM_FILE
+    for k in range(4):
+        width = f.generic(f"chunk{k}", "Width_g")
+        assert width == f.generic(f"ocp{k}", "OutStreamWidth_g") == f.generic("spp0", "DataWidth_g") == 128
+        assert f.connection_from(f"chunk{k}.Out")["to"] == f"spp0.S_Tx[{k}]"
+
+
+@pytest.mark.parametrize("mutation, test, message", [
+    ("image", "TC-RS-HW-06", "first difference at byte"),
+    ("header", "TC-RS-HW-06", "user_defined_data 5, expected 0"),
+    ("counter", "TC-RS-HW-07", "ocp1 IMAGES_DONE = 6, expected 5"),
+    # without the Data Loss Indicator the first image goes on: longer than the aborted image of the model, it takes
+    # more Space Packets
+    ("loss", "TC-RS-HW-08", "APID 0: 20 Space Packets, expected 19"),
+    ("config", "TC-RS-HW-02", "ocp2 PREDICTOR"),
+    ("corrupt", "TC-RS-HW-06", "first difference at byte"),
+    # the bytes of an image in other Space Packets: the cut points between the chunks are checked
+    ("cut", "TC-RS-HW-06", f"Space Packets of [{CHUNK_BYTES - 4}, {CHUNK_BYTES + 4}"),
+    ("missing", "TC-RS-HW-06", "packets"),
+])
+def test_procedure_detects_a_faulty_system(mutation, test, message):
+    class Faulty(sm.SystemModel):
+        def _image(self, channel, output):
+            data = super()._image(channel, output)
+            if mutation == "image" and channel.port == 0:
+                data = data[:-1] + bytes([data[-1] ^ 1])
+            if mutation == "header" and channel.port == 0:
+                data = bytes([5]) + data[1:]
+            return data
+
+        def process(self, channel, data, user_application, loss):
+            if mutation == "loss":
+                loss = False
+            out = super().process(channel, data, user_application, loss)
+            if mutation == "counter" and channel.port == 1 and out:
+                self._count(self.system.base(channel.compressor) + ht.OCP.IMAGES_DONE, 1)
+                self.regs[self.system.base(channel.compressor) + ht.OCP.IMAGES_DONE] = 6
+            return out
+
+        def send(self, channel, data):
+            parts = super().send(channel, data)
+            if mutation == "cut" and channel.port == 0 and len(parts) > 2:
+                parts = [parts[0][:-4], parts[0][-4:] + parts[1]] + parts[2:]
+            if mutation == "missing" and channel.port == 2 and len(parts) > 1:
+                parts = parts[:1] + parts[2:]
+            return parts
+
+    m = Faulty(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE, corrupt=mutation == "corrupt")
+    if mutation == "config":
+        m.regs[SYSTEM.base("ocp2") + ht.OCP.PREDICTOR] ^= 1
+    results = run(m, context(), ht.select_tests([test]))
+    assert message in (results[test] or ""), results
+
+
+def test_an_aborted_image_of_another_length_fails():
+    class Longer(sm.SystemModel):
+        def _image(self, channel, output):
+            data = super()._image(channel, output)
+            # one word of fill bits more than the core writes
+            return data if output.complete or channel.port != 1 else data + bytes(channel.cfg["large_b"])
+
+    m = Longer(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+    results = run(m, context(), ht.select_tests(["TC-RS-HW-08"]))
+    assert "APID 1: " in (results["TC-RS-HW-08"] or ""), results
+
+
+def test_an_enabled_window_of_the_rmap_target_is_left_alone():
+    m, ctx = model(), context()
+    window = SYSTEM.base(SYSTEM.rmap) + systest.OMAP.WIN_CTRL(SYSTEM.rmap_windows - 1)
+    m.regs[window] = ht.WIN_ENABLE
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-04"]))
+    assert "is enabled: the test does not change it" in results["TC-RS-HW-04"]
+    assert m.regs[window] == ht.WIN_ENABLE
+
+
+def test_tc04_restores_the_window_of_the_rmap_target():
+    m, ctx = model(), context()
+    window = SYSTEM.base(SYSTEM.rmap) + systest.OMAP.WIN_CTRL(SYSTEM.rmap_windows - 1)
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-04"]))
+    assert results == {"TC-RS-HW-04": None}
+    assert [m.regs.get(window + 4 * k, 0) for k in range(3)] == [0, 0, 0]
+    assert not ctx.window_words[0] & ht.WIN_ENABLE and any(ctx.window_words)
+
+
+def test_an_image_that_does_not_fit_tc08_is_reported():
+    tiny = ht.System(dims=(4, 2, 2), chunk_bytes=CHUNK_BYTES)
+    results = run(model(tiny), context(system=tiny), ht.select_tests(["TC-RS-HW-08"]))
+    assert "too short for the lost SDUs" in results["TC-RS-HW-08"]
+
+
+def test_channels_that_the_test_cannot_drive_are_rejected():
+    out = {"chunker": "chunk0", "chunk_bytes": 4096, "output_apid": 0}
+    periodic = LAB_SYSTEM.channels[3].generics | {"PeriodicUpdate_g": True, "UpdatePeriodExp_g": 1}
+    with pytest.raises(ValueError, match="error limit stream"):
+        ht.make_channel(0, "ocp0", periodic, out)
+    with pytest.raises(ValueError, match="User Application"):
+        ht.make_channel(0, "ocp0", LAB_SYSTEM.channels[0].generics | {"UserLastMask_g": '22x"000001"'}, out)
+    with pytest.raises(ValueError, match="whole number of output words"):
+        ht.make_channel(0, "ocp0", LAB_SYSTEM.channels[0].generics, out | {"chunk_bytes": 4094})
+
+
+def test_the_chunks_of_an_image():
+    assert ht.chunks_of(bytes(10), 4) == [bytes(4), bytes(4), bytes(2)]
+    assert ht.chunks_of(bytes(8), 4) == [bytes(4), bytes(4)]
+    with pytest.raises(ValueError):
+        ht.chunks_of(b"", 4)
+
+
+@pytest.mark.parametrize("value, expected", [('22x"3FC000"', 0x3FC000), ('x"3FC000"', 0x3FC000),
+                                             ('X"00_4000"', 0x4000), ('b"0110"', 6), ('"0110"', 6), ("1", 1),
+                                             (12, 12), ('4x"1F"', None), ('x"3G"', None)])
+def test_logic_vector_generics(value, expected):
+    if expected is None:
+        with pytest.raises(ValueError):
+            ht.logic_vector(value)
+    else:
+        assert ht.logic_vector(value) == expected
+
+
+def test_a_selected_test_case_brings_those_it_builds_on():
+    names = [ht.test_name(t) for t in ht.select_tests(["TC-RS-HW-07", "TC-RS-HW-09"])]
+    assert names == ["TC-RS-HW-05", "TC-RS-HW-06", "TC-RS-HW-07", "TC-RS-HW-09"]
+
+
+def test_the_shared_modules_of_the_other_systems_stay_in_place():
+    # the modules of this system are not left under the names of those of the other systems
+    import sys
+    assert sys.modules.get("hardware_test") is not ht and sys.modules.get("system_model") is not sm
