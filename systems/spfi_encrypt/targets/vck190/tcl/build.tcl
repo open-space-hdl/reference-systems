@@ -124,8 +124,15 @@ source [file join $root cores open-logic-ft src base tcl olo_base_constraints_am
 set_property top ${name}_top [current_fileset]
 update_compile_order -fileset sources_1
 
-# Implementation: placement and routing explore several directives, physical optimization also after routing
+# Synthesis from scratch: an incremental synthesis reuses the netlist of the previous run, and after a change of the
+# CIPS it can leave the constraint file of the CIPS unread (no clk_pl_0)
+set_property AUTO_INCREMENTAL_CHECKPOINT 0 [get_runs synth_1]
+
+# Implementation: placement and routing explore several directives, physical optimization also after routing. The
+# run stops before opt_design when a constraint did not apply (an object query that matched nothing, the constraint
+# file of a module that is not in the netlist): tools/vivado/check_constraints.tcl.
 set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]
+set_property STEPS.OPT_DESIGN.TCL.PRE [file join $root tools vivado check_constraints.tcl] [get_runs impl_1]
 
 # build_info.txt of the open design: the step, the reference clock with the pins of its ports in the design, the
 # Vivado version and the commits of the repository and of its submodules
