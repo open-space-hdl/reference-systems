@@ -18,6 +18,10 @@
   `i_pa0/LaneClk`, which synthesis renames; both exceptions then matched no clock, and the crossings were timed as
   synchronous paths and failed timing. The system XDC of 0.9.7-beta finds the lane clock at the net of its signal
   (`pa0_LaneClk_s`).
+- VCK190 targets of both systems: the implementation run stops before `opt_design` when a constraint did not apply
+  (`tools/vivado/check_constraints.tcl`): an object query that matched nothing, or the constraint file of a module
+  that is not in the netlist. Vivado reports these as warnings and continues, and the timing summary then lacks the
+  constraint. Synthesis runs without incremental reuse of an earlier netlist.
 
 ## v0.1.0 (2026-10-18)
 

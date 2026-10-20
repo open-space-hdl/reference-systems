@@ -65,18 +65,17 @@ The elaboration alone takes about 6 GB of memory.
 
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
-board top level and the constraints, and runs synthesis, implementation and the device image. The pins of the
-reference clock come from `constr/spfi_encrypt_vck190_refclk_8a34001.xdc` or
-`constr/spfi_encrypt_vck190_refclk_si570.xdc`; the frequency (156.25 MHz), the transceiver wizard instance and the
-clock constraint are the same for both sources. `-tclargs rtl` (or `-tclargs rtl si570`) only creates the project and
-elaborates the design, a check of the sources in about ten minutes; it writes `results/invalid_constraints.xdc` of the
-elaborated design, so that a constraint that does not apply shows up before a synthesis, and
-`results/build_info.txt`. In this step the transceiver wizard instance is a black box, so its clocks and constraints
-are missing: the critical warning Constraints 18-5119 (`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no
-clock at `i_pa0/LaneClk`) are expected there, and `invalid_constraints.xdc` lists the location of the GTY quad and the
-two maximum delays between the lane clock and `Clk_sys`. `Rst` of the system has no false path of its own: every block
-that receives it releases it through `olo_base_reset_gen`, whose scoped constraints cut the paths into its
-synchronisers.
+board top level and the constraints, and runs synthesis, implementation and the device image. The pins of the reference
+clock come from `constr/spfi_encrypt_vck190_refclk_8a34001.xdc` or `constr/spfi_encrypt_vck190_refclk_si570.xdc`; the
+frequency (156.25 MHz), the transceiver wizard instance and the clock constraint are the same for both sources.
+`-tclargs rtl` (or `-tclargs rtl si570`) only creates the project and elaborates the design, a check of the sources in
+about ten minutes; it writes `results/invalid_constraints.xdc` of the elaborated design, so that a constraint that does
+not apply shows up before a synthesis, and `results/build_info.txt`. In this step the transceiver wizard instance is a
+black box, so its clocks and constraints are missing: the critical warning Constraints 18-5119
+(`ofb_gtw_gt_quad_base_0`) and the warning Vivado 12-1008 (no clock at the net `pa0_LaneClk_s`) are expected there, and
+`invalid_constraints.xdc` lists the location of the GTY quad and the two maximum delays between the lane clock and
+`Clk_sys`. `Rst` of the system has no false path of its own: every block that receives it releases it through
+`olo_base_reset_gen`, whose scoped constraints cut the paths into its synchronisers.
 
 On Windows the project path must not be longer than about 40 characters: the device image step compiles the platform
 loader firmware in a deep directory below the project, and with a longer path `write_device_image` fails ("opening
@@ -89,14 +88,22 @@ The script writes the results to `results/` in the project directory:
 | File | Content | Expected |
 | --- | --- | --- |
 | `spfi_encrypt_vck190_top.pdi` | Device image | Present |
-| `timing_summary.rpt` | Timing of all clocks | WNS and WHS at least 0 ns (`clk_pl_0` 200 MHz, lane clock 156.25 MHz); no pulse width violation |
+| `timing_summary.rpt` | Timing of all clocks | The clock summary lists `clk_pl_0` (200 MHz), `gt_refclk` and the lane clock `ch0_txoutclk` (156.25 MHz); check_timing finds no register without a clock (`no_clock` 0); WNS and WHS at least 0 ns; no pulse width violation |
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
 | `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers |
 | `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
 | `build_info.txt` | Step, Vivado version, part, the reference clock with the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The reference clock confirmed in section 5 (`8a34001`: AD11, AD10; `si570`: AB11, AB10); the commits of the offline package or of the clone |
 
-Expected messages: Vivado 12-4739 from the scoped constraints of `olo_base_ram_sdp` (retimed registers), TIMING-9 and
-LUTAR-1 in the transceiver wizard and at the reset generators.
+The implementation run stops before `opt_design` when a constraint did not apply (`tools/vivado/check_constraints.tcl`):
+an object query of a constraint that matched nothing (Vivado 12-180, 12-507, 12-508, 12-584, 12-1008, 12-4739) or the
+constraint file of a module that is not in the netlist (Designutils 20-1280). The messages of `link_design` above the
+stop name the constraint. Synthesis always runs from scratch, without the netlist of an earlier run
+(`AUTO_INCREMENTAL_CHECKPOINT` off). In a build whose CIPS was changed in the open project, the constraint file of the
+CIPS was not read and the clock `clk_pl_0` was missing; the incremental synthesis after the change, which reused the
+earlier netlist, is the likely cause. Change the system clock in the Composer file and in `tcl/build.tcl`
+(`clk_sys_mhz`) and run the script again, not in the CIPS of the open project.
+
+Expected messages: TIMING-9 and LUTAR-1 in the transceiver wizard and at the reset generators.
 
 ## 5. Board set-up
 

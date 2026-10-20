@@ -86,7 +86,7 @@ order, for example `-tclargs all si570`. Only the pins of the reference clock di
 | `project` | Creates the project: the sources of the compile order exported by the Composer, the transceiver wizard instance of OpenFibre (`ofb_gtw`, 156.25 MHz reference clock), the CIPS block design (`vck190_cips`, JTAG boot), the board top level and the constraints |
 | `rtl` | `project` and the RTL elaboration of the design |
 | `synth` | `project` and synthesis |
-| `impl` | Synthesis, implementation and the reports in `results/` |
+| `impl` | Synthesis, implementation and the reports in `results/`; the implementation stops before `opt_design` when a constraint did not apply (`tools/vivado/check_constraints.tcl`) |
 | `all` (default) | Synthesis, implementation, device image and the reports in `results/` |
 
 The project is `vivado_out/spfi_encrypt_vck190` in the repository, or the directory in the environment variable
