@@ -3,7 +3,8 @@ and the stimuli of the system simulations.
 
 The model answers RMAP commands from a register model and turns Space Packets into authenticated chunks as the
 Space Packet node, the framers and the AES-GCM cores do; a system adds what its channels do with the Packet Data
-Field of an input Space Packet before the framer (process()). It checks the test procedure and its use of the
+Field of an input Space Packet before the framer (process()), and a system without framers and AES-GCM cores the
+Packet Data Fields that a channel sends instead of the chunks (send()). It checks the test procedure and its use of the
 libraries before a test on hardware; it is not a model of the RTL. Register addresses and fields come from the same
 headers as the test (cores/<core>/sw/<prefix>_regs.h); the behaviour follows these documents of the pinned cores, so
 a change of a core that the model does not follow shows up when the test runs on hardware or in the system
@@ -62,7 +63,7 @@ class SystemModel(Transport):
                      s.base(s.ecc) + EDAC_INFO: s.ecc_info}
         for lane in range(s.lanes):
             self.regs[port + OFB.LANE_STATUS(lane)] = LANE_ACTIVE
-        for ch in s.channels:
+        for ch in s.cores():
             core = s.base(ch.core)
             self.regs[core + OCR.ID] = OCR.REGMAP_ID
             self.regs[core + OCR.GENERICS] = OCR.field("GENERICS", "NUM_KEYS", ch.key_slots)
@@ -117,7 +118,7 @@ class SystemModel(Transport):
             apid = self.regs.get(node + SPP.RX_TABLE_APID, 0)
             self.rx_table[apid] = value
             self.last.pop(apid, None)                     # the next packet of the APID sets no loss indicator
-        for ch in self.system.channels:
+        for ch in self.system.cores():
             core = self.system.base(ch.core)
             if address == core + OCR.KEY_LOAD:
                 slot = OCR.get("KEY_LOAD", "SLOT", value)
@@ -165,22 +166,30 @@ class SystemModel(Transport):
         loss = self._loss(sp.apid, entry, sp.sequence_count)
         if loss:
             self._count(node + SPP.RX_LOSS)
-        slot = self.slots[(self.system.base(ch.core), ch.slot)]
-        key, fixed, counter = slot
         out = []
         for data in self.process(ch, sp.data, user_application, loss):
-            for pos, part in chunks.split(data, self.system.chunk_bytes):
-                chunk = bytearray(chunks.encrypt(key, fixed, counter, pos, part))
-                if self.corrupt:
-                    chunk[20] ^= 1
-                counter += 1
-                slot[2] = counter
+            for data_field in self.send(ch, data):
                 seq = self.seq.get(ch.output_apid, 0)
                 self.seq[ch.output_apid] = (seq + 1) & 0x3FFF
-                out.append(cptp_encode(SpacePacket(apid=ch.output_apid, data=bytes(chunk),
-                                                   sequence_count=seq).encode(), self.setup.far_end_tla))
-                self._count(self.system.base(ch.core) + OCR.ENCRYPTIONS)
+                packet = SpacePacket(apid=ch.output_apid, data=data_field, sequence_count=seq)
+                out.append(cptp_encode(packet.encode(), self.setup.far_end_tla))
         self._count(node + SPP.TX_PACKETS, len(out))
+        return out
+
+    def send(self, channel, data: bytes) -> list[bytes]:
+        """The Packet Data Fields of the Space Packets that a channel sends for one packet of its processing: here
+        the authenticated chunks of its framer and AES-GCM core; a system without them gives its own."""
+        slot = self.slots[(self.system.base(channel.core), channel.slot)]
+        key, fixed, counter = slot
+        out = []
+        for pos, part in chunks.split(data, self.system.chunk_bytes):
+            chunk = bytearray(chunks.encrypt(key, fixed, counter, pos, part))
+            if self.corrupt:
+                chunk[20] ^= 1
+            counter += 1
+            slot[2] = counter
+            out.append(bytes(chunk))
+            self._count(self.system.base(channel.core) + OCR.ENCRYPTIONS)
         return out
 
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):

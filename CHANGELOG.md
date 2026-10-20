@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Systems
+
+- **spfi_compress**: a SpaceFibre node that compresses images with CCSDS 123.0-B-2 in four channels,
+  spfi_compress_encrypt without its encryption. A chunker of Open Logic (`olo_base_chunker`) cuts every compressed
+  image into chunks of 4096 bytes, and every chunk leaves as one Space Packet with the APID of its channel; every
+  image starts in a new Space Packet, and the Space Packets carry no mark of the end of an image.
+  - Composer file and generated top level, the register windows without gaps.
+  - Target: AMD VCK190 at the system clock of 150 MHz, as spfi_compress_encrypt.
+  - Hardware test TC-RS-HW-01 to 09, with the Space Packets of every channel compared one by one with the chunks of
+    the compressed images of the reference model of OpenCompact, the aborted images included.
+  - System testbench in GHDL and xsim, with its stimuli and checks verified against the software model of the system.
+
 ### Versions
 
 - OpenCompact v0.1.1. It corrects `ocp_predictor` for the AMD Vivado simulator, with unchanged behaviour in every
@@ -11,6 +23,10 @@
 
 ### Changed
 
+- `sw/refsys/`: the shared parts of the hardware tests and the system model also serve a system without framers and
+  AES-GCM cores: the key material of the test context is optional, the identification and the key slots cover the
+  channels with an AES-GCM core, and a system gives the Packet Data Fields that a channel sends (`send()` of the
+  system model).
 - `tools/make_offline_bundle.py` also writes `build.bat` into the offline package: on Windows it clones the
   repository from the bundles next to it (when the clone directory does not exist yet), checks the submodules and
   the pins (with `python`, else the launcher `py -3`, or `RS_PYTHON`), sets `RS_VIVADO_OUT` and builds one system
@@ -29,6 +45,8 @@
 
 ### Fixed
 
+- VCK190 target READMEs of both systems: the maximum delays of the clock crossings in the system constraints are
+  6.4 ns, the period of the lane clock, since the system clock is 150 MHz.
 - VCK190 targets of both systems: the implementation run uses the strategy Performance_Explore, without the
   physical optimization after routing of Performance_ExplorePostRoutePhysOpt. In that step Vivado 2025.2 stopped
   once with an access violation, after a complete routing, and the build ended without a device image.
