@@ -63,7 +63,7 @@ the transceivers and their reset controller with it. `ofb0` holds its link in Ne
 | `Clk_sys` | in | `std_logic` | System clock, 200 MHz |
 | `pa0_Gt_TxP`, `pa0_Gt_TxN` | out | `std_logic_vector(3 downto 0)` | Transmit lanes of the GTY quad |
 | `pa0_Gt_RxP`, `pa0_Gt_RxN` | in | `std_logic_vector(3 downto 0)` | Receive lanes of the GTY quad |
-| `pa0_RefClk` | in | `std_logic` | Reference clock of the quad, 156.25 MHz, output O of the IBUFDS_GTE5 in the board top level |
+| `pa0_RefClk` | in | `std_logic` | Reference clock of the quad at the frequency of the transceiver wizard instance of the target (VCK190: 100 MHz or 156.25 MHz), output O of the IBUFDS_GTE5 in the board top level |
 
 ## Register map
 

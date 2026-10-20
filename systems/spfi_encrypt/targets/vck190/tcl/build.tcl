@@ -7,18 +7,22 @@
 # implementation and device image.
 #
 # Usage (from the repository root, with the submodules in cores/ checked out):
-#   vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs [<step>] [<refclk>]]
+#   vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <words>]
+#   The words are optional and come in any order, for example -tclargs all si570 156.25:
 #   <step>: project (create the project only), rtl (project and RTL elaboration of the design), synth, impl,
 #   all (default: all, device image included)
-#   <refclk>: source of the 156.25 MHz transceiver reference clock, which selects its pins
-#   (constr/spfi_encrypt_vck190_refclk_<refclk>.xdc): 8a34001 (default: clock generator 8A34001, output Q1, to
-#   MGTREFCLK1 of GTY quad 200) or si570 (oscillator Si570 through the clock buffer SI53340 to GTY_REFCLK0 of GTY
-#   quad 201). Both words are optional, in either order, for example -tclargs all si570.
+#   <refclk>: source of the transceiver reference clock, which selects its pins
+#   (constr/spfi_encrypt_vck190_refclk_<refclk>.xdc): si570 (default: oscillator Si570 through the clock buffer
+#   SI53340 to GTY_REFCLK0 of GTY quad 201) or 8a34001 (clock generator 8A34001, output Q1, to MGTREFCLK1 of GTY
+#   quad 200)
+#   <frequency>: frequency of the reference clock in MHz, 100 or 156.25, for the transceiver wizard instance and the
+#   clock constraint (default: 100 with si570, the frequency of the Si570 after power-up; 156.25 with 8a34001)
 #
 # The results of a complete build go to <project>/results: the device image, the reports (timing summary,
 # utilisation, methodology, DRC), the constraints that do not apply (invalid_constraints.xdc) and build_info.txt
-# with the step, the reference clock and its pins, the Vivado version and the commits of the repository and of its
-# submodules. The step rtl writes invalid_constraints.xdc and build_info.txt of the elaborated design.
+# with the step, the reference clock with its frequency and pins, the Vivado version and the commits of the
+# repository and of its submodules. The step rtl writes invalid_constraints.xdc and build_info.txt of the elaborated
+# design.
 #
 # The environment variable RS_VIVADO_OUT selects another project directory. On Windows the device image step
 # compiles the platform loader firmware in a deep directory below the project; with a project path of more than
@@ -43,19 +47,26 @@ if {$tcl_platform(platform) eq "windows" && [string length $out] > 40} {
     puts "WARNING: project path $out has more than 40 characters, write_device_image may fail on Windows (path\
         length limit); set RS_VIVADO_OUT to a short directory, for example C:/git/rs"
 }
-# Arguments: the step and the source of the reference clock, plain words in either order
+# Arguments: the step, the source and the frequency of the reference clock, plain words in any order
 set step all
-set refclk 8a34001
+set refclk si570
+set refclk_mhz ""
 foreach arg $argv {
     if {$arg in {project rtl synth impl all}} {
         set step $arg
-    } elseif {$arg in {8a34001 si570}} {
+    } elseif {$arg in {si570 8a34001}} {
         set refclk $arg
+    } elseif {$arg in {100 156.25}} {
+        set refclk_mhz $arg
     } else {
-        error "unknown argument $arg (step: project, rtl, synth, impl, all; reference clock: 8a34001, si570)"
+        error "unknown argument $arg (step: project, rtl, synth, impl, all; reference clock: si570, 8a34001;\
+            frequency: 100, 156.25)"
     }
 }
-puts "Step $step, reference clock $refclk"
+if {$refclk_mhz eq ""} {
+    set refclk_mhz [dict get {si570 100 8a34001 156.25} $refclk]
+}
+puts "Step $step, reference clock $refclk at $refclk_mhz MHz"
 if {![string match 2025.2* [version -short]]} {
     puts "WARNING: the build is made for Vivado 2025.2, this is [version -short]"
 }
@@ -76,9 +87,9 @@ rs_add_compile_order [file join $system_dir hdl ${system}_compile_order.txt] [fi
 set f [add_files -norecurse [glob [file join $target_dir src *.vhd]]]
 set_property file_type {VHDL 2008} $f
 
-# Transceiver wizard instance of the GTY adapter ofb_pa_gty (156.25 MHz reference clock)
+# Transceiver wizard instance of the GTY adapter ofb_pa_gty at the frequency of the reference clock
 source [file join $root cores openfibre hdl ofb_pa_gty tcl ofb_gtw.tcl]
-ofb_gtw_create ofb_gtw 156.25
+ofb_gtw_create ofb_gtw $refclk_mhz
 generate_target all [get_ips ofb_gtw]
 
 # Control, interfaces and processing system (CIPS): every Versal design needs it, the platform management
@@ -110,12 +121,19 @@ add_files -norecurse [make_wrapper -files $bd -top]
 close_bd_design [current_bd_design]
 set_property generic {IncludeCips_g=true} [current_fileset]
 
-# Constraints: board, pins of the selected reference clock, timing exceptions of the system (scoped to its entity),
-# Open Logic crossings (implementation only). Only the constraints of the Open Logic area base are loaded: the scoped
-# constraints of olo_intf_sync constrain device pins, and the system uses olo_intf_sync for internal asynchronous
-# signals only (the clock pair constraints of the system cover them).
+# Constraints: board, pins of the selected reference clock, its clock at the selected frequency (written into the
+# project directory), timing exceptions of the system (scoped to its entity), Open Logic crossings (implementation
+# only). Only the constraints of the Open Logic area base are loaded: the scoped constraints of olo_intf_sync
+# constrain device pins, and the system uses olo_intf_sync for internal asynchronous signals only (the clock pair
+# constraints of the system cover them).
 add_files -fileset constrs_1 -norecurse [file join $target_dir constr ${name}.xdc]
 add_files -fileset constrs_1 -norecurse [file join $target_dir constr ${name}_refclk_${refclk}.xdc]
+set refclk_xdc [file join $out ${name}_refclk_clock.xdc]
+set fh [open $refclk_xdc w]
+puts $fh "# Written by tcl/build.tcl: transceiver reference clock $refclk at $refclk_mhz MHz"
+puts $fh "create_clock -period [format %.3f [expr {1000.0 / $refclk_mhz}]] -name gt_refclk \[get_ports GtRefClk_P\]"
+close $fh
+add_files -fileset constrs_1 -norecurse $refclk_xdc
 set system_xdc [file join $system_dir hdl ${system}.xdc]
 add_files -fileset constrs_1 -norecurse $system_xdc
 set_property SCOPED_TO_REF $system [get_files $system_xdc]
@@ -134,16 +152,17 @@ set_property AUTO_INCREMENTAL_CHECKPOINT 0 [get_runs synth_1]
 set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]
 set_property STEPS.OPT_DESIGN.TCL.PRE [file join $root tools vivado check_constraints.tcl] [get_runs impl_1]
 
-# build_info.txt of the open design: the step, the reference clock with the pins of its ports in the design, the
-# Vivado version and the commits of the repository and of its submodules
+# build_info.txt of the open design: the step, the reference clock with its frequency, the period of its clock and
+# the pins of its ports in the design, the Vivado version and the commits of the repository and of its submodules
 proc write_build_info {path} {
-    global name step refclk root
+    global name step refclk refclk_mhz root
     set fh [open $path w]
     puts $fh "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
     puts $fh "Vivado [version -short], part [get_property PART [current_project]]"
     set pins {}
     foreach port {GtRefClk_P GtRefClk_N} { lappend pins "$port [get_property PACKAGE_PIN [get_ports $port]]" }
-    puts $fh "reference clock $refclk: [join $pins {, }]"
+    set period [get_property -quiet PERIOD [get_clocks -quiet gt_refclk]]
+    puts $fh "reference clock $refclk at $refclk_mhz MHz, gt_refclk period $period ns: [join $pins {, }]"
     if {[catch {exec git -C $root log -1 --format=%H} commit]} { set commit "unknown (git not available)" }
     puts $fh "repository $commit"
     if {![catch {exec git -C $root submodule status} status]} {
