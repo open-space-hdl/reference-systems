@@ -34,7 +34,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 
 ROOT = Path(__file__).resolve().parents[1]
 REPO = "reference-systems"
@@ -278,6 +278,22 @@ def build_bat(ref: str, ref_sha: str, links: dict[str, str], defaults: dict[str,
     return "\r\n".join(lines) + "\r\n"
 
 
+def clone_way_out(ref_sha: str, defaults: dict[str, str]) -> list[str]:
+    """The lines of README.txt for a clone at another commit in RS_DIR, which stops build.bat: rename it, or build
+    the package in new directories named after its commit."""
+    rs_dir, out, sha = defaults["RS_DIR"], defaults["RS_VIVADO_OUT"], ref_sha[:7]
+    return ["A clone at another commit in RS_DIR stops build.bat; it deletes nothing. Either rename or move that clone",
+            "first, for example:", "",
+            f"  ren {rs_dir} {PureWindowsPath(rs_dir).name}-<its commit>", "",
+            "or build this package in new directories, set before the call (cmd, then PowerShell):", "",
+            f"  set RS_DIR={rs_dir}-{sha}",
+            f"  set RS_VIVADO_OUT={out}_{sha}",
+            "  build.bat <system>", "",
+            f'  $env:RS_DIR = "{rs_dir}-{sha}"',
+            f'  $env:RS_VIVADO_OUT = "{out}_{sha}"',
+            "  .\\build.bat <system>", ""]
+
+
 def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], nested_sha: str,
            defaults: dict[str, str] = BAT_DEFAULTS) -> str:
     """README.txt of the package: the bundles with their commits, the commands to clone and to build."""
@@ -308,12 +324,12 @@ def readme(ref: str, ref_sha: str, links: dict[str, str], tags: dict[str, str], 
               "RS_VIVADO_OUT and builds one system:", "",
               "  build.bat <system>                       the default image",
               f"  build.bat <system> {example}".ljust(43) + "an option: the words after -tclargs above", "",
-              "A clone at another commit stops it: rename that directory or set RS_DIR to a new one. The build creates",
-              f"the project with create_project -force, so it replaces the project in RS_VIVADO_OUT (default",
-              f"{defaults['RS_VIVADO_OUT']}). To keep an earlier project, set another short directory before the "
-              "call, for",
-              f"example: set RS_VIVADO_OUT={defaults['RS_VIVADO_OUT']}2. VIVADO selects vivado.bat when Vivado is not "
-              "on the PATH."]
+              *clone_way_out(ref_sha, defaults),
+              "The build creates the project with create_project -force, so it replaces the project in RS_VIVADO_OUT",
+              f"(default {defaults['RS_VIVADO_OUT']}). To keep an earlier project, set another short directory "
+              "before the call,",
+              f"for example: set RS_VIVADO_OUT={defaults['RS_VIVADO_OUT']}2. VIVADO selects vivado.bat when Vivado is "
+              "not on the PATH."]
     return "\n".join(lines) + "\n"
 
 
