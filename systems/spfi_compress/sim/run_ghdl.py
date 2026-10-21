@@ -6,7 +6,7 @@
 (GHDL).
 
 Usage: python systems/spfi_compress/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR]
-       [TC-RS-HW-nn ...]
+       [--sysclk-mhz 200|150] [TC-RS-HW-nn ...]
 
 tools/sysbench.py describes the runs and their results (sim_out/ghdl/spfi_compress, or RS_GHDL_OUT).
 """

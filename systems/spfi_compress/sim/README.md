@@ -27,8 +27,8 @@ The bench is that of spfi_compress_encrypt with the top level of this system: th
 and the runners are those of all system testbenches ([sim/](../../../sim/README.md)). The simulated design is the
 design of the device image: the compressors have the image size and the configurations of the Composer file (64 x 64
 samples in 48 bands of 16 bits, README section "Lab configurations"), and the chunkers cut the compressed images into
-chunks of 4096 bytes. As in spfi_encrypt, the bench runs `Clk_sys` at 200 MHz and the hardware builds at 150 MHz; the
-frequency sets only the clock of the memory scrubbers, which are off.
+chunks of 4096 bytes. As in spfi_encrypt, the bench runs `Clk_sys` at 200 MHz by default and at the 150 MHz of the
+hardware builds with `--sysclk-mhz 150`; the frequency sets only the clock of the memory scrubbers, which are off.
 
 ## Profiles and test cases
 
