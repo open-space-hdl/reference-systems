@@ -16,7 +16,7 @@ place of the framer and the AES-GCM core of every channel.
 | --- | --- |
 | Composer file ([spfi_compress.composer.json](spfi_compress.composer.json)) | complete; the Composer reports one warning per channel, see [Aborted images](#aborted-images) |
 | Generated top level (`hdl/`) | exported from the Composer file |
-| System testbench ([sim/](sim/README.md)) | bench, stimuli and checks in place; not run in a simulator yet |
+| System testbench ([sim/](sim/README.md)) | TC-RS-HW-05, 06 and 08 pass in GHDL at the image size of the lab; TC-RS-HW-01 to 05 pass in xsim with the AMD transceiver model |
 | AMD VCK190 target ([targets/vck190](targets/vck190/README.md)) | board top level, constraints and build script as in spfi_compress_encrypt; not built yet |
 | Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 

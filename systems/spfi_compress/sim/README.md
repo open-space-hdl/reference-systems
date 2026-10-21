@@ -68,9 +68,52 @@ request awaits and a lost Space Packet fail.
 
 ## Results
 
-The system has not run in a simulator yet. The bench, the stimuli and the checks are those of spfi_compress_encrypt,
-whose simulations pass in GHDL (TC-RS-HW-05, 06 and 08 at the image size of the lab) and in xsim (TC-RS-HW-01 to 05);
-the records of the software model pass the checks of this system (`python -m pytest systems/spfi_compress/sim`).
+### GHDL
+
+GHDL 6.0 with the behavioural model of the adapter at both ends, profile `sim`, seed 1, runs of 2026-10-20 with the
+versions of the cores that the system file pins. TC-RS-HW-06 and TC-RS-HW-08 run in two simulations; each starts with
+the reset, the link initialisation and TC-RS-HW-05.
+
+| Step | Simulated time | Wall-clock time | Result |
+| --- | --- | --- | --- |
+| Transmitters of the far end ready | 64.9 us | | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | | |
+| TC-RS-HW-05 Configuration | 62.3 us | 2.6 to 3.1 min | Pass |
+| TC-RS-HW-06 Compression (one image of 64 x 64 x 48 samples per channel, 228 Space Packets) | 1276.0 us | 4.2 h | Pass |
+| TC-RS-HW-08 Lost data (case (a) on channels 0 and 2, case (b) on channels 1 and 3, 392 Space Packets) | 3576.6 us | 7.5 h | Pass |
+
+- The four compressed images of TC-RS-HW-06, one per configuration (c01, c25, c27, c26), equal the images of the
+  reference model of OpenCompact byte for byte, header included: 260,208, 248,520, 252,152 and 165,424 bytes in 64,
+  61, 62 and 41 Space Packets. Every Space Packet carries the APID of its channel and the next Packet Sequence Count
+  of that APID, and every Space Packet of an image but the last holds 4096 bytes.
+- The four compressors work in parallel: TC-RS-HW-06 takes 1.28 ms for one image per channel, where one compressor
+  takes 0.98 ms for its image at one sample per cycle. The chunkers in place of the framers and AES-GCM cores leave
+  the time of the test case unchanged (1276.9 us in spfi_compress_encrypt).
+- In TC-RS-HW-08 every image that ended with an error equals the compressed image of the samples that its channel
+  took (`aborted_image` of `sw/refsys/ocp.py`, with the model of OpenCompact): in case (a) the samples of Space
+  Packets 1 to 24 and 26 (102,325 of 196,608 samples; 138,600 and 140,724 bytes in 34 and 35 Space Packets on
+  channels 0 and 2), in case (b) those of the image and the first 144 samples of the next one. The other images
+  equal the model, the Packet Sequence Counts of every output APID continue without a gap, and the counters of every
+  channel and `RX_LOSS` of `spp0` match the case of the channel.
+
+### xsim
+
+xsim of Vivado 2025.2 with the transceiver model at both ends, profile `sim`, seed 1, TC-RS-HW-01 to 05 in one
+simulation, run of 2026-10-20 with the versions of the cores that the system file pins:
+
+| Step | Simulated time | Wall-clock time | Result |
+| --- | --- | --- | --- |
+| Transmitters of the far end ready | 64.9 us | | |
+| Link initialised (all lanes Active at both ends) | 92.6 us | | |
+| TC-RS-HW-01 Link | 8.6 us | 1.2 min | Pass |
+| TC-RS-HW-02 Identification (with the configuration registers of the four compressors) | 74.2 us | 12.0 min | Pass |
+| TC-RS-HW-03 RMAP | 10.1 us | 1.6 min | Pass |
+| TC-RS-HW-04 Commands of several words (with the test window of `rmap0`) | 29.4 us | 4.6 min | Pass |
+| TC-RS-HW-05 Configuration | 65.7 us | 10.5 min | Pass |
+| Total | 280.5 us | 38.7 min | 5 of 5 |
+
+The transceiver model gives the same link initialisation as the behavioural model. The compression test cases at
+the image size of the lab run in GHDL (above).
 
 ## Limits
 

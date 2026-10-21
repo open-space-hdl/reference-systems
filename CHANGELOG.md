@@ -12,7 +12,9 @@
   - Target: AMD VCK190 at the system clock of 150 MHz, as spfi_compress_encrypt.
   - Hardware test TC-RS-HW-01 to 09, with the Space Packets of every channel compared one by one with the chunks of
     the compressed images of the reference model of OpenCompact, the aborted images included.
-  - System testbench in GHDL and xsim, with its stimuli and checks verified against the software model of the system.
+  - System testbench in GHDL and xsim, with its stimuli and checks verified against the software model of the system:
+    TC-RS-HW-05, 06 and 08 pass in GHDL at the lab image size, TC-RS-HW-01 to 05 in xsim with the AMD transceiver
+    model.
 
 ### Versions
 
