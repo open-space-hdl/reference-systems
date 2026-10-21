@@ -8,8 +8,9 @@ far end of sim/tb/, the stimuli and the checks of its sim/vectors.py, in xsim wi
 
 Usage of the runner of a system:
   python systems/<system>/sim/run_xsim.py [--profile sim] [--seed N] [--each] [--hdl DIR] [--refclk-mhz F]
+         [--sysclk-mhz F] [TC-RS-HW-nn ...]
+  python systems/<system>/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR] [--sysclk-mhz F]
          [TC-RS-HW-nn ...]
-  python systems/<system>/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR] [TC-RS-HW-nn ...]
 
 Without test cases, one simulation runs all test cases; with test cases, the simulation runs them and the test
 cases they build on; --each runs one simulation per test case. Every simulation starts with the reset and the link
@@ -19,7 +20,9 @@ report.txt (result, simulated and wall-clock time per test case). <out> is vivad
 systems/<system>/hdl. --refclk-mhz (xsim) sets the frequency of the transceiver reference clock, 156.25 (default) or
 100 MHz, for the wizard instance and the bench; the behavioural model of GHDL takes only 156.25 MHz, its lane clock
 is the reference clock. A run at another frequency than 156.25 MHz has its own wizard instance (<out>/ip_refclk_<F>)
-and its own directory (<out>/runs/<name>_refclk_<F>). Exit code 0 when every simulation passes.
+and its own directory (<out>/runs/<name>_refclk_<F>). --sysclk-mhz sets the frequency of the system clock of the
+bench, 200 (default) or 150 MHz, the frequency of the hardware builds; a run at 150 MHz has its own directory
+(<out>/runs/<name>[_refclk_<F>]_sysclk_150). Exit code 0 when every simulation passes.
 """
 
 import argparse
@@ -45,6 +48,8 @@ FAR_END_LIBRARY = "refsys_tb"
 FAR_END_FILES = [ROOT / "sim" / "tb" / "rs_tb_pkg.vhd", ROOT / "sim" / "tb" / "rs_far_end.vhd"]
 EVENT = re.compile(r"event (\d+) (\w+) (-?\d+)")
 VCD = "probes.vcd"
+# System clock of the testbenches in MHz (SysClkKhz_g); the hardware builds run at 150 MHz
+SYSCLK_MHZ = "200"
 
 
 @dataclass
@@ -54,6 +59,7 @@ class Simulation:
     name: str
     vectors: ModuleType
     refclk_mhz: str = xsim.REFCLK_MHZ   # reference clock of the transceivers (xsim)
+    sysclk_mhz: str = SYSCLK_MHZ        # system clock
 
     @property
     def directory(self) -> Path:
@@ -75,6 +81,13 @@ class Simulation:
         f = self.system_file()
         port = f.instance_of_block("openfibre/ofb_core")
         return {name: f.generic(port, name) for name in ("NumLanes_g", "NumVc_g", "VcInDepth_g")}
+
+    def bench_generics(self) -> dict[str, object]:
+        """The generics of the bench: those of the far end, and the system clock when it is not the default."""
+        generics: dict[str, object] = dict(self.far_end_generics())
+        if self.sysclk_mhz != SYSCLK_MHZ:
+            generics["SysClkKhz_g"] = round(float(self.sysclk_mhz) * 1000)
+        return generics
 
     def probes(self) -> list[str]:
         """Signals written to probes.vcd for the analysis of a failed link initialisation: the reset and the ready
@@ -133,7 +146,7 @@ def xsim_build(sim: Simulation, hdl: Path) -> tuple[Path, list[str]]:
 
 
 def xsim_elaborate(sim: Simulation, export: Path, libraries: list[str], again: bool = False) -> None:
-    generics: dict[str, object] = dict(sim.far_end_generics())
+    generics = sim.bench_generics()
     if sim.refclk_mhz != xsim.REFCLK_MHZ:
         generics["RefClkKhz_g"] = round(float(sim.refclk_mhz) * 1000)
     xsim.elaborate(export, f"{sim.library}.{sim.top}", libraries, generics, sim.top, trace=True, again=again)
@@ -188,7 +201,7 @@ def ghdl_simulate(sim: Simulation, work: Path, name: str, profile: str, seed: in
     wall: dict[int, float] = {}
     start = time.time()
     log_name = f"simulate_{sim.top}.log"
-    log, code = ghdl.simulate(work, sim.library, sim.top, sim.far_end_generics(), run_dir, log_name, follower(wall),
+    log, code = ghdl.simulate(work, sim.library, sim.top, sim.bench_generics(), run_dir, log_name, follower(wall),
                               sim.probes(), VCD)
     if code != 0 or re.search(r"\((assertion|report) (error|failure)\)", log):
         print(f"{name}: the simulator stopped with an error (exit code {code}), see {run_dir / log_name}")
@@ -207,11 +220,16 @@ def main(sim: Simulation, simulator: str, description: str) -> int:
     if simulator == "xsim":
         parser.add_argument("--refclk-mhz", choices=(xsim.REFCLK_MHZ, "100"), default=xsim.REFCLK_MHZ,
                             help="frequency of the transceiver reference clock in MHz")
+    parser.add_argument("--sysclk-mhz", choices=(SYSCLK_MHZ, "150"), default=SYSCLK_MHZ,
+                        help="frequency of the system clock in MHz (the hardware builds run at 150)")
     args = parser.parse_args()
     suffix = ""
     if simulator == "xsim" and args.refclk_mhz != xsim.REFCLK_MHZ:
         sim.refclk_mhz = args.refclk_mhz
         suffix = f"_refclk_{args.refclk_mhz}"
+    if args.sysclk_mhz != SYSCLK_MHZ:
+        sim.sysclk_mhz = args.sysclk_mhz
+        suffix += f"_sysclk_{args.sysclk_mhz}"
 
     names = args.tests or None
     ht.select_tests(names)                  # unknown names stop here, before the build

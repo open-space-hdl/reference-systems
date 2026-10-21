@@ -46,6 +46,11 @@
 - VCK190 hardware test procedure: the methodology report of an implemented build holds two TIMING-54 (critical
   warning) for the clock pair exceptions of the system constraints, which are read scoped to the system. The
   procedure lists them as expected: the lane clock exists only inside the system.
+- System testbenches: the system clock is a generic of the bench (`SysClkKhz_g`), and the runners take
+  `--sysclk-mhz 150` for the 150 MHz of the hardware builds, in xsim and in GHDL (default 200 MHz, as before). With
+  `--refclk-mhz 100 --sysclk-mhz 150` the xsim has the clocks of the default device image.
+- VCK190 hardware test procedure of spfi_encrypt, section "When the link does not come up": how the lane states of
+  the far end show how far the lane initialisation got.
 
 ### Fixed
 

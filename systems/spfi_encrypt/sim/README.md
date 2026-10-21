@@ -23,8 +23,9 @@ generated top level of the system instead of the board.
 
 - The system is the generated top level `spfi_encrypt` of `hdl/`. The bench drives and observes its top-level ports
   only: the reset, the system clock, the reference clock and the serial lines.
-- The bench runs `Clk_sys` at 200 MHz, the hardware builds at 150 MHz. The frequency enters the generated top level
-  only as `ClkFreqHz_g`, the clock of the memory scrubbers, which the system leaves off (`ScrubPeriod_g` 0.0).
+- The bench runs `Clk_sys` at 200 MHz by default and, with `--sysclk-mhz 150`, at the 150 MHz of the hardware builds
+  (`SysClkKhz_g`). The frequency enters the generated top level only as `ClkFreqHz_g`, the clock of the memory
+  scrubbers, which the system leaves off (`ScrubPeriod_g` 0.0).
 - The far end is the far end of all system testbenches ([sim/](../../../sim/README.md)): a second SpaceFibre port,
   an `ofb_core` with its own physical adapter, joined to the system by the serial lines, lane i to lane i in both
   directions. It has the generics of `ofb0` of the Composer file (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands
@@ -85,6 +86,7 @@ python systems/spfi_encrypt/sim/run_xsim.py                           # all test
 python systems/spfi_encrypt/sim/run_xsim.py TC-RS-HW-04               # one test case
 python systems/spfi_encrypt/sim/run_xsim.py --each                    # one simulation per test case
 python systems/spfi_encrypt/sim/run_xsim.py --refclk-mhz 100 TC-RS-HW-01   # reference clock 100 MHz
+python systems/spfi_encrypt/sim/run_xsim.py --refclk-mhz 100 --sysclk-mhz 150   # clocks of the lab image
 ```
 
 The runner needs AMD Vivado 2025.2 (`VIVADO_PATH` or `vivado` on the `PATH`). It creates the transceiver wizard
@@ -100,6 +102,10 @@ frequencies of the VCK190 targets: the runner creates `ofb_gtw` for it in its ow
 the bench drives `RefClk` of both ends at it (`RefClkKhz_g`); the run directory gets the suffix `_refclk_100`.
 The line rate and the lane clock are the same at both frequencies. The behavioural model of GHDL takes only
 156.25 MHz: its lane clock is the reference clock.
+
+`--sysclk-mhz` sets the frequency of the system clock of the bench, 200 MHz (default) or 150 MHz, the frequency of the
+hardware builds (`SysClkKhz_g`), in xsim and in GHDL; the run directory gets the suffix `_sysclk_150`. With
+`--refclk-mhz 100 --sysclk-mhz 150` the simulation has the clocks of the device image of the default build.
 
 The transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`, see the verification
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in

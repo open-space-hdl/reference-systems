@@ -220,6 +220,17 @@ not complete on channel 0. Before any rerun, record:
    clock with its frequency in `results/build_info.txt` of the programmed image. They must agree; after a power cycle
    the Si570 runs at 100.000 MHz again, the frequency of option A.
 
+The lane states of port 1 show how far the lane initialisation got (ECSS-E-ST-50-11C 5.6). The system starts its lanes
+itself and sends INIT1 in the Started state; a lane of the STAR-Ultra in AutoStart leaves Wait when a signal arrives,
+reaches Connecting after it has received INIT1 and Connected after it has received INIT2 or INIT3 of the system:
+
+| Lane states of port 1 | Reading |
+| --- | --- |
+| Wait, and port 1 reports no signal | No signal arrives from the system: device image, reference clock or cable |
+| Started or Connecting, then ClearLine and Wait again, never Connected | The STAR-Ultra receives the INIT1 of the system, but no lane of the system answers with INIT2: the lanes of the system do not receive the STAR-Ultra, or leave the initialisation; the receive path of the system |
+| Active on some lanes only | A problem of single lanes: lane order, cable or polarity |
+| Active on all lanes, but the link is not ready | The alignment of the lanes of the two ends |
+
 Then correct what the records show (clock, image, cable) and run the script again. After the QSFP cable was unplugged
 or moved, reset the link of port 1 in STAR-System before the next run; if the link still does not come up, program
 the device image again, which resets the system, and its lanes start the link again (section 6, link start).
