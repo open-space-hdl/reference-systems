@@ -123,6 +123,19 @@ def test_the_package_options_set_the_directories_of_build_bat_and_readme():
     assert "(default D:\\build\\rs)" in flat and "set RS_VIVADO_OUT=D:/build/out2" in flat
 
 
+def test_readme_gives_both_ways_out_of_a_clone_at_another_commit():
+    links = {p: sha for p, sha in mob.gitlinks("HEAD").items() if p.startswith("cores/")}
+    own = dict(mob.BAT_DEFAULTS, RS_DIR=r"D:\build\rs", RS_VIVADO_OUT="D:/build/out")
+    sha = mob.git("rev-parse", "HEAD")
+    lines = mob.readme("develop", sha, links, {p: "" for p in links}, "0" * 40, own).splitlines()
+    assert "  ren D:\\build\\rs rs-<its commit>" in lines
+    assert f"  set RS_DIR=D:\\build\\rs-{sha[:7]}" in lines
+    assert f"  set RS_VIVADO_OUT=D:/build/out_{sha[:7]}" in lines
+    assert f'  $env:RS_DIR = "D:\\build\\rs-{sha[:7]}"' in lines
+    assert f'  $env:RS_VIVADO_OUT = "D:/build/out_{sha[:7]}"' in lines
+    assert "  .\\build.bat <system>" in lines
+
+
 def test_build_bat_finds_python_or_the_launcher_for_the_check_of_the_pins():
     lines = bat().splitlines()
     python = lines.index('    python --version >nul 2>&1 && set "RS_PYTHON=python"')

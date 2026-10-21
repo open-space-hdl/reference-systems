@@ -35,7 +35,8 @@
   repository from the bundles next to it (when the clone directory does not exist yet), checks the submodules and
   the pins (with `python`, else the launcher `py -3`, or `RS_PYTHON`), sets `RS_VIVADO_OUT` and builds one system
   with the words of `build.tcl`. A clone at another commit stops it. `README.txt` describes it, with the defaults of
-  the directories.
+  the directories, and gives the two ways out of a clone at another commit: rename it, or set `RS_DIR` and
+  `RS_VIVADO_OUT` to new directories named after the commit of the package (the lines for cmd and PowerShell).
 - Both systems: system clock 150 MHz for the hardware bring-up (Composer file, generated top level and
   constraints, `clk_sys_mhz` of the VCK190 `tcl/build.tcl`), with the throughput figures of spfi_compress_encrypt at
   150 MHz. The CIPS derives the clock from its 1200 MHz PLL by the divisor 8.
