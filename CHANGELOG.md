@@ -50,6 +50,9 @@
 - System testbenches: the system clock is a generic of the bench (`SysClkKhz_g`), and the runners take
   `--sysclk-mhz 150` for the 150 MHz of the hardware builds, in xsim and in GHDL (default 200 MHz, as before). With
   `--refclk-mhz 100 --sysclk-mhz 150` the xsim has the clocks of the default device image.
+- System testbenches: the tools that the xsim and GHDL runners start write their temporary files to `tmp/` in their
+  working directory below the output directory of the runner, not to the temporary directory of the user, which the
+  C code that xelab compiles for a snapshot could fill.
 - VCK190 hardware test procedure of spfi_encrypt, section "When the link does not come up": how the lane states of
   the far end show how far the lane initialisation got.
 
