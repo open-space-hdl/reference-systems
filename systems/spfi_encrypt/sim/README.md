@@ -95,7 +95,9 @@ and the top level in the order of `hdl/spfi_encrypt_compile_order.txt`, the far 
 bench, runs the simulations and checks them (`tools/sysbench.py`). Results go to
 `vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another directory): the stimulus, the records, the
 log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of the transceivers and the lane states of
-both ends, for the analysis of a link that does not initialise; the checks do not use it.
+both ends, for the analysis of a link that does not initialise; the checks do not use it. The tools that the runner
+starts write their temporary files (`TEMP`, `TMP`, `TMPDIR`) to `tmp/` in their working directory below
+`vivado_out/xsim/spfi_encrypt/`, not to the temporary directory of the user.
 
 `--refclk-mhz` sets the frequency of the transceiver reference clock, 156.25 MHz (default) or 100 MHz, the two
 frequencies of the VCK190 targets: the runner creates `ofb_gtw` for it in its own directory (`ip_refclk_100`) and
@@ -123,7 +125,8 @@ The runner needs GHDL 6.0 (`GHDL_PATH` or `ghdl` on the `PATH`). It analyses Ope
 level in the order of `hdl/spfi_encrypt_compile_order.txt`, with the files of
 `hdl/ofb_pa_gty/compile_order_sim.txt` of OpenFibre in place of the GTY adapter, the far end and the bench, then runs
 the simulations and checks them as `run_xsim.py` does. Results go to `sim_out/ghdl/spfi_encrypt/runs/<name>/`
-(`RS_GHDL_OUT` sets another directory), with the same files.
+(`RS_GHDL_OUT` sets another directory), with the same files; GHDL also writes its temporary files to `tmp/` in its
+working directory.
 
 ### Without a simulator
 

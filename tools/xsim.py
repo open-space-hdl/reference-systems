@@ -48,11 +48,20 @@ def tool(name: str) -> str:
     return str(exe)
 
 
+def tool_env(cwd: Path) -> dict[str, str]:
+    """The environment of a tool that runs in cwd, with the temporary directory cwd/tmp: the temporary files that the
+    tools write to TEMP (xelab compiles the C code of a snapshot, xsim writes wave data) stay with the outputs of the
+    run, on the drive of the output directory, and do not fill the temporary directory of the user."""
+    temp = cwd / "tmp"
+    temp.mkdir(parents=True, exist_ok=True)
+    return dict(os.environ, TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
+
+
 def run(cmd: list[str], cwd: Path, log: str) -> None:
     with open(cwd / log, "w", encoding="utf-8") as f:
         # stdin closed: with an inherited stdin, export_simulation writes vlog.prj to stdout
         result = subprocess.run(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                check=False)
+                                env=tool_env(cwd), check=False)
     if result.returncode != 0:
         text = (cwd / log).read_text(encoding="utf-8", errors="replace").splitlines()
         print("\n".join(text[-30:]), flush=True)
@@ -181,7 +190,7 @@ def simulate(export: Path, snapshot: str, log: str, on_line: Callable[[str, floa
         cmd += ["-R"]
     start = time.time()
     proc = subprocess.Popen(cmd, cwd=export, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL)
+                            stdin=subprocess.DEVNULL, env=tool_env(export))
     seen = 0
     pending = ""
 
