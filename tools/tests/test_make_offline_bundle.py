@@ -105,6 +105,12 @@ def test_build_bat_knows_every_target_and_shows_the_options_of_section_4():
     assert any("systems/%SYSTEM%/targets/%BOARD%/tcl/build.tcl -tclargs%WORDS%" in line for line in lines)
 
 
+def test_build_bat_starts_vivado_without_the_user_data_of_the_tcl_store():
+    lines = bat().splitlines()
+    calls = [i for i, line in enumerate(lines) if line.lstrip().startswith('call "%VIVADO%"')]
+    assert calls and lines.index('set "XILINX_LOCAL_USER_DATA=no"') < min(calls)
+
+
 def test_build_bat_sets_the_project_directory_and_readme_says_how_to_keep_a_project():
     assert 'if not defined RS_VIVADO_OUT set "RS_VIVADO_OUT=C:/git/rs"' in bat().splitlines()
     flat = " ".join(readme().split())

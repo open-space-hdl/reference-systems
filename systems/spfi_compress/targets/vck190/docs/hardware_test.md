@@ -52,7 +52,8 @@ The script and its steps, the reference clock files and the clock constraint of 
 limit on Windows (`RS_VIVADO_OUT`, for example `C:/git/rs`) and the files in `results/` are those of spfi_encrypt (its
 procedure, section 4), with the name `spfi_compress_vck190` for the project and the device image. The timing
 summary must show WNS and WHS of at least 0 ns for `Clk_sys` at the frequency of the Composer file and for the lane
-clock at 156.25 MHz; the hierarchical utilisation report gives the resources of every OpenCompact channel.
+clock at 156.25 MHz; the hierarchical utilisation report gives the resources of every OpenCompact channel. As in
+spfi_encrypt, the script sets `XILINX_LOCAL_USER_DATA=no` for the runs of `launch_runs` (AMD AR 63253).
 
 ## 5. Board set-up
 

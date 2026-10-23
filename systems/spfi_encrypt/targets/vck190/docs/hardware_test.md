@@ -67,6 +67,10 @@ vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tc
 
 The elaboration alone takes about 6 GB of memory.
 
+The script sets `XILINX_LOCAL_USER_DATA=no` for the runs that `launch_runs` starts at the same time, and `build.bat` of
+the offline package also for Vivado itself (AMD AR 63253): on a fresh installation of Vivado, one of the runs can
+otherwise fail at start-up with Common 17-1257 ("Failed to create directory") and "tclapp::load_apps failed".
+
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
 board top level and the constraints, and runs synthesis, implementation and the device image. The pins of the reference

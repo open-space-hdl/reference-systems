@@ -83,6 +83,10 @@
   (`tools/vivado/check_constraints.tcl`): an object query that matched nothing, or the constraint file of a module
   that is not in the netlist. Vivado reports these as warnings and continues, and the timing summary then lacks the
   constraint. Synthesis runs without incremental reuse of an earlier netlist.
+- VCK190 targets of every system: `tcl/build.tcl` sets `XILINX_LOCAL_USER_DATA=no` for the runs of `launch_runs`,
+  and `build.bat` of the offline package also for Vivado itself (AMD AR 63253). On a fresh installation of Vivado the
+  runs that start at the same time create the user directory of the Tcl Store together, and one of them can fail at
+  start-up with Common 17-1257 ("Failed to create directory") and "tclapp::load_apps failed".
 
 ## v0.1.0 (2026-10-18)
 
