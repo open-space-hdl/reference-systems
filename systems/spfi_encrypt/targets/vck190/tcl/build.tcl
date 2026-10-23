@@ -186,6 +186,12 @@ if {$step eq "rtl"} {
     return
 }
 
+# The runs of launch_runs are Vivado processes of their own that start at the same time (the IP out of context, then
+# synth_1). On a fresh installation of Vivado they create the user directory of the Tcl Store together, and one of
+# them can fail at start-up with Common 17-1257 ("Failed to create directory") and "tclapp::load_apps failed" (AMD
+# AR 63253). The runs inherit the environment of this process: with XILINX_LOCAL_USER_DATA=no, the workaround of the
+# answer record, their Tcl Store stays out of that directory.
+set ::env(XILINX_LOCAL_USER_DATA) no
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
 if {[get_property PROGRESS [get_runs synth_1]] ne "100%"} { error "synthesis failed" }
