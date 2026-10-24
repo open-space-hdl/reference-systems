@@ -22,8 +22,8 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 
 | Instance | Entity | Function |
 | --- | --- | --- |
-| `pa0` | `openfibre.ofb_pa_gty` | Physical adapter for one AMD Versal GTY quad, 4 lanes at 6.25 Gbit/s |
-| `ofb0` | `openfibre.ofb_core` | SpaceFibre port, 4 lanes, 2 virtual channels; input VC buffers of 1024 words (`VcInDepth_g`), four flow control units of 256 words, as in the OpenFibre reference design for the VCK190: with more than one lane, an input VC buffer of one flow control unit can stop the traffic for good; starts the link after the reset (`LaneStart_g`) |
+| `pa0` | `openfibre.ofb_pa_gty` | Physical adapter for one AMD Versal GTY quad, 4 lanes at 6.25 Gbit/s; resets the receiver of a lane at every restart of the lane ([lane initialisation](#lane-initialisation)) |
+| `ofb0` | `openfibre.ofb_core` | SpaceFibre port, 4 lanes, 2 virtual channels; input VC buffers of 1024 words (`VcInDepth_g`), four flow control units of 256 words, as in the OpenFibre reference design for the VCK190: with more than one lane, an input VC buffer of one flow control unit can stop the traffic for good; starts the link after the reset (`LaneStart_g`); initialisation timeout of the lanes 3 ms ([lane initialisation](#lane-initialisation)) |
 | `nchar0` | `openspp.spp_nchar` | Converts between the packet stream of virtual channel 0 and the N-Char stream of the RMAP node |
 | `rmap0` | `openrmap.omap_core` | RMAP target; its memory master accesses the register map below with single AXI4-Lite transfers |
 | `spp0` | `openspp.spp_core` | Space Packet node on virtual channel 1, 4 send and 4 receive ports, 8 KiB buffers |
@@ -54,6 +54,34 @@ the blocks with a synchronous reset. `ofb0` and `pa0` take the asynchronous `Rst
 one reset generator per clock domain, `pa0` releases it with a reset generator in its free-running clock and resets
 the transceivers and their reset controller with it. `ofb0` holds its link in Near-End Reset until the transmitters of
 `pa0` are ready (`Stat_TxReady` of `pa0` to `Phy_TxReady` of `ofb0`).
+
+## Lane initialisation
+
+The SpaceFibre port uses the lane settings of the OpenFibre reference design for the VCK190 (`ofb_vck190`, requirement
+VCK-ST-02):
+
+- `pa0` resets the receiver of a lane at every restart of the lane, without a gap between two resets
+  (`RxRstGapCycles_g` = 0), the reset that the transceiver documentation (AM002) recommends after the far end powers
+  up, after electrical idle and after connecting the line.
+- The initialisation timeout of the lanes is 468750 words, 3 ms at 156.25 MHz (`InitTimeoutWords_g` of `ofb0`, the
+  reset value of LANE_INIT_TIMEOUT). A restarted lane stays in Started and sends INIT1 while its receiver resets.
+
+The timeout deviates from ECSS-E-ST-50-11C 5.5.2.6b.1 and 5.5.2.7b.1, which give the time to send 5000 words (32 us):
+on the device the receiver reset can last longer than that (AMD PG442 gives up to 150 ms for a full reset of a quad).
+Section 5 of the [specification of `ofb_vck190`][vck190-spec] states the deviation and its reason, and the
+[OpenFibre user guide][ofb-guide] describes the receiver reset.
+
+[vck190-spec]: https://github.com/open-space-hdl/openfibre/blob/v0.1.3/hdl/ofb_vck190/docs/specification.md
+[ofb-guide]: https://github.com/open-space-hdl/openfibre/blob/v0.1.3/docs/user_guide.md
+
+`pa0` counts its waits in cycles of its free-running clock, which is `Clk_sys` (150 MHz) here and a 100 MHz clock in
+`ofb_vck190`. The two bounds are scaled so that the times are those of `ofb_vck190`: `RxRstDoneCycles_g` = 22500000
+(150 ms for RXRESETDONE after a receiver reset) and `CdrWaitCycles_g` = 15000 (100 us after a CDR-only reset).
+
+The control and status ports of the receiver reset connect `ofb0` and `pa0`, so PA_CTRL, RX_RESET of LANE_CTRL and the
+receiver reset fields of LANE_STATUS, LANE_EVENTS and LANE_TIMEOUT_COUNT of `ofb0` work as in `ofb_vck190`. The
+registers of the system are reachable only over the link: PA_CTRL can change the receiver reset once the link is up,
+but the bring-up of the link runs with the reset values.
 
 ## Top-level ports
 

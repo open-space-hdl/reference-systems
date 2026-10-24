@@ -132,6 +132,8 @@ points between the chunks as well as their bytes.
 As for spfi_encrypt (its procedure, section 8): record the link and lane states of port 1 in STAR-System, the LEDs of
 the VCK190 and the reference clock (option, value read back, `results/build_info.txt`), correct what the records
 show and run the script again; after the QSFP cable was unplugged or moved, reset the link of port 1 in STAR-System.
+A lane of the system stays in Started for up to 3 ms per initialisation attempt, and its receiver resets at every
+restart; TC-RS-HW-01 records the receiver resets once the link is up.
 
 ## 9. Records
 
@@ -143,6 +145,6 @@ Keep for every build and every test run, with the date:
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back; LEDs after programming, version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
-| Test run | Command line (profile, seed) and the complete output of the script, the rate of TC-RS-HW-09 included, for example redirected into a file |
+| Test run | Command line (profile, seed) and the complete output of the script with the `RECORD` lines of TC-RS-HW-01, the rate of TC-RS-HW-09 included, for example redirected into a file |
 
 A failing test case is recorded with its output and the register values it reports.

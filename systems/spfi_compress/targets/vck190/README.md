@@ -110,3 +110,9 @@ compiles the platform loader firmware in a deep directory below the project, and
 the methodology and DRC reports and `build_info.txt` with the step, the reference clock with its frequency and its pins
 in the design, the Vivado version and the commits of the repository and of its submodules. Section 4 of the [hardware
 test procedure](docs/hardware_test.md) lists the expected results and messages.
+
+## Planned improvement
+
+As for spfi_encrypt ([planned improvement](../../../spfi_encrypt/targets/vck190/README.md#planned-improvement)): a
+second access path to the registers over JTAG through the CIPS, so that they can be read and set while the link is
+down.

@@ -154,6 +154,13 @@ receive buffer of the far end must hold.
 As in spfi_encrypt: `Clk_sys` for all blocks except the lane clock domain of `ofb0`, the OpenCompact channels and the
 chunkers included; `Rst` is the asynchronous, high-active reset of the system.
 
+## Lane initialisation
+
+As in spfi_encrypt ([lane initialisation](../spfi_encrypt/README.md#lane-initialisation)): the lane settings of the
+OpenFibre reference design for the VCK190, a receiver reset of a lane at every restart and an initialisation timeout of
+468750 words (3 ms), which deviates from ECSS-E-ST-50-11C 5.5.2.6b.1 and 5.5.2.7b.1; the bounds of the waits of `pa0`
+scaled to the 150 MHz of `Clk_sys`.
+
 ## Test software
 
 The hardware test computes the expected compressed image of every test image with the reference model of OpenCompact
