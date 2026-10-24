@@ -205,7 +205,7 @@ and fields from the headers of the cores (`cores/<core>/sw/<prefix>_regs.h`).
 
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS` and `LANE_STATUS` of `ofb0` | `ID` = `SPFI_ENCRYPT_OFB0_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7) |
+| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS`, and `LANE_STATUS` and `LANE_TIMEOUT_COUNT` of every lane of `ofb0`. The script prints for every lane, as a `RECORD` line that is no pass criterion, the completed receiver resets (`LANE_TIMEOUT_COUNT.RX_RESETS`), the initialisation timeouts (`LANE_TIMEOUT_COUNT.COUNT`) and `LANE_STATUS` bits 24 to 27 (RXRESETDONE, receiver reset in progress, CDR lock, receiver electrical idle) | `ID` = `SPFI_ENCRYPT_OFB0_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7) |
 | TC-RS-HW-02 Identification | Read the identification register of every register window | `ID` of every register bank with an identification (`spp0`, `ocr0` to `ocr3`, `rmap0`, `ofb0`) = its `SPFI_ENCRYPT_<BANK>_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters) |
 | TC-RS-HW-03 RMAP | Verified writes of `IRQ_ENA` of `edac0` and read back; a read with a wrong key | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read `ID`, `GENERICS`, `GENERICS2` and `RELEASE_BYTES` of `ocr0` with one command of 16 bytes and with single reads; load the test slot with the key in one write of 32 bytes and `IV_FIXED`, `IV_COUNT_LO` and `IV_COUNT_HI` in one write of 12 bytes, then `KEY_LOAD`; select the slot in `SLOT_QUERY` and read `SLOT_STATUS` to `SLOT_COUNT_HI` with one command of 16 bytes and with single reads | Both reads of 16 bytes give the words of the single reads; the slot is valid with generated IVs (`SLOT_STATUS` 0x3) and holds the written fixed field and invocation counter |
@@ -235,6 +235,13 @@ reaches Connecting after it has received INIT1 and Connected after it has receiv
 | Active on some lanes only | A problem of single lanes: lane order, cable or polarity |
 | Active on all lanes, but the link is not ready | The alignment of the lanes of the two ends |
 
+The system resets the receiver of a lane at every restart of the lane, and a lane of the system stays in Started for
+up to 3 ms per initialisation attempt, 32 us with the timeout of the standard (README of the system, lane
+initialisation). The registers that show and set the receiver reset (LANE_STATUS bits 24 to 27,
+LANE_TIMEOUT_COUNT, PA_CTRL of `ofb0`) are reachable only over the link: TC-RS-HW-01 records them once the link is
+up. Another receiver reset setting, such as one of the PA_CTRL values in the hardware test of the OpenFibre
+reference design for the VCK190, needs a device image with that setting as its reset value.
+
 Then correct what the records show (clock, image, cable) and run the script again. After the QSFP cable was unplugged
 or moved, reset the link of port 1 in STAR-System before the next run; if the link still does not come up, program
 the device image again, which resets the system, and its lanes start the link again (section 6, link start).
@@ -249,7 +256,7 @@ Keep for every build and every test run, with the date:
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back (section 5, step 2); LEDs after programming (section 5), version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
-| Test run | Command line (profile, seed, packets) and the complete output of the script, for example redirected into a file |
+| Test run | Command line (profile, seed, packets) and the complete output of the script with the `RECORD` lines of TC-RS-HW-01, for example redirected into a file |
 
 A failing test case is recorded with its output and the register values it reports. These files are what a review of
 the hardware test needs: they are brought back from the build computer and the test computer together, the device

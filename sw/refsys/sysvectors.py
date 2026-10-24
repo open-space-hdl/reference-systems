@@ -369,7 +369,7 @@ def check(bench: Bench, directory: Path) -> int:
     passed = len(results) == len(selected) and all(error is None for _, error in results)
     if passed and replay.leftover():
         problems.append(f"packets that no request awaited: {replay.leftover()} (virtual channel: count)")
-    report = make_report(bench, vectors, events, results, problems, read_wall(directory))
+    report = make_report(bench, vectors, events, results, problems, read_wall(directory), ctx.records)
     (directory / REPORT).write_text(report, encoding="utf-8")
     print(report, end="")
     return 0 if passed and not problems else 1
@@ -383,7 +383,7 @@ def read_wall(directory: Path) -> dict[int, float]:
     return {int(a): float(b) for a, b in (t.split() for t in path.read_text(encoding="utf-8").splitlines() if t)}
 
 
-def make_report(bench: Bench, vectors, events, results, problems, wall) -> str:
+def make_report(bench: Bench, vectors, events, results, problems, wall, records=()) -> str:
     times = {line: ns for ns, kind, line, _ in events if kind in ("mark", "mibp", "end", "timeout")}
     ready = next((ns for ns, kind, _, _ in events if kind == "ready"), None)
     marks = [op for op in vectors["ops"] if op["kind"] == "mark"]
@@ -410,6 +410,8 @@ def make_report(bench: Bench, vectors, events, results, problems, wall) -> str:
         out += ["", f"Total simulated time {stop / 1000:.1f} us"]
     if wall and stop_line in wall:
         out.append(f"Total wall-clock time {wall[stop_line] / 60:.1f} min")
+    if records:
+        out += ["", "Recorded values (no pass criteria)"] + [f"  {text}" for text in records]
     errors = [f"{name}: {error}" for name, error in results if error]
     if errors or problems:
         out += [""] + errors + problems

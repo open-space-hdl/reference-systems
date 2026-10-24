@@ -217,6 +217,14 @@ class Context:
     test_key: bytes = field(default=b"", kw_only=True)
     test_fixed: int = field(default=0, kw_only=True)
     test_counter: int = field(default=0, kw_only=True)
+    records: list[str] = field(default_factory=list, kw_only=True)
+
+
+def record(ctx: Context, text: str) -> None:
+    """Records a value that is no pass criterion: printed, and kept in the context for the report of a system
+    simulation."""
+    ctx.records.append(text)
+    print(f"RECORD {text}")
 
 
 def key_material(rng: random.Random, count: int) -> dict:
@@ -264,13 +272,26 @@ def loaded_slot(fixed: int, counter: int) -> list[int]:
 
 
 def tc01_link(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP."""
-    base = ctx.system.base(ctx.system.port)
-    check(regs.read(base + OFB.ID) == ctx.system.ids[ctx.system.port], "ID of the SpaceFibre port")
+    """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP. Recorded for every lane: the
+    receiver resets of the physical adapter and the initialisation timeouts since the reset, and the receiver status
+    (OpenFibre user guide, receiver reset of ofb_pa_gty), which show how the lanes came up."""
+    port = ctx.system.port
+    base = ctx.system.base(port)
+    check(regs.read(base + OFB.ID) == ctx.system.ids[port], "ID of the SpaceFibre port")
     state = OFB.get("DL_STATUS", "LINK_STATE", regs.read(base + OFB.DL_STATUS))
     check(state == LINK_INITIALISED, f"DL_STATUS.LINK_STATE = {state}")
+    states = []
     for lane in range(ctx.system.lanes):
-        state = OFB.get("LANE_STATUS", "STATE", regs.read(base + OFB.LANE_STATUS(lane)))
+        status = regs.read(base + OFB.LANE_STATUS(lane))
+        count = regs.read(base + OFB.LANE_TIMEOUT_COUNT(lane))
+        states.append(OFB.get("LANE_STATUS", "STATE", status))
+        record(ctx, f"{port} lane {lane}: RX_RESETS {OFB.get('LANE_TIMEOUT_COUNT', 'RX_RESETS', count)}, "
+               f"initialisation timeouts {OFB.get('LANE_TIMEOUT_COUNT', 'COUNT', count)}, "
+               f"RXRESETDONE {OFB.get('LANE_STATUS', 'RX_RESET_DONE', status)}, "
+               f"receiver reset in progress {OFB.get('LANE_STATUS', 'RX_RESET_BUSY', status)}, "
+               f"CDR lock {OFB.get('LANE_STATUS', 'CDR_LOCK', status)}, "
+               f"receiver electrical idle {OFB.get('LANE_STATUS', 'RX_ELEC_IDLE', status)}")
+    for lane, state in enumerate(states):
         check(state == LANE_ACTIVE, f"LANE_STATUS({lane}).STATE = {state}")
 
 

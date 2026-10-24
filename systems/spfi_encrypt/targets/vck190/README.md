@@ -108,3 +108,9 @@ compiles the platform loader firmware in a deep directory below the project, and
 the methodology and DRC reports and `build_info.txt` with the step, the reference clock with its frequency and its pins
 in the design, the Vivado version and the commits of the repository and of its submodules. Section 4 of the [hardware
 test procedure](docs/hardware_test.md) lists the expected results and messages.
+
+## Planned improvement
+
+A later version gives the registers of the system a second access path over JTAG, through the master port M_AXI_FPD
+of the CIPS as in the OpenFibre reference design for the VCK190, so that the registers of the SpaceFibre port, PA_CTRL
+included, can be read and set while the link is down. Now they are reachable only over the link (RMAP).

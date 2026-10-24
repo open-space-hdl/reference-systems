@@ -43,6 +43,16 @@ def test_records_of_the_model_pass(tmp_path):
     assert "link initialised" in report
 
 
+def test_report_lists_the_receiver_reset_records_of_every_lane(tmp_path):
+    vectors.write(tmp_path, "sim", 1, ["TC-RS-HW-01"])
+    play(tmp_path)
+    assert vectors.check(tmp_path) == 0
+    report = (tmp_path / vectors.REPORT).read_text(encoding="utf-8").splitlines()
+    records = report[report.index("Recorded values (no pass criteria)") + 1:]
+    assert [r.split(":")[0].strip() for r in records] == [f"{SYSTEM.port} lane {n}" for n in range(SYSTEM.lanes)]
+    assert all("RX_RESETS 0, initialisation timeouts 0" in r for r in records)
+
+
 def test_stimulus_waits_for_the_link_and_marks_every_test_case(tmp_path):
     vectors.write(tmp_path, "sim", 1, None)
     ops = [t.split() for t in (tmp_path / vectors.STIMULUS).read_text(encoding="utf-8").splitlines()
