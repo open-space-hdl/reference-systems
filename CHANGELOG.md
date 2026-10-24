@@ -65,6 +65,12 @@
   AES-GCM cores: the key material of the test context is optional, the identification and the key slots cover the
   channels with an AES-GCM core, and a system gives the Packet Data Fields that a channel sends (`send()` of the
   system model).
+- `tools/check_pins.py` accepts a core verified with a newer Open Logic FT tag than the tag of the systems when every
+  Open Logic file that the core uses is the same in both tags: the files that the files of the core in the compile
+  order of the system name, closed over the references of Open Logic to itself. It prints the core, both tags and the
+  number of files compared, and otherwise names the files that differ; with `--offline` it compares them in the
+  clone of the offline package, whose bundle of Open Logic FT carries the tags. OpenFibre v0.1.3 is verified with
+  4.7.0-ft.9 and uses 35 Open Logic files, the same in 4.7.0-ft.8, the tag of the systems.
 - `tools/make_offline_bundle.py` also writes `build.bat` into the offline package: on Windows it clones the
   repository from the bundles next to it (when the clone directory does not exist yet), checks the submodules and
   the pins (with `python`, else the launcher `py -3`, or `RS_PYTHON`), sets `RS_VIVADO_OUT` and builds one system

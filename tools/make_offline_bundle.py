@@ -71,7 +71,8 @@ def gitlinks(ref: str, path: str = "", cwd: Path = ROOT) -> dict[str, str]:
 def olo_tags(ref: str) -> list[str]:
     """The tags of Open Logic FT that the system files at ref name: the tag that every system pins and the tags that
     its cores were verified with (verifiedWith). The bundle of Open Logic FT carries them all, since the check of the
-    pins on the offline clone resolves each of them."""
+    pins on the offline clone resolves each of them and, for a core verified with a newer tag than the system's,
+    compares the Open Logic files that the core uses in both tags."""
     tags = set()
     for path in git("ls-tree", "-r", "--name-only", ref, "systems").splitlines():
         parts = path.split("/")
