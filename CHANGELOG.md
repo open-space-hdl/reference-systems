@@ -98,6 +98,10 @@
 
 ### Fixed
 
+- VCK190 targets of every system: `tcl/build.tcl` puts the text of `build_info.txt` together first, writes it with
+  one `puts` (UTF-8, LF line ends) and stops when the file does not have the size of the text after it is closed.
+  Once, in the step `rtl`, the file stayed empty and its lines reached `vivado.log` instead; `build_info.txt` is a
+  record of every build and of the hardware test.
 - VCK190 target READMEs of both systems: the maximum delays of the clock crossings in the system constraints are
   6.4 ns, the period of the lane clock, since the system clock is 150 MHz.
 - VCK190 targets of both systems: the implementation run uses the strategy Performance_Explore, without the

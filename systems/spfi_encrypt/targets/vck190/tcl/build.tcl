@@ -154,26 +154,36 @@ set_property strategy Performance_Explore [get_runs impl_1]
 set_property STEPS.OPT_DESIGN.TCL.PRE [file join $root tools vivado check_constraints.tcl] [get_runs impl_1]
 
 # build_info.txt of the open design: the step, the reference clock with its frequency, the period of its clock and
-# the pins of its ports in the design, the Vivado version and the commits of the repository and of its submodules
+# the pins of its ports in the design, the Vivado version and the commits of the repository and of its submodules.
+# The text is put together first and written with one puts (UTF-8, LF line ends); the size of the file after close
+# must be the size of the text, else the script stops. Once the lines of an rtl step reached vivado.log instead of
+# the file, which was left empty.
 proc write_build_info {path} {
     global name step refclk refclk_mhz root
-    set fh [open $path w]
-    puts $fh "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"
-    puts $fh "Vivado [version -short], part [get_property PART [current_project]]"
+    set lines [list "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"]
+    lappend lines "Vivado [version -short], part [get_property PART [current_project]]"
     set pins {}
     foreach port {GtRefClk_P GtRefClk_N} { lappend pins "$port [get_property PACKAGE_PIN [get_ports $port]]" }
     set period [get_property -quiet PERIOD [get_clocks -quiet gt_refclk]]
-    puts $fh "reference clock $refclk at $refclk_mhz MHz, gt_refclk period $period ns: [join $pins {, }]"
+    lappend lines "reference clock $refclk at $refclk_mhz MHz, gt_refclk period $period ns: [join $pins {, }]"
     if {[catch {exec git -C $root log -1 --format=%H} commit]} { set commit "unknown (git not available)" }
-    puts $fh "repository $commit"
+    lappend lines "repository $commit"
     if {![catch {exec git -C $root submodule status} status]} {
-        puts $fh "submodules:\n$status"
+        lappend lines "submodules:\n$status"
     }
     set nested [file join $root cores open-logic-ft]
     if {![catch {exec git -C $nested submodule status 3rdParty/en_cl_fix} status]} {
-        puts $fh "cores/open-logic-ft/$status"
+        lappend lines "cores/open-logic-ft/$status"
     }
+    set text "[join $lines \n]\n"
+    set fh [open $path w]
+    fconfigure $fh -encoding utf-8 -translation lf
+    puts -nonewline $fh $text
     close $fh
+    set expected [string length [encoding convertto utf-8 $text]]
+    if {[file size $path] != $expected} {
+        error "$path has [file size $path] bytes after writing, expected $expected"
+    }
 }
 
 if {$step eq "project"} { return }
