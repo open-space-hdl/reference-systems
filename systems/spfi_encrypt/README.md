@@ -71,8 +71,8 @@ on the device the receiver reset can last longer than that (AMD PG442 gives up t
 Section 5 of the [specification of `ofb_vck190`][vck190-spec] states the deviation and its reason, and the
 [OpenFibre user guide][ofb-guide] describes the receiver reset.
 
-[vck190-spec]: https://github.com/open-space-hdl/openfibre/blob/v0.1.3/hdl/ofb_vck190/docs/specification.md
-[ofb-guide]: https://github.com/open-space-hdl/openfibre/blob/v0.1.3/docs/user_guide.md
+[vck190-spec]: https://github.com/open-space-hdl/openfibre/blob/v0.1.4/hdl/ofb_vck190/docs/specification.md
+[ofb-guide]: https://github.com/open-space-hdl/openfibre/blob/v0.1.4/docs/user_guide.md
 
 `pa0` counts its waits in cycles of its free-running clock, which is `Clk_sys` (150 MHz) here and a 100 MHz clock in
 `ofb_vck190`. The two bounds are scaled so that the times are those of `ofb_vck190`: `RxRstDoneCycles_g` = 22500000
