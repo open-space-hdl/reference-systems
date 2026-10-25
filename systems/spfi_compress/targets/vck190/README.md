@@ -108,8 +108,9 @@ compiles the platform loader firmware in a deep directory below the project, and
 
 `results/` in the project directory holds the device image, the timing summary, the utilisation (flat and per block),
 the methodology and DRC reports and `build_info.txt` with the step, the reference clock with its frequency and its pins
-in the design, the Vivado version and the commits of the repository and of its submodules. Section 4 of the [hardware
-test procedure](docs/hardware_test.md) lists the expected results and messages.
+in the design, the Vivado version, the commits of the repository and of its submodules and, after an implementation,
+the timing verdict ("TIMING MET: WNS x ns, WHS y ns" or "TIMING NOT MET: ...", also on the console; it does not stop
+the build). Section 4 of the [hardware test procedure](docs/hardware_test.md) lists the expected results and messages.
 
 ## Planned improvement
 

@@ -153,12 +153,23 @@ set_property AUTO_INCREMENTAL_CHECKPOINT 0 [get_runs synth_1]
 set_property strategy Performance_Explore [get_runs impl_1]
 set_property STEPS.OPT_DESIGN.TCL.PRE [file join $root tools vivado check_constraints.tcl] [get_runs impl_1]
 
+# Timing verdict of the implemented design from its worst setup and hold slack (ns; empty without a timed path):
+# "TIMING MET: WNS x ns, WHS y ns" when both are at least 0, otherwise "TIMING NOT MET: ...". It is reported on the
+# console and in build_info.txt and does not stop the build.
+proc timing_verdict {wns whs} {
+    if {$wns eq "" || $whs eq ""} { return "TIMING NOT MET: no timed setup or hold path (WNS '$wns', WHS '$whs')" }
+    set text [format "WNS %.3f ns, WHS %.3f ns" $wns $whs]
+    if {$wns >= 0 && $whs >= 0} { return "TIMING MET: $text" }
+    return "TIMING NOT MET: $text"
+}
+
 # build_info.txt of the open design: the step, the reference clock with its frequency, the period of its clock and
-# the pins of its ports in the design, the Vivado version and the commits of the repository and of its submodules.
+# the pins of its ports in the design, the Vivado version, the commits of the repository and of its submodules and,
+# after an implementation, the timing verdict.
 # The text is put together first and written with one puts (UTF-8, LF line ends); the size of the file after close
 # must be the size of the text, else the script stops. Once the lines of an rtl step reached vivado.log instead of
 # the file, which was left empty.
-proc write_build_info {path} {
+proc write_build_info {path {timing ""}} {
     global name step refclk refclk_mhz root
     set lines [list "$name, step $step, [clock format [clock seconds] -format {%Y-%m-%d %H:%M:%S}]"]
     lappend lines "Vivado [version -short], part [get_property PART [current_project]]"
@@ -175,6 +186,7 @@ proc write_build_info {path} {
     if {![catch {exec git -C $nested submodule status 3rdParty/en_cl_fix} status]} {
         lappend lines "cores/open-logic-ft/$status"
     }
+    if {$timing ne ""} { lappend lines $timing }
     set text "[join $lines \n]\n"
     set fh [open $path w]
     fconfigure $fh -encoding utf-8 -translation lf
@@ -221,6 +233,10 @@ open_run impl_1
 report_utilization -file [file join $results utilization.rpt]
 report_utilization -hierarchical -hierarchical_depth 3 -file [file join $results utilization_hierarchical.rpt]
 report_timing_summary -file [file join $results timing_summary.rpt]
+set wns [get_property -quiet SLACK [get_timing_paths -quiet -setup -max_paths 1 -nworst 1]]
+set whs [get_property -quiet SLACK [get_timing_paths -quiet -hold -max_paths 1 -nworst 1]]
+set timing [timing_verdict $wns $whs]
+puts $timing
 report_methodology -file [file join $results methodology.rpt]
 report_drc -file [file join $results drc.rpt]
 # Constraints that do not apply to the implemented design (expected: none, the file holds only its header)
@@ -228,5 +244,5 @@ write_xdc -force -constraints invalid [file join $results invalid_constraints.xd
 foreach pdi [glob -nocomplain [file join [get_property DIRECTORY [get_runs impl_1]] *.pdi]] {
     file copy -force $pdi $results
 }
-write_build_info [file join $results build_info.txt]
-puts "Results in $results (reference clock $refclk)"
+write_build_info [file join $results build_info.txt] $timing
+puts "Results in $results (reference clock $refclk): $timing"
