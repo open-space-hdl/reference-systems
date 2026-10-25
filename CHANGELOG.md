@@ -89,6 +89,9 @@
 - `tools/vivado/check_constraints.tcl` also stops the implementation on the critical warning `olo_base_ram_sdp-1`, by
   which the Open Logic constraint script reports a distributed RAM without a first read data register to constrain
   (4.7.0-ft.11); `get_msg_config` counts it under the id `olo_base_ram_sdp 1`.
+- VCK190 targets of every system: after an implementation, `tcl/build.tcl` reports the timing verdict of the design
+  on the console and in `results/build_info.txt`: "TIMING MET: WNS x ns, WHS y ns", or "TIMING NOT MET: ..." when the
+  worst setup or hold slack is below 0. The verdict does not stop the build.
 - `tools/make_offline_bundle.py` also writes `build.bat` into the offline package: on Windows it clones the
   repository from the bundles next to it (when the clone directory does not exist yet), checks the submodules and
   the pins (with `python`, else the launcher `py -3`, or `RS_PYTHON`), sets `RS_VIVADO_OUT` and builds one system
