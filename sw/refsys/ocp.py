@@ -486,7 +486,8 @@ ECC_COUNTERS = ("ECC_CORRECTED", "ECC_UNCORRECTABLE")
 
 def mib_words(regs, generics: dict) -> dict[str, int]:
     """The configuration registers of the status interface (ocp_mib) of an OpenCompact channel with these generics,
-    register name -> value, with the fields of its register map regs (sw/ocp_regs.h of OpenCompact)."""
+    register name -> value, with the fields of its register map regs (sw/ocp_regs.h of OpenCompact), and LIMITS after
+    a reset."""
     g = generics
     cfg = model_config(g)
 
@@ -496,11 +497,15 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
     coder = cfg["entropy_coder_type"]
     periodic = cfg["periodic_updating_flag"] and cfg["quantizer_fidelity_control_method"] != 0
     custom = cfg["weight_initialization_method"]
+    fidelity = cfg["quantizer_fidelity_control_method"]
+    absolute = fidelity in (1, 3) and not cfg["absolute_error_limit_assignment_method"]
+    relative = fidelity in (2, 3) and not cfg["relative_error_limit_assignment_method"]
     words = {
         "GENERICS": word("GENERICS", IN_STREAM_BYTES=g["InStreamWidth_g"] // 8,
                          OUT_STREAM_BYTES=g["OutStreamWidth_g"] // 8,
                          OUT_BYTES=g["OutWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
-                         SPECULATION=flag(g["Speculation_g"])),
+                         SPECULATION=flag(g["Speculation_g"]),
+                         RUNTIME_CONFIG=flag(g.get("RuntimeConfig_g", False))),
         "IMAGE_X": word("IMAGE_X", SIZE=cfg["large_n_x"]),
         "IMAGE_Y": word("IMAGE_Y", SIZE=cfg["large_n_y"]),
         "IMAGE_Z": word("IMAGE_Z", SIZE=cfg["large_n_z"]),
@@ -519,6 +524,9 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
                         RESOLUTION=cfg["large_omega"]),
         "ADAPTIVE": 0,
         "BLOCK": 0,
+        # the band-independent error limit values of the generics, 0 for a method not in use or with band-dependent
+        # limits; with the runtime configuration, the values of the last image
+        "LIMITS": word("LIMITS", ABS=cfg["a_vector"][0] if absolute else 0, REL=cfg["r_vector"][0] if relative else 0),
     }
     if coder == 2:
         words["BLOCK"] = word("BLOCK", REF_INTERVAL=cfg["r"], RESTRICTED=cfg["restricted_code_options_flag"],

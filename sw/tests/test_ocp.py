@@ -295,10 +295,12 @@ def test_end_mark_too_early_and_missing():
 # --- status interface -----------------------------------------------------------------------------------------------
 OCP_REGS = RegisterMap(ocp.TOOLS.parent / "sw" / "ocp_regs.h", "OCP")
 MIB_WORDS = json.loads((ocp.TOOLS / "ocp_mib_words.json").read_text(encoding="utf-8"))
+# the configurations of the testbench of OpenCompact, those with the runtime configuration included
+MIB_CONFIGS = ocp_configs.ALL | ocp_configs.RUNTIME
 
 
 def test_the_mib_words_cover_every_configuration():
-    assert sorted(MIB_WORDS) == sorted(ocp_configs.ALL)
+    assert sorted(MIB_WORDS) == sorted(MIB_CONFIGS)
 
 
 @pytest.mark.parametrize("name", sorted(MIB_WORDS))
@@ -306,7 +308,7 @@ def test_mib_words_are_those_that_the_opencompact_testbench_reads(name):
     # the file lists the generics that the words depend on; the others (error limits, tables) come from the
     # configuration
     entry = MIB_WORDS[name]
-    generics = ocp_generics.generics(ocp_configs.ALL[name]) | entry["generics"]
+    generics = ocp_generics.generics(MIB_CONFIGS[name]) | entry["generics"]
     expected = {register: int(word, 16) for register, word in entry["words"].items()}
     assert expected.pop("ID") == OCP_REGS.REGMAP_ID
     assert ocp.mib_words(OCP_REGS, generics) == expected
