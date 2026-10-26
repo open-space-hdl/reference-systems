@@ -62,6 +62,10 @@ LINK_TIMEOUT_NS = 500_000
 REQUEST_TIMEOUT_NS = 200_000
 EXCHANGE_TIMEOUT_NS = 50_000
 EXCHANGE_NS_PER_BYTE = 4
+# A procedure that knows how long the system works on what it sends (expect_busy) adds that time to the limit of its
+# next exchange, in cycles of the system clock; a cycle counts BUSY_NS_PER_CYCLE ns (100 MHz, the slowest system clock
+# of the benches) with a margin of a quarter
+BUSY_NS_PER_CYCLE = 10
 # A channel is quiet when no packet arrived for QUIET_NS; the reception ends at the latest after QUIET_LIMIT_NS
 QUIET_NS = 100_000
 QUIET_LIMIT_NS = 20_000_000
@@ -135,6 +139,7 @@ class Recorder(Transport):
         self.poll: tuple[int, int] | None = None
         self.polled = False
         self.quiet: int | None = None          # channel of the reception that is going on
+        self.busy_cycles = 0                   # system clock cycles of the work of the next exchange (expect_busy)
 
     def line(self, text: str) -> int:
         self.lines.append(text)
@@ -143,6 +148,11 @@ class Recorder(Transport):
     def begin(self, name: str) -> None:
         self.quiet = None
         self.ops.append({"kind": "mark", "name": name, "line": self.line(f"mark {name}")})
+
+    def expect_busy(self, cycles: int) -> None:
+        """The system works cycles cycles of its clock on the packets of the next exchange (for example compressors
+        at the pipeline rate of their predictor): its time limit grows by that time."""
+        self.busy_cycles = cycles
 
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
         self.quiet = None
@@ -170,6 +180,8 @@ class Recorder(Transport):
                 self.line(f"send {tx.vc} {len(p)} {p.hex()}")
             size = sum(len(p) for p in bare) + sum(len(r) for r in replies)
             limit = REQUEST_TIMEOUT_NS if count == 1 else EXCHANGE_TIMEOUT_NS + EXCHANGE_NS_PER_BYTE * size
+            limit += self.busy_cycles * BUSY_NS_PER_CYCLE * 5 // 4
+            self.busy_cycles = 0
             op["line"] = self.line(f"recv {rx.vc} {count} {limit}")
         self.ops.append(op)
         return replies

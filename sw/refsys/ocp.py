@@ -511,6 +511,16 @@ def refused_values(cfg: dict, valid: ImageConfig) -> list[tuple[str, ImageConfig
     return out
 
 
+def image_cycles(cfg: dict) -> int:
+    """Cycles in which the predictor of OpenCompact issues the samples of one image of the configuration cfg
+    (issue_span of the throughput model of OpenCompact, tools/ocp_throughput.py): one sample per cycle in most
+    configurations, the pipeline rate of the predictor in BI order with a small M."""
+    import ocp_generics
+    import ocp_throughput
+
+    return ocp_throughput.issue_span(ocp_generics.generics(cfg)) + 1
+
+
 def decoder_available() -> bool:
     """Whether the reference model of the pinned OpenCompact has the decoder (ocp_model.decompress, OpenCompact
     0.3.0)."""

@@ -307,6 +307,10 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     images = {p: [(o, expected_image(s.channels[p], o)) for o in outs] for p, outs in outputs.items()}
     expected = sum(len(chunks_of(data, s.channels[p].chunk_bytes)) for p, outs in images.items() for _, data in outs)
     size = sum(len(p) for p in packets) + sum(len(data) for outs in images.values() for _, data in outs)
+    # the channels work in parallel, each image after the other: a system simulation waits for the slowest channel
+    busy = getattr(regs.transport, "expect_busy", None)
+    if busy is not None:
+        busy(max((sum(ocp.image_cycles(o.cfg) for o, _ in outs) for outs in images.values()), default=0))
     received = regs.transport.exchange(setup.spp_channel, packets, setup.spp_channel, expected,
                                        timeout=10.0 + size / EQUIPMENT_RATE)
     return check_images(ctx, received, images)
