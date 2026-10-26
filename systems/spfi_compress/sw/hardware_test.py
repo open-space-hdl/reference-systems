@@ -45,6 +45,7 @@ Exit code 0 when every test case passes (every item is there).
 """
 
 import copy
+import hashlib
 import itertools
 import random
 import re
@@ -256,6 +257,7 @@ class Context(systest.Context):
     rate: str = ""
     decoded: int = 0                                                  # images decoded with the model decoder
     undecoded: int = 0                                                # complete images without it (no decoder)
+    image_records: list[dict] = field(default_factory=list)          # every compressed image received
 
 
 @dataclass(frozen=True)
@@ -370,16 +372,32 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
             lengths, want_lengths = [len(p.data) for p in got], [len(p) for p in parts]
             if not problems and lengths != want_lengths:
                 problems = [f"Space Packets of {lengths} bytes, expected {want_lengths}"]
+            decoded = "aborted, not decoded"
             if not problems and output.complete:
                 if ocp.decoder_available():
                     problems = ocp.decode_problems(output.cfg, data, list(output.samples))
                     ctx.decoded += 1
+                    lossless = output.cfg["quantizer_fidelity_control_method"] == 0
+                    decoded = "equal" if lossless else "within the maximum error"
                 else:
                     ctx.undecoded += 1
+                    decoded = "skipped, no decoder"
+            ctx.image_records.append(image_record(ctx, ch, output, data, "failed" if problems else decoded))
+            if problems:
+                ctx.image_records[-1]["data"] = data.hex()
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
             back.append(data)
         result[port] = back
     return result
+
+
+def image_record(ctx: Context, ch: Channel, output: ocp.Output, data: bytes, decoded: str) -> dict:
+    """The record of a compressed image received: test case, channel, dimensions, length, SHA-256, whether it is
+    complete and the result of the decoding check (the bytes only when a check failed)."""
+    cfg = output.cfg
+    return {"test": ctx.current, "port": ch.port, "compressor": ch.compressor, "nx": cfg["large_n_x"],
+            "ny": cfg["large_n_y"], "nz": cfg["large_n_z"], "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(), "complete": output.complete, "decoded": decoded}
 
 
 def record_decoding(ctx: Context, decoded: int, undecoded: int) -> None:
@@ -859,7 +877,7 @@ def main() -> int:
         target = "device"
     if args.records:
         systest.write_records(args.records, "spfi_compress", target, args.profile, ctx, results, started,
-                              {"images": ctx.images, "decoded": ctx.decoded, "undecoded": ctx.undecoded,
+                              {"images": ctx.image_records, "decoded": ctx.decoded, "undecoded": ctx.undecoded,
                                "rate": ctx.rate})
     return code
 

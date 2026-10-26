@@ -290,12 +290,15 @@ class Context:
     test_counter: int = field(default=0, kw_only=True)
     records: list[str] = field(default_factory=list, kw_only=True)
     baseline: dict[str, int] = field(default_factory=dict, kw_only=True)   # error registers after link-up
+    current: str = field(default="", kw_only=True)                        # the test case that runs
+    recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
 
 
 def record(ctx: Context, text: str) -> None:
     """Records a value that is no pass criterion: printed, and kept in the context for the report of a system
     simulation."""
     ctx.records.append(text)
+    ctx.recorded.append({"test": ctx.current, "text": text})
     print(f"RECORD {text}")
 
 
@@ -648,6 +651,7 @@ def run(transport, ctx: Context, tests: list, registers: type[Registers] = Regis
     for test in tests:
         name = test_name(test)
         transport.begin(name)
+        ctx.current = name
         try:
             test(regs, ctx)
         except Exception as err:  # noqa: BLE001 - the failure is reported, the later test cases depend on it
@@ -742,14 +746,15 @@ def run_on_model(model, ctx: Context, tests: list, run_tests=None) -> int:
 def write_records(directory: Path, system: str, target: str, profile: str, ctx: Context, results: list,
                   started: str, extra: dict | None = None) -> Path:
     """--records: one JSON file per run in directory, with the date and time of the run, the system, the target
-    (device or model), the profile and seed, the result of every test case, the recorded values and what the system
-    adds (extra). No host name and no path."""
+    (device or model), the profile and seed, the result of every test case, the recorded values with their test case
+    and what the system adds (extra). No host name and no path (tools/render_records.py renders the tables of the
+    report from it)."""
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / f"records_{system}_{started.replace(':', '').replace('-', '').replace(' ', '_')}.json"
     data = {"system": system, "started": started, "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "target": target,
             "profile": profile, "seed": ctx.seed,
             "results": [{"test": name, "pass": error is None, "error": error} for name, error in results],
-            "records": ctx.records} | (extra or {})
+            "records": ctx.recorded} | (extra or {})
     path.write_text(json.dumps(data, indent=1), encoding="utf-8")
     print(f"records written: {path.name}")
     return path

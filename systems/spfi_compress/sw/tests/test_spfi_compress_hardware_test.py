@@ -8,6 +8,7 @@ OpenCompact that its channels use and against the bounds that the system README 
 
 import copy
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,9 @@ from refsys.composer import SystemFile, instance_of
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parents[3] / "tools"))
+
+import render_records  # noqa: E402 - tools/render_records.py
 ht, sm = systest.system_modules(HERE.parent, "hardware_test", "system_model")
 
 SYSTEM_FILE = SystemFile(ht.SYSTEM_FILE)
@@ -443,15 +447,38 @@ def test_without_the_decoder_the_check_is_skipped_and_recorded(monkeypatch):
     assert any("decoding check skipped for 20 images" in r for r in ctx.records)
 
 
-def test_the_records_of_a_run(tmp_path):
+def test_the_records_of_a_run(tmp_path, monkeypatch):
+    monkeypatch.setattr(ocp, "decoder_available", lambda: False)
     m, ctx = model(), context()
-    results = ht.run(m, ctx, ht.select_tests(["TC-RS-HW-02"]))
+    results = ht.run(m, ctx, ht.select_tests(["TC-RS-HW-06"]))
     path = systest.write_records(tmp_path, "spfi_compress", "system model", "lab", ctx, results,
-                                 "2026-10-27 09:00:00", {"images": ctx.images})
-    data = json.loads(path.read_text(encoding="utf-8"))
+                                 "2026-10-27 09:00:00", {"images": ctx.image_records, "rate": ctx.rate})
+    text = path.read_text(encoding="utf-8")
+    data = json.loads(text)
     assert data["started"] == "2026-10-27 09:00:00" and data["seed"] == ctx.seed
-    assert [r["test"] for r in data["results"]] == ["TC-RS-HW-02"] and data["results"][0]["pass"]
-    assert str(tmp_path) not in path.read_text(encoding="utf-8")
+    assert [r["test"] for r in data["results"]] == ["TC-RS-HW-05", "TC-RS-HW-06"]
+    assert all(r["pass"] for r in data["results"]) and str(tmp_path) not in text
+    assert {"test": "TC-RS-HW-06", "text": "model decoder: not in the pinned OpenCompact, decoding check skipped for "
+                                          "20 images"} in data["records"]
+    # every compressed image with its hash, no bytes: the images passed
+    images = data["images"]
+    assert len(images) == 4 * len(LAB.kinds) and all(i["test"] == "TC-RS-HW-06" for i in images)
+    assert all(len(i["sha256"]) == 64 and "data" not in i and i["decoded"] == "skipped, no decoder" for i in images)
+    assert [i["port"] for i in images[:len(LAB.kinds)]] == [0] * len(LAB.kinds)
+    tables = render_records.render(data)
+    assert f"| TC-RS-HW-06 | ocp0 | {len(LAB.kinds)} |" in tables and "| TC-RS-HW-06 | Pass |  |" in tables
+
+
+def test_the_records_keep_the_bytes_of_an_image_that_fails():
+    class Wrong(sm.SystemModel):
+        def _image(self, channel, output):
+            data = super()._image(channel, output)
+            return data[:-1] + bytes([data[-1] ^ 1]) if channel.port == 1 else data
+
+    ctx = context()
+    run(Wrong(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE), ctx, ht.select_tests(["TC-RS-HW-06"]))
+    failed = [i for i in ctx.image_records if i["decoded"] == "failed"]
+    assert len(failed) == 1 and failed[0]["port"] == 1 and len(failed[0]["data"]) == 2 * failed[0]["bytes"]
 
 
 # --- TC-RS-HW-01 to 03 and 11 to 17: the error registers, the port, the RMAP target, the node --------------------------
