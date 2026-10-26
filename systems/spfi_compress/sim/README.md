@@ -96,6 +96,28 @@ the reset, the link initialisation and TC-RS-HW-05.
   equal the model, the Packet Sequence Counts of every output APID continue without a gap, and the counters of every
   channel and `RX_LOSS` of `spp0` match the case of the channel.
 
+Run of 2026-10-26 at the system clock of the lab, 150 MHz (`--sysclk-mhz 150`), with the runtime configuration of
+`ocp0` and `ocp3`: TC-RS-HW-01 to 06 and 10 in one simulation. The runs above use the system clock of the bench before
+`--sysclk-mhz`, 200 MHz.
+
+| Step | Simulated time | Wall-clock time | Result |
+| --- | --- | --- | --- |
+| Link initialised (all lanes Active at both ends) | 91.8 us | | |
+| TC-RS-HW-01 Link | 15.1 us | 0.5 min | Pass |
+| TC-RS-HW-02 Identification | 84.5 us | 2.7 min | Pass |
+| TC-RS-HW-03 RMAP | 10.7 us | 0.3 min | Pass |
+| TC-RS-HW-04 Commands of several words | 31.3 us | 1.0 min | Pass |
+| TC-RS-HW-05 Configuration | 70.0 us | 2.2 min | Pass |
+| TC-RS-HW-06 Compression (one image of 64 x 64 x 48 samples per channel, 228 Space Packets) | 1470.0 us | 3.6 h | Pass |
+| TC-RS-HW-10 Runtime configuration (three images on each of channels 0 and 3, one image on each of channels 1 and 2) | 345.9 us | 12.8 min | Pass |
+
+- At 150 MHz one compressor takes 1.31 ms for its image at one sample per cycle; TC-RS-HW-06 takes 1.47 ms for one
+  image per channel.
+- In TC-RS-HW-10 every compressed image equals the image of the reference model of OpenCompact for the values
+  committed before it, header included. Every COMMIT with a value out of range is refused with `CFG_ERROR` while the
+  configuration stays pending, `ocp1` and `ocp2` ignore the runtime registers, and after the last image `ocp0` and
+  `ocp3` hold the values of the reset.
+
 ### xsim
 
 xsim of Vivado 2025.2 with the transceiver model at both ends, profile `sim`, seed 1, TC-RS-HW-01 to 05 in one
