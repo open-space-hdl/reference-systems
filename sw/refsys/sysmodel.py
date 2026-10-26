@@ -112,6 +112,7 @@ class SystemModel(Transport):
             self.regs[core + OCR.GENERICS] = OCR.field("GENERICS", "NUM_KEYS", ch.key_slots)
             self.regs[core + OCR.RELEASE_BYTES] = system_file.generic(ch.core, "ReleaseBytes_g")
         self.regs |= reset_values(s, system_file)
+        self.drop_next = False                            # a double error waits in the receive descriptor
         self.rx_table = {}                                # APID: entry of the receive APID table
         self.tx_table = {}                                # APID: entry of the send APID table
         self.slots = {}                                   # (core, slot): [key, fixed, next counter]
@@ -154,6 +155,56 @@ class SystemModel(Transport):
         if bool(ml & bits) != bool(on):
             self.regs[port + OFB.ML_STATUS] = ml | bits if on else ml & ~bits
             self._count(port + OFB.ML_MISALIGNED)
+
+    # --- memory errors -----------------------------------------------------------------------------
+    def _ecc_count(self, core: str, channel: int, double: bool) -> None:
+        """One error counted by the monitor channel of a core (ECC_COUNT through ECC_SELECT): SEC in bits 15:0, DED in
+        bits 31:16; the DED flag of the channel in ECC_STATUS."""
+        r = self.error_items[f"{core}.ECC_COUNT({channel})"]
+        key = (r.address, channel)
+        self.ecc[key] = self.ecc.get(key, 0) + (1 << 16 if double else 1)
+        status = self.error_items[f"{core}.ECC_STATUS"].address
+        if double:
+            self.regs[status] = self.regs.get(status, 0) | 1 << channel
+
+    def _inject(self, address: int, value: int) -> bool:
+        """ECC_INJECT of the SpaceFibre port, the RMAP target and the Space Packet node: the error is counted at once,
+        as the traffic of the test case writes the buffer, with the outcome of a double error that the test sees
+        (refsys.ecctest). Returns whether the address is one of them."""
+        s = self.system
+        if address == s.base(s.port) + OFB.ECC_INJECT:
+            channel, double = OFB.get("ECC_INJECT", "CHANNEL", value), OFB.get("ECC_INJECT", "DOUBLE", value)
+            per_vc = s.num_vcs if channel in (0, 3) and not double else 1
+            for _ in range(per_vc):
+                self._ecc_count(s.port, channel, bool(double))
+            status = s.base(s.port) + OFB.ECC_STATUS
+            if not double:
+                self.regs[status] = self.regs.get(status, 0) | OFB.field("ECC_STATUS", "SEC", 1)
+            elif channel in (6, 7):
+                self._count(s.base(s.port) + OFB.DL_RETRIES)
+            return True
+        if address == s.base(s.rmap) + OMAP.ECC_INJECT:
+            channel = OMAP.get("ECC_INJECT", "CHANNEL", value)
+            double = bool(OMAP.get("ECC_INJECT", "DOUBLE", value))
+            if double or OMAP.get("ECC_INJECT", "SINGLE", value):
+                self._ecc_count(s.rmap, channel, double)
+                events = s.base(s.rmap) + OMAP.EVENTS
+                self.regs[events] = self.regs.get(events, 0) | OMAP.field("EVENTS", "ECC_DED" if double else "ECC_SEC", 1)
+                self.target.write_error = double and channel in (0, 1)
+            return True
+        if address == s.base(s.node) + SPP.ECC_INJECT:
+            channel, rx = SPP.get("ECC_INJECT", "CHANNEL", value), SPP.get("ECC_INJECT", "RX", value)
+            double = bool(SPP.get("ECC_INJECT", "DOUBLE", value))
+            if double or SPP.get("ECC_INJECT", "SINGLE", value):
+                sends = len(s.channels)
+                monitor = (4 + channel if rx else 0 if channel < 2 * sends and channel % 2 == 0
+                           else 1 if channel < 2 * sends else 2)
+                self._ecc_count(s.node, monitor, double)
+                events = s.base(s.node) + SPP.EVENTS
+                self.regs[events] = self.regs.get(events, 0) | SPP.field("EVENTS", "ECC_DED" if double else "ECC_SEC", 1)
+                self.drop_next = double and rx and channel == 1
+            return True
+        return False
 
     # --- RMAP target -------------------------------------------------------------------------------
     def _rmap(self, packet) -> bytes | None:
@@ -200,6 +251,8 @@ class SystemModel(Transport):
 
     def _write(self, address, value):
         node = self.system.base(self.system.node)
+        if self._inject(address, value):
+            return
         if address in self.w1c:
             self.regs[address] = self.regs.get(address, 0) & ~(value & self.w1c[address])
             return
@@ -285,6 +338,9 @@ class SystemModel(Transport):
         """The receive checks of the Space Packet node in their order (OpenSPP specification, decapsulation, receive
         buffer and demultiplexer; RX_STRIP 0, TLA_CHECK 0), then the processing of the channel."""
         node = self.system.base(self.system.node)
+        if self.drop_next:
+            self.drop_next = False
+            return self._discard(0x1B)
         if len(packet) <= 4:
             return self._discard(0x14)
         if packet[1] != 0x02:

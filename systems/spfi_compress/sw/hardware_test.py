@@ -57,7 +57,7 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import errorstate, ocp, ocptest, rmaptest, spptest, systest  # noqa: E402
+from refsys import ecctest, errorstate, ocp, ocptest, rmaptest, spptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -708,6 +708,28 @@ def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
     systest.caused(regs, ctx, "TC-RS-HW-13", allowed=lane_names(ctx, [lane], "ML_MISALIGNED", "DL_RETRIES"))
 
 
+def tc14_memory_errors(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-14: memory errors injected through ECC_INJECT of the SpaceFibre port, the RMAP target and the Space
+    Packet node during rounds of images (sw/refsys/ecctest.py): single errors into every buffer that the traffic
+    writes, then a round of images that equals the model, and the counters of the monitor channels; then double errors
+    with an outcome that the test sees: the transmit and the receive row crossing of the SpaceFibre port, each followed
+    by a round of images (the frame is sent again, the link stays up), a verified write of the RMAP target that ends
+    with the status 1 and a sacrificial Space Packet that the node discards with the code 0x1B. Before each clear
+    every other error register is still 0 (systest.caused)."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    channels = runtime if ctx.profile.small else ctx.system.channels
+    ecctest.inject_singles(regs, ctx, channels[0].port)
+    traffic_round(regs, ctx)
+    ecctest.check_singles(regs, ctx)
+    for channel in ecctest.OFB_DOUBLES:
+        ecctest.inject_ofb_double(regs, ctx, channel)
+        traffic_round(regs, ctx)
+    systest.check_link_state(regs, ctx)
+    ecctest.rmap_double(regs, ctx)
+    ecctest.spp_double(regs, ctx)
+    ecctest.check_doubles(regs, ctx)
+
+
 def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-16: Space Packets that the Space Packet node discards before and after its APID table, each counted in
     ERR_RX1 to ERR_RX6 and shown in LAST_ERROR (sw/refsys/spptest.py), none received (RX_PACKETS) and none given to a
@@ -770,7 +792,8 @@ def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
-         tc12_far_end_link_reset, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal, tc17_end_of_run]
+         tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal,
+         tc17_end_of_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
@@ -778,6 +801,7 @@ REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
             tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
             tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
+            tc14_memory_errors: [tc01_link, tc05_configure],
             tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
             tc17_end_of_run: [tc01_link]}
 

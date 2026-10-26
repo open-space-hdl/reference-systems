@@ -71,6 +71,7 @@ class RmapTargetModel:
     poke: object
     first_word_read: bool = False
     first_word_write: bool = False
+    write_error: bool = False                  # a double error waits in the write buffer for the next write
     indications: list[Indication] = field(default_factory=list)
 
     def mib(self, name: str) -> int:
@@ -213,6 +214,12 @@ class RmapTargetModel:
         return [address + (n if increment and not first_word else 0) for n in range(0, length, w)]
 
     def _write(self, address: int, data: bytes, increment: bool) -> int:
+        if self.write_error and data:
+            # the double error of the write buffer: the data are written, the status is 1 (TG-EX-06)
+            self.write_error = False
+            for n, a in enumerate(self._addresses(address, len(data), increment, self.first_word_write)):
+                self.write(a, int.from_bytes(data[4 * n:4 * n + 4], "little"))
+            return 1
         for n, a in enumerate(self._addresses(address, len(data), increment, self.first_word_write)):
             if not self.write(a, int.from_bytes(data[4 * n:4 * n + 4], "little")):
                 return 1

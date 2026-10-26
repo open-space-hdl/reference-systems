@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from refsys import ocp, ocptest, systest
+from refsys import errorstate, ocp, ocptest, rmap, systest
 from refsys.composer import SystemFile, instance_of
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
@@ -55,8 +55,8 @@ def test_procedure_passes_against_the_model():
     m, ctx = model(), context()
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
-    # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two) and 16
-    per_channel = len(LAB.kinds) + 5 + LAB.stream + 4
+    # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two), 14 (three) and 16
+    per_channel = len(LAB.kinds) + 5 + LAB.stream + 7
     # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
     runtime = 2 * (ocptest.LAB_IMAGES + 1) + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
@@ -452,3 +452,110 @@ def test_the_records_of_a_run(tmp_path):
     assert data["started"] == "2026-10-27 09:00:00" and data["seed"] == ctx.seed
     assert [r["test"] for r in data["results"]] == ["TC-RS-HW-02"] and data["results"][0]["pass"]
     assert str(tmp_path) not in path.read_text(encoding="utf-8")
+
+
+# --- TC-RS-HW-01 to 03 and 11 to 17: the error registers, the port, the RMAP target, the node --------------------------
+OFB, OMAP, SPP = systest.OFB, systest.OMAP, systest.SPP
+PORT, TARGET, NODE = (SYSTEM.base(n) for n in ("ofb0", "rmap0", "spp0"))
+
+
+class Faulty(sm.SystemModel):
+    """The system model with one fault of a TRL 4 test case (mutation)."""
+
+    def __init__(self, mutation: str):
+        super().__init__(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+        self.mutation = mutation
+        self.images_sent = 0
+        if mutation == "generics":
+            self.regs[TARGET + OMAP.GENERICS] ^= OMAP.field("GENERICS", "WINDOWS", 1)
+        if mutation == "baseline":
+            self.regs[PORT + OFB.DL_RETRIES] = 3
+
+    def _write(self, address, value):
+        if self.mutation == "baseline" and address == PORT + OFB.DL_RETRIES:
+            return                                       # a counter that a write does not clear
+        if self.mutation == "vn" and address == PORT + OFB.VC_CFG(0):
+            self.regs[address] = value                   # the VN of VC 0 reads back as written
+            return
+        if self.mutation == "irq_mask" and address == PORT + OFB.IRQ_MASK:
+            value &= ~OFB.field("IRQ_MASK", "ECC_SEC", 1)
+        if self.mutation == "far_end" and address == PORT + OFB.DL_ERRORS:
+            return
+        if self.mutation == "lane" and address == PORT + OFB.LANE_CTRL(SYSTEM.lanes - 1):
+            self.regs[address] = value                   # the lane stays in the link
+            return
+        if self.mutation == "no_single" and address == PORT + OFB.ECC_INJECT and value == 2:
+            return                                       # channel 2 does not count
+        if self.mutation == "no_drop" and address == NODE + SPP.ECC_INJECT:
+            super()._write(address, value)
+            self.drop_next = False
+            return
+        super()._write(address, value)
+
+    def operator(self, step):
+        if self.mutation != "far_end":
+            super().operator(step)
+
+    def _rmap(self, packet):
+        cmd = bytes(packet[len(self.setup.rmap_path):])
+        size = 16 + 4 * (cmd[2] & 3) if len(cmd) > 2 else 0
+        if self.mutation == "header_crc" and size and len(cmd) >= size and rmap.crc8(cmd[:size]) != 0:
+            # a target that answers a command with a header CRC error
+            fixed = cmd[:size - 1] + bytes([rmap.crc8(cmd[:size - 1])]) + cmd[size:]
+            return super()._rmap(self.setup.rmap_path + fixed)
+        return super()._rmap(packet)
+
+    def _spp(self, packet):
+        if self.mutation == "oversize" and len(packet) > self.system.rx_buffer_bytes:
+            return []                                    # dropped without a code
+        out = super()._spp(packet)
+        if self.mutation == "crc_count" and out:
+            self._count(PORT + OFB.DL_CRC16_COUNT)       # every round of images counts a CRC error
+        return out
+
+
+@pytest.mark.parametrize("mutation, test, message", [
+    ("baseline", "TC-RS-HW-01", "error registers that do not clear: ofb0.DL_RETRIES"),
+    ("generics", "TC-RS-HW-02", "rmap0 GENERICS"),
+    ("vn", "TC-RS-HW-11", "ofb0 VC_CFG(0).VN"),
+    ("irq_mask", "TC-RS-HW-11", "ofb0 IRQ_MASK: wrote"),
+    ("far_end", "TC-RS-HW-12", "waited for 0x20"),
+    ("lane", "TC-RS-HW-13", "waited for 0x277"),
+    ("no_single", "TC-RS-HW-14", "ofb0.ECC_COUNT(2)"),
+    ("no_drop", "TC-RS-HW-14", "waited for 0x1B"),
+    ("header_crc", "TC-RS-HW-15", "header CRC error: TGT_LAST"),
+    ("oversize", "TC-RS-HW-16", "Space Packet of 8193 bytes: LAST_ERROR"),
+    ("crc_count", "TC-RS-HW-12", "error registers that the test case does not target: ofb0.DL_CRC16_COUNT"),
+])
+def test_the_trl4_test_cases_detect_a_faulty_system(mutation, test, message):
+    results = run(Faulty(mutation), context(), ht.select_tests([test]))
+    assert message in (results[test] or ""), results
+
+
+def test_tc17_finds_an_error_counted_after_the_baseline():
+    class Late(sm.SystemModel):
+        def _rmap(self, packet):
+            reply = super()._rmap(packet)
+            if self.regs.get(PORT + OFB.ML_MISALIGNED, 0) == 0 and self.done:
+                self.regs[PORT + OFB.ML_MISALIGNED] = 1
+            return reply
+
+    m = Late(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+    m.done = False
+    ctx = context()
+    regs = systest.Registers(m, ctx.setup)
+    ht.tc01_link(regs, ctx)
+    m.done = True
+    with pytest.raises(ht.TestFailed, match="counted since the baseline: ofb0.ML_MISALIGNED"):
+        ht.tc17_end_of_run(regs, ctx)
+
+
+def test_the_error_registers_of_spfi_compress():
+    names = [r.name for r in SYSTEM.error_registers() if isinstance(r, errorstate.Register)]
+    assert len(names) == len(set(names))
+    for prefix, count in (("ofb0.ECC_COUNT", 9), ("rmap0.ECC_COUNT", 3), ("spp0.ECC_COUNT", 8), ("edac0.CNT", 8),
+                          ("ofb0.LANE_EVENTS", 4)):
+        assert len([n for n in names if n.startswith(prefix)]) == count, prefix
+    assert [n for n in names if n.startswith("ocp")] == [f"ocp{k}.{c}" for k in range(4) for c in ocp.ECC_COUNTERS]
+    # the reads take few commands: runs of consecutive registers and one per counter behind a select register
+    assert len(errorstate.reads(SYSTEM.error_registers())) <= 70
