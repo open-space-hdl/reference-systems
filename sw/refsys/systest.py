@@ -19,6 +19,7 @@ The register maps of the cores come from their headers (cores/<core>/sw/<prefix>
 
 import argparse
 import importlib
+import json
 import random
 import sys
 import time
@@ -459,23 +460,93 @@ def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,
     return counts
 
 
-def arguments(description: str) -> argparse.ArgumentParser:
-    """The arguments that the hardware test of every system takes; a system adds the size of its run."""
+def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
+    """The arguments that the hardware test of every system takes; a system adds the size of its run. With model the
+    test also runs against the software model of the system (--model, the dry run before the hardware) and checks
+    the test computer (--check-environment), and it can write the records of the run (--records)."""
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
+    if model:
+        target = parser.add_mutually_exclusive_group(required=True)
+        target.add_argument("--device", help="name of the STAR-Ultra device in STAR-System")
+        target.add_argument("--model", action="store_true",
+                            help="run against the software model of the system, without the test equipment")
+        target.add_argument("--check-environment", action="store_true",
+                            help="check the Python of the test computer and the packages that the test needs")
+        parser.add_argument("--records", type=Path,
+                            help="directory for the records of the run (a JSON file per run); nothing is written "
+                                 "without it")
+    else:
+        parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
     parser.add_argument("--test", action="append", help="run only this test case and those it builds on")
     return parser
 
 
-def run_on_device(device: str, ctx: Context, tests: list) -> int:
-    """Drains both channels of the test equipment, then runs the test cases; returns the exit code of the script
+def check_environment(gui: bool = False) -> int:
+    """--check-environment: Python 3.10 or later, the reference model of OpenCompact, the Python package of the
+    far-end software that the transport uses and, with gui, tkinter. One line per item; exit code 0 when every item
+    is there."""
+    from refsys import transport
+
+    def python() -> str:
+        if sys.version_info < (3, 10):
+            raise RuntimeError(f"Python {sys.version.split()[0]}, 3.10 or later needed")
+        return sys.version.split()[0]
+
+    def model() -> str:
+        module = importlib.import_module("ocp_model")
+        return f"found, decoder {'included' if hasattr(module, 'decompress') else 'not included'}"
+
+    def tk() -> str:
+        return f"Tk {importlib.import_module('tkinter').TkVersion}"
+
+    items = [("Python", python), ("reference model of OpenCompact", model),
+             ("Python package of the far-end software", transport.far_end_software)]
+    if gui:
+        items.append(("tkinter (GUI)", tk))
+    ok = True
+    for name, probe in items:
+        try:
+            print(f"OK   {name}: {probe()}")
+        except Exception as err:  # noqa: BLE001 - every missing item is reported
+            ok = False
+            print(f"FAIL {name}: {err}")
+    return 0 if ok else 1
+
+
+def run_on_model(model, ctx: Context, tests: list, run_tests=None) -> int:
+    """--model: runs the test cases against the software model of the system; returns the exit code of the script
     (0 when every test case passes)."""
+    results = (run_tests or run)(model, ctx, tests)
+    return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
+
+
+def write_records(directory: Path, system: str, target: str, profile: str, ctx: Context, results: list,
+                  started: str, extra: dict | None = None) -> Path:
+    """--records: one JSON file per run in directory, with the date and time of the run, the system, the target
+    (device or model), the profile and seed, the result of every test case, the recorded values and what the system
+    adds (extra). No host name and no path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"records_{system}_{started.replace(':', '').replace('-', '').replace(' ', '_')}.json"
+    data = {"system": system, "started": started, "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "target": target,
+            "profile": profile, "seed": ctx.seed,
+            "results": [{"test": name, "pass": error is None, "error": error} for name, error in results],
+            "records": ctx.records} | (extra or {})
+    path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    print(f"records written: {path.name}")
+    return path
+
+
+def run_on_device(device: str, ctx: Context, tests: list, run_tests=None, results_out: list | None = None) -> int:
+    """Drains both channels of the test equipment, then runs the test cases; returns the exit code of the script
+    (0 when every test case passes). results_out receives the results of the test cases."""
     from refsys.transport import StarSystemTransport
 
     with StarSystemTransport(device) as transport:
         drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
-        results = run(transport, ctx, tests)
+        results = (run_tests or run)(transport, ctx, tests)
+    if results_out is not None:
+        results_out.extend(results)
     return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
 
 

@@ -42,7 +42,7 @@ class SystemModel(sysmodel.SystemModel):
             for name, value in ocp.mib_words(ht.OCP, c.generics).items():
                 self.regs[base + getattr(ht.OCP, name)] = value
             registers = ocp.RuntimeRegisters(ht.OCP, c.generics, self.channels[c.port])
-            self.runtime |= {base + getattr(ht.OCP, name): (registers, name) for name in ocp.RUNTIME_REGISTERS}
+            self.runtime |= {base + getattr(ht.OCP, name): (registers, name) for name in ocp.CONFIG_REGISTERS}
         self.pending: deque[bytes] = deque()
 
     def _read(self, address):

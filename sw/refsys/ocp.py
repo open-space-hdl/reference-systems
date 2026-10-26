@@ -359,18 +359,27 @@ def aborted_problems(data: bytes, cfg: dict, taken: list[int]) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------------
-# Runtime configuration (RuntimeConfig_g; OpenCompact user guide, sections 4.3 and 4.4)
+# Runtime configuration (RuntimeConfig_g; OpenCompact user guide, sections 4.3 and 4.4) and runtime parameters
+# (RuntimeParams_g, section 4.5)
 # ------------------------------------------------------------------------------------------------
+# The runtime parameters in the order of OpenCompact (ocp_configs.PARAM_NAMES): user-defined data, M, log2 t_inc,
+# vmin, vmax, Umax, gamma0, gamma*, K and r
+PARAM_NAMES = tuple(ocp_configs.PARAM_NAMES)
+
+
 @dataclass(frozen=True)
 class ImageConfig:
     """The values of the runtime configuration of one image, as in NEXT_X to NEXT_LIMITS: NX, NY, NZ and the
-    band-independent absolute and relative error limit values."""
+    band-independent absolute and relative error limit values; with the runtime parameters also params, the values
+    of NEXT_SAMPLES to NEXT_BLOCK in the order of PARAM_NAMES (0 for a parameter that the configuration does not
+    use)."""
 
     nx: int
     ny: int
     nz: int
     abs_limit: int = 0
     rel_limit: int = 0
+    params: tuple[int, ...] | None = None
 
 
 def runtime_config(generics: dict) -> bool:
@@ -378,12 +387,41 @@ def runtime_config(generics: dict) -> bool:
     return bool(flag(generics.get("RuntimeConfig_g", False)))
 
 
-def build_values(cfg: dict) -> ImageConfig:
+def runtime_params(generics: dict) -> bool:
+    """Whether a channel with these generics has the runtime parameters (RuntimeParams_g, which needs
+    RuntimeConfig_g)."""
+    return runtime_config(generics) and bool(flag(generics.get("RuntimeParams_g", False)))
+
+
+def used_params(cfg: dict) -> list[str]:
+    """The runtime parameters that a configuration uses (ocp_configs.params_in_use): the user-defined data and the
+    weight update parameters always, M in BI order, Umax, gamma0 and gamma* with the sample-adaptive and the hybrid
+    coder, K with the sample-adaptive coder and an accumulator initialisation constant, r with the block-adaptive
+    coder. The fields of the others read zero and ignore writes."""
+    use = ocp_configs.params_in_use(cfg)
+    return (["user", "tinc", "vmin", "vmax"] + ["m"] * use["m"] + ["umax", "g0", "gstar"] * use["adp"]
+            + ["k"] * use["k"] + ["r"] * use["r"])
+
+
+def build_params(cfg: dict) -> tuple[int, ...]:
+    """The runtime parameters of the configuration of the generics (0 for a parameter not in use): NEXT_SAMPLES to
+    NEXT_BLOCK hold them after a reset."""
+    v = dict.fromkeys(PARAM_NAMES, 0)
+    v.update(user=cfg["user_defined_data"], m=cfg["large_m"], tinc=cfg["log_two_t_inc"], vmin=cfg["v_min"],
+             vmax=cfg["v_max"], umax=cfg["large_u_max"], g0=cfg["gamma_0"], gstar=cfg["gamma_star"],
+             k=cfg["k_prime_prime_vector"][0], r=cfg["r"])
+    used = used_params(cfg)
+    return tuple(v[n] if n in used else 0 for n in PARAM_NAMES)
+
+
+def build_values(cfg: dict, params: bool = False) -> ImageConfig:
     """The values of the configuration of the generics: the maxima and the first error limit values of the methods in
-    use (0 for a method not in use); NEXT_X to NEXT_LIMITS and the values taken hold them after a reset."""
+    use (0 for a method not in use), with params also the runtime parameters; NEXT_X to NEXT_BLOCK and the values
+    taken hold them after a reset."""
     fid = cfg["quantizer_fidelity_control_method"]
     return ImageConfig(cfg["large_n_x"], cfg["large_n_y"], cfg["large_n_z"],
-                       cfg["a_vector"][0] if fid in (1, 3) else 0, cfg["r_vector"][0] if fid in (2, 3) else 0)
+                       cfg["a_vector"][0] if fid in (1, 3) else 0, cfg["r_vector"][0] if fid in (2, 3) else 0,
+                       build_params(cfg) if params else None)
 
 
 def commit_accepts(cfg: dict, values: ImageConfig) -> bool:
@@ -393,10 +431,18 @@ def commit_accepts(cfg: dict, values: ImageConfig) -> bool:
     out of range passes nothing."""
     fid = cfg["quantizer_fidelity_control_method"]
     xmin = 1 if ocp_configs.width_one_allowed(cfg) else 2
-    return (xmin <= values.nx <= cfg["large_n_x"] and 1 <= values.ny <= cfg["large_n_y"]
-            and 1 <= values.nz <= cfg["large_n_z"]
-            and (fid not in (1, 3) or values.abs_limit < 1 << cfg["large_d_large_a"])
-            and (fid not in (2, 3) or values.rel_limit < 1 << cfg["large_d_large_r"]))
+    accepted = (xmin <= values.nx <= cfg["large_n_x"] and 1 <= values.ny <= cfg["large_n_y"]
+                and 1 <= values.nz <= cfg["large_n_z"]
+                and (fid not in (1, 3) or values.abs_limit < 1 << cfg["large_d_large_a"])
+                and (fid not in (2, 3) or values.rel_limit < 1 << cfg["large_d_large_r"]))
+    if not accepted or values.params is None:
+        return accepted
+    # The runtime parameters in use within their ranges (user guide 4.5), the dependent ones against the values they
+    # depend on: vmax from vmin, gamma* above gamma0, M up to NZ. runtime_params_limit of OpenCompact gives the value
+    # that the core takes, which equals a value in range.
+    driven = dict(zip(PARAM_NAMES, values.params))
+    taken = dict(zip(PARAM_NAMES, ocp_configs.runtime_params_limit(cfg, values.nz, values.params)))
+    return all(driven[n] == taken[n] for n in used_params(cfg))
 
 
 def image_config(cfg: dict, values: ImageConfig) -> dict:
@@ -404,7 +450,7 @@ def image_config(cfg: dict, values: ImageConfig) -> dict:
     which its runtime testbench builds the expected images (the dimensions, in BI order M = min(M, NZ), the error
     limit vectors of the methods in use)."""
     out = ocp_configs.runtime_image_cfg(dict(cfg, seed=0), values.nx, values.ny, values.nz, values.abs_limit,
-                                        values.rel_limit, 0)
+                                        values.rel_limit, 0, params=values.params)
     del out["seed"]
     return out
 
@@ -415,10 +461,27 @@ def runtime_sequence(cfg: dict, n: int, seed: int) -> list[ImageConfig]:
     return [ImageConfig(*v) for v in ocp_configs.runtime_sequence(dict(cfg, seed=seed), n)]
 
 
+def runtime_params_sequence(cfg: dict, n: int, seed: int) -> list[ImageConfig]:
+    """n images with their runtime parameters (runtime_params_sequence of OpenCompact): the dimensions of
+    runtime_sequence, the parameters of the first two images at the high and the low bound of every range, the
+    others seeded at random, and a last image of the maximum dimensions with log2 t_inc 4 and vmin = vmax = -6. The
+    values are those that the core takes (0 for a parameter not in use)."""
+    return [ImageConfig(*taken, params=tuple(params))
+            for _, taken, _, params in ocp_configs.runtime_params_sequence(dict(cfg, seed=seed), n)]
+
+
+def random_params(cfg: dict, nz: int, rng: random.Random, edge: str | None = None) -> tuple[int, ...]:
+    """Valid runtime parameters for an image of nz bands (random_params of OpenCompact): random, or with edge "low"
+    or "high" every parameter at that bound of its range; 0 for a parameter not in use."""
+    return tuple(ocp_configs.runtime_params_limit(cfg, nz, ocp_configs.random_params(cfg, nz, rng, edge)))
+
+
 def refused_values(cfg: dict, valid: ImageConfig) -> list[tuple[str, ImageConfig]]:
     """Values that COMMIT refuses, each the valid values with one value out of range, with the register that holds
     it: NX = 1 where an image must be at least two samples wide, NX above the maximum, NY = 0, NZ above the maximum,
-    the error limit values 2^DA and 2^DR of the methods in use where the field holds them."""
+    the error limit values 2^DA and 2^DR of the methods in use where the field holds them. With the runtime
+    parameters also log2 t_inc 3, vmax below vmin, gamma* not above gamma0, Umax 33, K above min(D - 2, 14), M above
+    the NZ of the valid values and r = 0, for the parameters in use."""
     fid = cfg["quantizer_fidelity_control_method"]
     out = [] if ocp_configs.width_one_allowed(cfg) else [("NEXT_X", replace(valid, nx=1))]
     out += [("NEXT_X", replace(valid, nx=cfg["large_n_x"] + 1)), ("NEXT_Y", replace(valid, ny=0)),
@@ -427,7 +490,57 @@ def refused_values(cfg: dict, valid: ImageConfig) -> list[tuple[str, ImageConfig
         out.append(("NEXT_LIMITS", replace(valid, abs_limit=1 << cfg["large_d_large_a"])))
     if fid in (2, 3) and cfg["large_d_large_r"] < 16:
         out.append(("NEXT_LIMITS", replace(valid, rel_limit=1 << cfg["large_d_large_r"])))
+    if valid.params is None:
+        return out
+    v = dict(zip(PARAM_NAMES, valid.params))
+    used = used_params(cfg)
+
+    def params(**changed) -> ImageConfig:
+        return replace(valid, params=tuple((v | changed)[n] for n in PARAM_NAMES))
+
+    out += [("NEXT_WEIGHTS", params(tinc=3)), ("NEXT_WEIGHTS", params(vmin=5, vmax=4))]
+    if "g0" in used:
+        g0 = min(8, cfg["gamma_star"] - 1)
+        out += [("NEXT_ADAPTIVE", params(g0=g0, gstar=g0)), ("NEXT_ADAPTIVE", params(umax=33))]
+    if "k" in used:
+        out.append(("NEXT_ADAPTIVE", params(k=min(cfg["large_d"] - 2, 14) + 1)))
+    if "m" in used and valid.nz < cfg["large_m"]:
+        out.append(("NEXT_ORDER", params(m=valid.nz + 1)))
+    if "r" in used:
+        out.append(("NEXT_BLOCK", params(r=0)))
     return out
+
+
+def decoder_available() -> bool:
+    """Whether the reference model of the pinned OpenCompact has the decoder (ocp_model.decompress, OpenCompact
+    0.3.0)."""
+    return hasattr(ocp_model, "decompress")
+
+
+def decode_problems(cfg: dict, data: bytes, samples: list[int]) -> list[str]:
+    """Decodes a complete compressed image with the decoder of the reference model and compares it with the image
+    that was compressed (samples in the input order of the compressor): equal for lossless compression, every sample
+    within the maximum error m_z(t) of the decoder for near-lossless compression. Empty when the image decodes to
+    its samples; the decoder takes the per-band values that the header leaves out from cfg."""
+    try:
+        header, img, max_error = ocp_model.decompress(data, tables=cfg)
+    except ocp_model.DecodeError as err:
+        return [f"the decoder of the model refuses it: {err}"]
+    dims = (header["large_n_x"], header["large_n_y"], header["large_n_z"])
+    if dims != (cfg["large_n_x"], cfg["large_n_y"], cfg["large_n_z"]):
+        return [f"the header gives {dims[0]} x {dims[1]} x {dims[2]} samples"]
+    source = from_input_order(cfg, list(samples))
+    worst = None
+    for z, band in enumerate(img):
+        for y, row in enumerate(band):
+            for x, value in enumerate(row):
+                error = abs(value - source[z][y][x])
+                if error > max_error[z][y][x] and worst is None:
+                    worst = (x, y, z, value, source[z][y][x], max_error[z][y][x])
+    if worst:
+        x, y, z, value, want, bound = worst
+        return [f"decoded sample ({x}, {y}, {z}) is {value}, the image has {want}, maximum error {bound}"]
+    return []
 
 
 # ------------------------------------------------------------------------------------------------
@@ -586,7 +699,10 @@ ECC_COUNTERS = ("ECC_CORRECTED", "ECC_UNCORRECTABLE")
 # last image that started
 RUNTIME_REGISTERS = ("CONTROL", "STATUS", "NEXT_X", "NEXT_Y", "NEXT_Z", "NEXT_LIMITS")
 NEXT_REGISTERS = RUNTIME_REGISTERS[2:]
-TAKEN_REGISTERS = ("IMAGE_X", "IMAGE_Y", "IMAGE_Z", "ORDER", "LIMITS")
+# The registers of the runtime parameters (zero without them), consecutive from 0x07C
+PARAM_REGISTERS = ("NEXT_SAMPLES", "NEXT_ORDER", "NEXT_WEIGHTS", "NEXT_ADAPTIVE", "NEXT_BLOCK")
+CONFIG_REGISTERS = RUNTIME_REGISTERS + PARAM_REGISTERS
+TAKEN_REGISTERS = ("IMAGE_X", "IMAGE_Y", "IMAGE_Z", "SAMPLES", "ORDER", "WEIGHTS", "ADAPTIVE", "BLOCK", "LIMITS")
 
 
 def mib_words(regs, generics: dict, image: dict | None = None) -> dict[str, int]:
@@ -612,11 +728,12 @@ def mib_words(regs, generics: dict, image: dict | None = None) -> dict[str, int]
                          OUT_STREAM_BYTES=g["OutStreamWidth_g"] // 8,
                          OUT_BYTES=g["OutWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
                          SPECULATION=flag(g["Speculation_g"]),
-                         RUNTIME_CONFIG=flag(g.get("RuntimeConfig_g", False))),
+                         RUNTIME_CONFIG=flag(g.get("RuntimeConfig_g", False)),
+                         RUNTIME_PARAMS=flag(g.get("RuntimeParams_g", False))),
         "IMAGE_X": word("IMAGE_X", SIZE=taken["large_n_x"]),
         "IMAGE_Y": word("IMAGE_Y", SIZE=taken["large_n_y"]),
         "IMAGE_Z": word("IMAGE_Z", SIZE=taken["large_n_z"]),
-        "SAMPLES": word("SAMPLES", USER_DATA=cfg["user_defined_data"], SIGNED=cfg["sample_type"],
+        "SAMPLES": word("SAMPLES", USER_DATA=taken["user_defined_data"], SIGNED=cfg["sample_type"],
                         DYNAMIC_RANGE=cfg["large_d"]),
         "ORDER": word("ORDER", SUB_FRAME_DEPTH=taken["large_m"], ENCODING=cfg["sample_encoding_order"]),
         "CODER": word("CODER", SUP_TABLES=len(cfg["supplementary_information_tables"]),
@@ -626,8 +743,8 @@ def mib_words(regs, generics: dict, image: dict | None = None) -> dict[str, int]
                           SAMPLE_REP_RESOLUTION=cfg["large_theta"], REGISTER_SIZE=cfg["large_r"],
                           LOCAL_SUM=cfg["local_sum_type"], REDUCED=cfg["prediction_mode"], BANDS=cfg["large_p"]),
         "WEIGHTS": word("WEIGHTS", INIT_RESOLUTION=cfg["large_q"] if custom else 0, CUSTOM_INIT=custom,
-                        EXP_OFFSETS=cfg["weight_exponent_offset_flag"], VMAX=cfg["v_max"] & 0x1F,
-                        VMIN=cfg["v_min"] & 0x1F, UPDATE_INTERVAL=cfg["log_two_t_inc"],
+                        EXP_OFFSETS=cfg["weight_exponent_offset_flag"], VMAX=taken["v_max"] & 0x1F,
+                        VMIN=taken["v_min"] & 0x1F, UPDATE_INTERVAL=taken["log_two_t_inc"],
                         RESOLUTION=cfg["large_omega"]),
         "ADAPTIVE": 0,
         "BLOCK": 0,
@@ -636,52 +753,89 @@ def mib_words(regs, generics: dict, image: dict | None = None) -> dict[str, int]
         "LIMITS": word("LIMITS", ABS=taken["a_vector"][0] if absolute else 0,
                        REL=taken["r_vector"][0] if relative else 0),
     }
+    # with the runtime parameters, the values of the last image (taken); the other fields are those of the generics
     if coder == 2:
-        words["BLOCK"] = word("BLOCK", REF_INTERVAL=cfg["r"], RESTRICTED=cfg["restricted_code_options_flag"],
+        words["BLOCK"] = word("BLOCK", REF_INTERVAL=taken["r"], RESTRICTED=cfg["restricted_code_options_flag"],
                               BLOCK_SIZE=cfg["large_j"])
     else:
-        accu = 0 if coder == 1 else 15 if cfg["band_varying_k_flag"] else cfg["k_prime_prime_vector"][0]
-        words["ADAPTIVE"] = word("ADAPTIVE", ACCU_INIT=accu, INITIAL_COUNT=cfg["gamma_0"],
-                                 RESCALE_SIZE=cfg["gamma_star"], UNARY_LIMIT=cfg["large_u_max"])
+        accu = 0 if coder == 1 else 15 if cfg["band_varying_k_flag"] else taken["k_prime_prime_vector"][0]
+        words["ADAPTIVE"] = word("ADAPTIVE", ACCU_INIT=accu, INITIAL_COUNT=taken["gamma_0"],
+                                 RESCALE_SIZE=taken["gamma_star"], UNARY_LIMIT=taken["large_u_max"])
     return words
+
+
+# The fields of the registers of the runtime parameters and the parameters they hold (OpenCompact register map)
+PARAM_FIELDS = {"NEXT_SAMPLES": {"USER_DATA": "user"}, "NEXT_ORDER": {"SUB_FRAME_DEPTH": "m"},
+                "NEXT_WEIGHTS": {"VMAX": "vmax", "VMIN": "vmin", "UPDATE_INTERVAL": "tinc"},
+                "NEXT_ADAPTIVE": {"ACCU_INIT": "k", "INITIAL_COUNT": "g0", "RESCALE_SIZE": "gstar",
+                                  "UNARY_LIMIT": "umax"},
+                "NEXT_BLOCK": {"REF_INTERVAL": "r"}}
+SIGNED_PARAMS = ("vmin", "vmax")      # 5-bit two's complement
 
 
 def next_words(regs, values: ImageConfig) -> dict[str, int]:
-    """NEXT_X to NEXT_LIMITS with these values."""
-    return {"NEXT_X": regs.field("NEXT_X", "SIZE", values.nx), "NEXT_Y": regs.field("NEXT_Y", "SIZE", values.ny),
-            "NEXT_Z": regs.field("NEXT_Z", "SIZE", values.nz),
-            "NEXT_LIMITS": regs.field("NEXT_LIMITS", "ABS", values.abs_limit)
-            | regs.field("NEXT_LIMITS", "REL", values.rel_limit)}
+    """NEXT_X to NEXT_LIMITS with these values, and with the runtime parameters NEXT_SAMPLES to NEXT_BLOCK."""
+    words = {"NEXT_X": regs.field("NEXT_X", "SIZE", values.nx), "NEXT_Y": regs.field("NEXT_Y", "SIZE", values.ny),
+             "NEXT_Z": regs.field("NEXT_Z", "SIZE", values.nz),
+             "NEXT_LIMITS": regs.field("NEXT_LIMITS", "ABS", values.abs_limit)
+             | regs.field("NEXT_LIMITS", "REL", values.rel_limit)}
+    if values.params is not None:
+        v = dict(zip(PARAM_NAMES, values.params))
+        for name, fields in PARAM_FIELDS.items():
+            words[name] = sum(regs.field(name, f, v[n] & 0x1F if n in SIGNED_PARAMS else v[n])
+                              for f, n in fields.items())
+    return words
 
 
-def next_values(regs, words: dict[str, int]) -> ImageConfig:
-    """The values in NEXT_X to NEXT_LIMITS (the inverse of next_words)."""
+def next_values(regs, words: dict[str, int], params: bool = False) -> ImageConfig:
+    """The values in NEXT_X to NEXT_LIMITS, with params also those of NEXT_SAMPLES to NEXT_BLOCK (the inverse of
+    next_words)."""
     limits = words["NEXT_LIMITS"]
-    return ImageConfig(regs.get("NEXT_X", "SIZE", words["NEXT_X"]), regs.get("NEXT_Y", "SIZE", words["NEXT_Y"]),
-                       regs.get("NEXT_Z", "SIZE", words["NEXT_Z"]), regs.get("NEXT_LIMITS", "ABS", limits),
-                       regs.get("NEXT_LIMITS", "REL", limits))
+    values = ImageConfig(regs.get("NEXT_X", "SIZE", words["NEXT_X"]), regs.get("NEXT_Y", "SIZE", words["NEXT_Y"]),
+                         regs.get("NEXT_Z", "SIZE", words["NEXT_Z"]), regs.get("NEXT_LIMITS", "ABS", limits),
+                         regs.get("NEXT_LIMITS", "REL", limits))
+    if not params:
+        return values
+    v = {}
+    for name, fields in PARAM_FIELDS.items():
+        for f, n in fields.items():
+            v[n] = regs.get(name, f, words[name])
+            if n in SIGNED_PARAMS and v[n] & 0x10:
+                v[n] -= 0x20
+    return replace(values, params=tuple(v[n] for n in PARAM_NAMES))
 
 
 def runtime_words(regs, generics: dict) -> dict[str, int]:
-    """CONTROL, STATUS and NEXT_X to NEXT_LIMITS after a reset: with the runtime configuration NEXT_X to NEXT_LIMITS
-    hold the values of the generics (build_values), without it the six registers read zero."""
-    words = dict.fromkeys(RUNTIME_REGISTERS, 0)
+    """CONTROL, STATUS, NEXT_X to NEXT_LIMITS and NEXT_SAMPLES to NEXT_BLOCK after a reset: with the runtime
+    configuration NEXT_X to NEXT_LIMITS hold the values of the generics (build_values), with the runtime parameters
+    also NEXT_SAMPLES to NEXT_BLOCK; the registers of what a channel does not have read zero."""
+    words = dict.fromkeys(CONFIG_REGISTERS, 0)
     if runtime_config(generics):
-        words |= next_words(regs, build_values(model_config(generics)))
+        words |= next_words(regs, build_values(model_config(generics), runtime_params(generics)))
     return words
+
+
+def param_word(regs, cfg: dict, name: str, value: int) -> int:
+    """A write of value to a register of the runtime parameters: the fields of the parameters that the configuration
+    uses keep what is written, the others read zero."""
+    used = used_params(cfg)
+    return sum(regs.field(name, f, regs.get(name, f, value)) for f, n in PARAM_FIELDS[name].items() if n in used)
 
 
 class RuntimeRegisters:
     """The registers of the runtime configuration of one channel, for the software models of the systems: NEXT_X to
     NEXT_LIMITS read back what is written, CONTROL.COMMIT passes their values to the channel or sets
     STATUS.CFG_ERROR, writing 1 to STATUS.CFG_ERROR clears it, STATUS.CFG_PENDING shows a pending configuration;
-    taken() gives IMAGE_X to IMAGE_Z, ORDER and LIMITS of the last image that started. Without the runtime
-    configuration the six registers read zero and ignore writes (OpenCompact register map)."""
+    taken() gives IMAGE_X to IMAGE_Z, SAMPLES, ORDER, WEIGHTS, ADAPTIVE, BLOCK and LIMITS of the last image that
+    started. With the runtime parameters NEXT_SAMPLES to NEXT_BLOCK take part in the COMMIT; the fields of the
+    parameters that the configuration does not use read zero. Without the runtime configuration (or the runtime
+    parameters) these registers read zero and ignore writes (OpenCompact register map)."""
 
     def __init__(self, regs, generics: dict, channel: Channel):
         self.regs = regs
         self.generics = generics
         self.channel = channel
+        self.params = runtime_params(generics)
         self.words = runtime_words(regs, generics)
         self.error = False
 
@@ -697,9 +851,12 @@ class RuntimeRegisters:
             return
         if name == "CONTROL":
             if r.get("CONTROL", "COMMIT", value):
-                self.error |= not self.channel.commit(next_values(r, self.words))
+                self.error |= not self.channel.commit(next_values(r, self.words, self.params))
         elif name == "STATUS":
             self.error &= not r.get("STATUS", "CFG_ERROR", value)
+        elif name in PARAM_REGISTERS:
+            if self.params:
+                self.words[name] = param_word(r, self.channel.cfg, name, value)
         elif name == "NEXT_LIMITS":
             self.words[name] = (r.field(name, "ABS", r.get(name, "ABS", value))
                                 | r.field(name, "REL", r.get(name, "REL", value)))

@@ -26,15 +26,22 @@ the Composer file of the system, the register maps from the headers of the cores
 TC-RS-HW-03, the register access and the run are those of sw/refsys/systest.py. The set-up and the procedure are
 described with the board target.
 
-TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_g) the image dimensions and error
-limit values of every image over RMAP and compares the images with the model images of these values
-(sw/refsys/ocptest.py).
+TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_g) and the runtime parameters
+(RuntimeParams_g) the image dimensions, error limit values and parameters of every image over RMAP and compares the
+images with the model images of these values (sw/refsys/ocptest.py).
+
+Every complete compressed image is also decoded with the decoder of the reference model of OpenCompact
+(ocp_model.decompress) and compared with the image that was sent: equal for lossless compression, within the
+maximum error of every sample for near-lossless compression. A model of OpenCompact without the decoder skips this
+check and says so.
 
 Before the first test case the script discards the packets that an earlier run left on both channels (drain).
 
 Usage: python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
-       [--test TC-RS-HW-nn ...]
-Exit code 0 when every test case passes.
+       [--test TC-RS-HW-nn ...] [--records DIR]
+       python systems/spfi_compress/sw/hardware_test.py --model [--profile P] ...   (against the system model)
+       python systems/spfi_compress/sw/hardware_test.py --check-environment
+Exit code 0 when every test case passes (every item is there).
 """
 
 import copy
@@ -234,6 +241,8 @@ class Context(systest.Context):
     traffic: Traffic = field(default_factory=Traffic)
     images: int = 0
     rate: str = ""
+    decoded: int = 0                                                  # images decoded with the model decoder
+    undecoded: int = 0                                                # complete images without it (no decoder)
 
 
 @dataclass(frozen=True)
@@ -340,10 +349,26 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
             lengths, want_lengths = [len(p.data) for p in got], [len(p) for p in parts]
             if not problems and lengths != want_lengths:
                 problems = [f"Space Packets of {lengths} bytes, expected {want_lengths}"]
+            if not problems and output.complete:
+                if ocp.decoder_available():
+                    problems = ocp.decode_problems(output.cfg, data, list(output.samples))
+                    ctx.decoded += 1
+                else:
+                    ctx.undecoded += 1
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
             back.append(data)
         result[port] = back
     return result
+
+
+def record_decoding(ctx: Context, decoded: int, undecoded: int) -> None:
+    """Records the decoding check of the images of a test case."""
+    if decoded:
+        systest.record(ctx, f"model decoder: {decoded} compressed images decode to the images sent (lossless: equal; "
+                            "near-lossless: within the maximum error)")
+    if undecoded:
+        systest.record(ctx, f"model decoder: not in the pinned OpenCompact, decoding check skipped for {undecoded} "
+                            "images")
 
 
 def clear_status(regs: Registers, ctx: Context) -> None:
@@ -434,7 +459,9 @@ def tc06_compression(regs: Registers, ctx: Context) -> None:
             sdus += image_sdus(ctx, ch, image_samples(ctx, ch, kind, ctx.images))
             ctx.images += 1
         streams[ch.port] = sdus
+    decoded, undecoded = ctx.decoded, ctx.undecoded
     send_images(regs, ctx, streams)
+    record_decoding(ctx, ctx.decoded - decoded, ctx.undecoded - undecoded)
 
 
 def tc07_counters(regs: Registers, ctx: Context) -> None:
@@ -512,6 +539,7 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     for ch in fixed:
         ocptest.check_fixed(regs, ctx, ch)
     plans = {ch.port: ocptest.image_plan(ctx, ch) for ch in runtime}
+    decoded, undecoded = ctx.decoded, ctx.undecoded
     for k in range(max(len(plan) for plan in plans.values())):
         streams = {}
         for ch in (ch for ch in runtime if k < len(plans[ch.port])):
@@ -530,6 +558,7 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
         send_images(regs, ctx, streams)
         for ch in (ch for ch in runtime if k < len(plans[ch.port])):
             ocptest.check_taken(regs, ctx, ch)
+    record_decoding(ctx, ctx.decoded - decoded, ctx.undecoded - undecoded)
     check_status(regs, ctx)
 
 
@@ -572,11 +601,32 @@ def run(transport, ctx: Context, tests: list | None = None,
 
 
 def main() -> int:
-    parser = systest.arguments(__doc__.splitlines()[0])
+    parser = systest.arguments(__doc__.splitlines()[0], model=True)
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
-    ctx = make_context(args.seed, PROFILES[args.profile])
-    return systest.run_on_device(args.device, ctx, select_tests(args.test))
+    if args.check_environment:
+        return systest.check_environment(gui=(SYSTEM_DIR / "sw" / "compress_gui.py").exists())
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    if args.model:
+        # the module as the system model imports it (this script runs as __main__), so that both share its classes
+        import hardware_test as ht
+        import system_model
+
+        ctx = ht.make_context(args.seed, ht.PROFILES[args.profile])
+        results = ht.run(system_model.SystemModel(ht.Setup(), system=ctx.system), ctx, ht.select_tests(args.test))
+        code = 0 if all(error is None for _, error in results) and len(results) == len(ht.select_tests(args.test)) \
+            else 1
+        target = "system model"
+    else:
+        ctx = make_context(args.seed, PROFILES[args.profile])
+        results = []
+        code = systest.run_on_device(args.device, ctx, select_tests(args.test), results_out=results)
+        target = "device"
+    if args.records:
+        systest.write_records(args.records, "spfi_compress", target, args.profile, ctx, results, started,
+                              {"images": ctx.images, "decoded": ctx.decoded, "undecoded": ctx.undecoded,
+                               "rate": ctx.rate})
+    return code
 
 
 if __name__ == "__main__":
