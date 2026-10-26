@@ -196,3 +196,23 @@ Space Packets that the blocks refuse or discard, and at the end of the run the e
 must not have counted since the baseline of TC-RS-HW-01. Section 10 of the
 [hardware test](targets/vck190/docs/hardware_test.md) lists per core the requirements that the test cases exercise
 and those they do not.
+
+### Interactive tool
+
+`sw/compress_gui.py` compresses one image at a time on channel 0 or 3 with runtime values of your choice: the image
+dimensions and, on channel 3, the absolute error limit value. The image is a test pattern of the hardware test or a
+file (raw samples in BSQ, BIL or BIP order with 1 or 2 bytes per sample, or a PGM or PPM file as one or three
+bands). The tool computes the expected compressed image with the reference model of OpenCompact, marks values that
+the COMMIT would refuse, and with `--device` commits the values over RMAP, sends the image and compares the chunks
+that come back with the model; without `--device` it works with the model only. It decodes the compressed image with
+the decoder of the reference model when the pinned OpenCompact has it, and shows the compression ratio and the
+original, the decoded and the difference image of every band. "Record" writes a result as a JSON file, "Restore reset
+values" commits the values of the generics. The logic is a class without widgets (`Session`), tested against the
+system model (`sw/tests/test_compress_gui.py`); the window uses tkinter of the standard library.
+
+```shell
+python systems/spfi_compress/sw/compress_gui.py                          # offline, the model only
+python systems/spfi_compress/sw/compress_gui.py --device <STAR-Ultra>    # with the test equipment
+```
+
+It is a lab tool, not part of the evidence of the hardware test, which is the scripted run of `hardware_test.py`.
