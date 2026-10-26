@@ -1,6 +1,7 @@
 """Images of OpenCompact (CCSDS 123.0-B-2) for the system tests: the configuration of the reference model from the
 generics of an ocp_core instance, seeded test images, their samples in the input order of the compressor and as the
-bytes of Space Packets, the check of the header of a compressed image and the image framing of the core.
+bytes of Space Packets, the check of the header of a compressed image, the image framing of the core and its runtime
+configuration.
 
 The expected compressed image of a test image is that of the reference model of OpenCompact, tools/ocp_model.py of
 the submodule cores/opencompact, which is byte-identical to the CNES reference software on the configurations of
@@ -12,12 +13,13 @@ import math
 import random
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 TOOLS = Path(__file__).resolve().parents[2] / "cores" / "opencompact" / "tools"
 sys.path.insert(0, str(TOOLS))
 
+import ocp_configs  # noqa: E402
 import ocp_model  # noqa: E402
 
 CODERS = {"SAMPLE_ADAPTIVE": 0, "HYBRID": 1, "BLOCK_ADAPTIVE": 2}
@@ -357,6 +359,78 @@ def aborted_problems(data: bytes, cfg: dict, taken: list[int]) -> list[str]:
 
 
 # ------------------------------------------------------------------------------------------------
+# Runtime configuration (RuntimeConfig_g; OpenCompact user guide, sections 4.3 and 4.4)
+# ------------------------------------------------------------------------------------------------
+@dataclass(frozen=True)
+class ImageConfig:
+    """The values of the runtime configuration of one image, as in NEXT_X to NEXT_LIMITS: NX, NY, NZ and the
+    band-independent absolute and relative error limit values."""
+
+    nx: int
+    ny: int
+    nz: int
+    abs_limit: int = 0
+    rel_limit: int = 0
+
+
+def runtime_config(generics: dict) -> bool:
+    """Whether a channel with these generics has the runtime configuration (RuntimeConfig_g)."""
+    return bool(flag(generics.get("RuntimeConfig_g", False)))
+
+
+def build_values(cfg: dict) -> ImageConfig:
+    """The values of the configuration of the generics: the maxima and the first error limit values of the methods in
+    use (0 for a method not in use); NEXT_X to NEXT_LIMITS and the values taken hold them after a reset."""
+    fid = cfg["quantizer_fidelity_control_method"]
+    return ImageConfig(cfg["large_n_x"], cfg["large_n_y"], cfg["large_n_z"],
+                       cfg["a_vector"][0] if fid in (1, 3) else 0, cfg["r_vector"][0] if fid in (2, 3) else 0)
+
+
+def commit_accepts(cfg: dict, values: ImageConfig) -> bool:
+    """Whether CONTROL.COMMIT of the channel passes these values to the core (user guide 4.3): NX, NY and NZ from 1
+    to the maxima of cfg, NX from 2 where an image must be at least two samples wide, the error limit values of the
+    methods in use below 2^DA and 2^DR. The value of a method not in use is not checked. A COMMIT that finds a value
+    out of range passes nothing."""
+    fid = cfg["quantizer_fidelity_control_method"]
+    xmin = 1 if ocp_configs.width_one_allowed(cfg) else 2
+    return (xmin <= values.nx <= cfg["large_n_x"] and 1 <= values.ny <= cfg["large_n_y"]
+            and 1 <= values.nz <= cfg["large_n_z"]
+            and (fid not in (1, 3) or values.abs_limit < 1 << cfg["large_d_large_a"])
+            and (fid not in (2, 3) or values.rel_limit < 1 << cfg["large_d_large_r"]))
+
+
+def image_config(cfg: dict, values: ImageConfig) -> dict:
+    """The configuration of the reference model for an image of these values: runtime_image_cfg of OpenCompact, by
+    which its runtime testbench builds the expected images (the dimensions, in BI order M = min(M, NZ), the error
+    limit vectors of the methods in use)."""
+    out = ocp_configs.runtime_image_cfg(dict(cfg, seed=0), values.nx, values.ny, values.nz, values.abs_limit,
+                                        values.rel_limit, 0)
+    del out["seed"]
+    return out
+
+
+def runtime_sequence(cfg: dict, n: int, seed: int) -> list[ImageConfig]:
+    """n images within the maxima and the bit depths of cfg: the first eight at the bounds of every dimension and
+    error limit value, the others seeded at random (runtime_sequence of OpenCompact)."""
+    return [ImageConfig(*v) for v in ocp_configs.runtime_sequence(dict(cfg, seed=seed), n)]
+
+
+def refused_values(cfg: dict, valid: ImageConfig) -> list[tuple[str, ImageConfig]]:
+    """Values that COMMIT refuses, each the valid values with one value out of range, with the register that holds
+    it: NX = 1 where an image must be at least two samples wide, NX above the maximum, NY = 0, NZ above the maximum,
+    the error limit values 2^DA and 2^DR of the methods in use where the field holds them."""
+    fid = cfg["quantizer_fidelity_control_method"]
+    out = [] if ocp_configs.width_one_allowed(cfg) else [("NEXT_X", replace(valid, nx=1))]
+    out += [("NEXT_X", replace(valid, nx=cfg["large_n_x"] + 1)), ("NEXT_Y", replace(valid, ny=0)),
+            ("NEXT_Z", replace(valid, nz=cfg["large_n_z"] + 1))]
+    if fid in (1, 3) and cfg["large_d_large_a"] < 16:
+        out.append(("NEXT_LIMITS", replace(valid, abs_limit=1 << cfg["large_d_large_a"])))
+    if fid in (2, 3) and cfg["large_d_large_r"] < 16:
+        out.append(("NEXT_LIMITS", replace(valid, rel_limit=1 << cfg["large_d_large_r"])))
+    return out
+
+
+# ------------------------------------------------------------------------------------------------
 # Compression channel: input adapter and image framing of the core
 # ------------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
@@ -364,11 +438,13 @@ class Output:
     """A compressed image that the core sends: samples, the samples of it that the core took (in input order);
     complete, whether these are all samples of an image (its compressed image is then that of the model of these
     samples; otherwise the image was aborted, see aborted_problems); error, the value of Out_Error on its last word,
-    which IMAGES_ABORTED counts (IMAGES_DONE the others)."""
+    which IMAGES_ABORTED counts (IMAGES_DONE the others); cfg, the configuration of the model for the image (with the
+    runtime configuration, that of the values the core took for it)."""
 
     samples: tuple[int, ...]
     complete: bool
     error: bool
+    cfg: dict | None = field(default=None, compare=False)
 
 
 @dataclass(frozen=True)
@@ -410,18 +486,39 @@ class Channel:
     - The core: In_Last with the last sample of an image gives a correct image, with In_Error an image with an
       error; In_Last before the last sample aborts the image; an image whose last sample has no In_Last is
       completed with an error, and the core discards its samples up to and including the next one with In_Last.
+    - With the runtime configuration (runtime): a COMMIT passes valid values for the next image (commit), and the
+      core takes them with the first sample of an image for the whole image (user guide 4.4); cfg holds the maxima.
 
     The state carries over from one SDU to the next, as in the channel.
     """
 
-    def __init__(self, cfg: dict, marks: UserMarks):
+    def __init__(self, cfg: dict, marks: UserMarks, runtime: bool = False):
         self.cfg = cfg
         self.marks = marks
+        self.runtime = runtime
+        self.image_cfg = cfg                      # configuration of the last image that started
+        self.next_cfg: dict | None = None         # committed, until the next image start
         self.counts = Counts()
         self.samples = samples_per_image(cfg)
         self.current: list[int] = []
         self.adapter_discards = False
         self.core_discards = False
+
+    @property
+    def pending(self) -> bool:
+        """STATUS.CFG_PENDING: a committed configuration waits for the next image start."""
+        return self.next_cfg is not None
+
+    def commit(self, values: ImageConfig) -> bool:
+        """CONTROL.COMMIT with these values in NEXT_X to NEXT_LIMITS: True when the channel passes them to the core
+        for its next image start (they replace a configuration that is still pending), False when it refuses them
+        (STATUS.CFG_ERROR), which changes nothing."""
+        if not self.runtime:
+            raise ValueError("the channel has no runtime configuration")
+        if not commit_accepts(self.cfg, values):
+            return False
+        self.next_cfg = image_config(self.cfg, values)
+        return True
 
     def _value(self, container: bytes) -> int:
         d = self.cfg["large_d"]
@@ -456,6 +553,9 @@ class Channel:
         if self.core_discards:
             self.core_discards = not last
             return []
+        if not self.current and self.next_cfg is not None:
+            self.image_cfg, self.next_cfg = self.next_cfg, None
+            self.samples = samples_per_image(self.image_cfg)
         self.current.append(value)
         if len(self.current) == self.samples:
             image = self._output(complete=True, error=error or not last)
@@ -466,7 +566,7 @@ class Channel:
         return []
 
     def _output(self, complete: bool, error: bool) -> Output:
-        image = Output(tuple(self.current), complete, error)
+        image = Output(tuple(self.current), complete, error, self.image_cfg)
         self.current = []
         if error:
             self.counts.images_aborted += 1
@@ -482,14 +582,21 @@ class Channel:
 COUNTERS = {"IMAGES_DONE": "images_done", "IMAGES_ABORTED": "images_aborted", "SDU_ERRORS": "sdu_errors",
             "SDUS_DISCARDED": "sdus_discarded"}
 ECC_COUNTERS = ("ECC_CORRECTED", "ECC_UNCORRECTABLE")
+# The registers of the runtime configuration (zero without it), and those of the values that the core took for the
+# last image that started
+RUNTIME_REGISTERS = ("CONTROL", "STATUS", "NEXT_X", "NEXT_Y", "NEXT_Z", "NEXT_LIMITS")
+NEXT_REGISTERS = RUNTIME_REGISTERS[2:]
+TAKEN_REGISTERS = ("IMAGE_X", "IMAGE_Y", "IMAGE_Z", "ORDER", "LIMITS")
 
 
-def mib_words(regs, generics: dict) -> dict[str, int]:
+def mib_words(regs, generics: dict, image: dict | None = None) -> dict[str, int]:
     """The configuration registers of the status interface (ocp_mib) of an OpenCompact channel with these generics,
-    register name -> value, with the fields of its register map regs (sw/ocp_regs.h of OpenCompact), and LIMITS after
-    a reset."""
+    register name -> value, with the fields of its register map regs (sw/ocp_regs.h of OpenCompact), and LIMITS: after
+    a reset, or with image (the configuration of the model for the last image that started, with the runtime
+    configuration) IMAGE_X to IMAGE_Z, ORDER and LIMITS of that image."""
     g = generics
     cfg = model_config(g)
+    taken = image or cfg
 
     def word(register: str, **fields) -> int:
         return sum(regs.field(register, name, value) for name, value in fields.items())
@@ -506,12 +613,12 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
                          OUT_BYTES=g["OutWidth_g"] // 8, SAMPLE_BYTES=sample_bytes(cfg),
                          SPECULATION=flag(g["Speculation_g"]),
                          RUNTIME_CONFIG=flag(g.get("RuntimeConfig_g", False))),
-        "IMAGE_X": word("IMAGE_X", SIZE=cfg["large_n_x"]),
-        "IMAGE_Y": word("IMAGE_Y", SIZE=cfg["large_n_y"]),
-        "IMAGE_Z": word("IMAGE_Z", SIZE=cfg["large_n_z"]),
+        "IMAGE_X": word("IMAGE_X", SIZE=taken["large_n_x"]),
+        "IMAGE_Y": word("IMAGE_Y", SIZE=taken["large_n_y"]),
+        "IMAGE_Z": word("IMAGE_Z", SIZE=taken["large_n_z"]),
         "SAMPLES": word("SAMPLES", USER_DATA=cfg["user_defined_data"], SIGNED=cfg["sample_type"],
                         DYNAMIC_RANGE=cfg["large_d"]),
-        "ORDER": word("ORDER", SUB_FRAME_DEPTH=cfg["large_m"], ENCODING=cfg["sample_encoding_order"]),
+        "ORDER": word("ORDER", SUB_FRAME_DEPTH=taken["large_m"], ENCODING=cfg["sample_encoding_order"]),
         "CODER": word("CODER", SUP_TABLES=len(cfg["supplementary_information_tables"]),
                       FIDELITY=cfg["quantizer_fidelity_control_method"], ENTROPY_CODER=coder,
                       OUTPUT_WORD_SIZE=cfg["large_b"]),
@@ -526,7 +633,8 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
         "BLOCK": 0,
         # the band-independent error limit values of the generics, 0 for a method not in use or with band-dependent
         # limits; with the runtime configuration, the values of the last image
-        "LIMITS": word("LIMITS", ABS=cfg["a_vector"][0] if absolute else 0, REL=cfg["r_vector"][0] if relative else 0),
+        "LIMITS": word("LIMITS", ABS=taken["a_vector"][0] if absolute else 0,
+                       REL=taken["r_vector"][0] if relative else 0),
     }
     if coder == 2:
         words["BLOCK"] = word("BLOCK", REF_INTERVAL=cfg["r"], RESTRICTED=cfg["restricted_code_options_flag"],
@@ -536,3 +644,68 @@ def mib_words(regs, generics: dict) -> dict[str, int]:
         words["ADAPTIVE"] = word("ADAPTIVE", ACCU_INIT=accu, INITIAL_COUNT=cfg["gamma_0"],
                                  RESCALE_SIZE=cfg["gamma_star"], UNARY_LIMIT=cfg["large_u_max"])
     return words
+
+
+def next_words(regs, values: ImageConfig) -> dict[str, int]:
+    """NEXT_X to NEXT_LIMITS with these values."""
+    return {"NEXT_X": regs.field("NEXT_X", "SIZE", values.nx), "NEXT_Y": regs.field("NEXT_Y", "SIZE", values.ny),
+            "NEXT_Z": regs.field("NEXT_Z", "SIZE", values.nz),
+            "NEXT_LIMITS": regs.field("NEXT_LIMITS", "ABS", values.abs_limit)
+            | regs.field("NEXT_LIMITS", "REL", values.rel_limit)}
+
+
+def next_values(regs, words: dict[str, int]) -> ImageConfig:
+    """The values in NEXT_X to NEXT_LIMITS (the inverse of next_words)."""
+    limits = words["NEXT_LIMITS"]
+    return ImageConfig(regs.get("NEXT_X", "SIZE", words["NEXT_X"]), regs.get("NEXT_Y", "SIZE", words["NEXT_Y"]),
+                       regs.get("NEXT_Z", "SIZE", words["NEXT_Z"]), regs.get("NEXT_LIMITS", "ABS", limits),
+                       regs.get("NEXT_LIMITS", "REL", limits))
+
+
+def runtime_words(regs, generics: dict) -> dict[str, int]:
+    """CONTROL, STATUS and NEXT_X to NEXT_LIMITS after a reset: with the runtime configuration NEXT_X to NEXT_LIMITS
+    hold the values of the generics (build_values), without it the six registers read zero."""
+    words = dict.fromkeys(RUNTIME_REGISTERS, 0)
+    if runtime_config(generics):
+        words |= next_words(regs, build_values(model_config(generics)))
+    return words
+
+
+class RuntimeRegisters:
+    """The registers of the runtime configuration of one channel, for the software models of the systems: NEXT_X to
+    NEXT_LIMITS read back what is written, CONTROL.COMMIT passes their values to the channel or sets
+    STATUS.CFG_ERROR, writing 1 to STATUS.CFG_ERROR clears it, STATUS.CFG_PENDING shows a pending configuration;
+    taken() gives IMAGE_X to IMAGE_Z, ORDER and LIMITS of the last image that started. Without the runtime
+    configuration the six registers read zero and ignore writes (OpenCompact register map)."""
+
+    def __init__(self, regs, generics: dict, channel: Channel):
+        self.regs = regs
+        self.generics = generics
+        self.channel = channel
+        self.words = runtime_words(regs, generics)
+        self.error = False
+
+    def read(self, name: str) -> int:
+        if name == "STATUS" and self.channel.runtime:
+            return (self.regs.field("STATUS", "CFG_ERROR", int(self.error))
+                    | self.regs.field("STATUS", "CFG_PENDING", int(self.channel.pending)))
+        return self.words[name]
+
+    def write(self, name: str, value: int) -> None:
+        r = self.regs
+        if not self.channel.runtime:
+            return
+        if name == "CONTROL":
+            if r.get("CONTROL", "COMMIT", value):
+                self.error |= not self.channel.commit(next_values(r, self.words))
+        elif name == "STATUS":
+            self.error &= not r.get("STATUS", "CFG_ERROR", value)
+        elif name == "NEXT_LIMITS":
+            self.words[name] = (r.field(name, "ABS", r.get(name, "ABS", value))
+                                | r.field(name, "REL", r.get(name, "REL", value)))
+        else:
+            self.words[name] = r.field(name, "SIZE", r.get(name, "SIZE", value))
+
+    def taken(self) -> dict[str, int]:
+        words = mib_words(self.regs, self.generics, self.channel.image_cfg)
+        return {name: words[name] for name in TAKEN_REGISTERS}

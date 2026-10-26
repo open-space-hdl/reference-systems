@@ -71,13 +71,20 @@
   status signals of the receiver reset between `ofb0` and `pa0`, the identification 0x0FB1000A of `ofb0` in the header
   of the register banks, and the integration notes of OpenFibre in the compile order (the two reference clock
   frequencies, `Phy_NoSignal`, the receiver reset). In spfi_compress and spfi_compress_encrypt they also change in
-  `RuntimeConfig_g` of `ocp0` to `ocp3` (`false`, its default), the new source `ocp_image_start.vhd` of OpenCompact in
-  the compile order and the identification 0x4F435002 of `ocp0` to `ocp3`. The system files are saved by 0.9.10-beta
-  and keep the layout version 1 of the netlist stored in a system file (`resolved.version`), so that a program that
-  reads it can refuse a layout it does not know.
+  `RuntimeConfig_g` of `ocp0` to `ocp3` (true on `ocp0` and `ocp3`, see Changed), the new source `ocp_image_start.vhd`
+  of OpenCompact in the compile order and the identification 0x4F435002 of `ocp0` to `ocp3`. The system files are
+  saved by 0.9.10-beta and keep the layout version 1 of the netlist stored in a system file (`resolved.version`), so
+  that a program that reads it can refuse a layout it does not know.
 
 ### Changed
 
+- spfi_compress and spfi_compress_encrypt: the compressors of channels 0 and 3 have the runtime configuration of
+  OpenCompact v0.2.0 (`RuntimeConfig_g`). Over RMAP, the image dimensions of both channels and the absolute error
+  limit value of channel 3 change from image to image without a new device image; channels 1 and 2 keep the
+  configuration of their generics. After a reset all channels compress as before. The hardware test TC-RS-HW-10
+  (`sw/refsys/ocptest.py`) commits the values of every image, checks the refusal of values out of range and compares
+  every image with the model image of its values; the system simulation runs it with three images of the bounds per
+  channel.
 - Lane initialisation of every system as in the OpenFibre reference design for the VCK190: `pa0` resets the receiver
   of a lane at every restart of the lane (`RxRstGapCycles_g` = 0), and the initialisation timeout of the lanes is
   468750 words, 3 ms (`InitTimeoutWords_g` of `ofb0`). The timeout deviates from ECSS-E-ST-50-11C 5.5.2.6b.1 and

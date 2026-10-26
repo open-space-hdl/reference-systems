@@ -33,13 +33,30 @@ class SystemModel(sysmodel.SystemModel):
                  corrupt: bool = False, first_word: tuple[bool, bool] = SPECIFIED):
         system = system or ht.System()
         super().__init__(system, system_file or SystemFile(ht.SYSTEM_FILE), setup, corrupt, first_word)
-        self.channels = {c.port: ocp.Channel(c.cfg, c.marks) for c in system.channels}
+        self.channels = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
+        # the registers of the runtime configuration of every compressor (OpenCompact register map), by address
+        self.runtime = {}
         for c in system.channels:
             base = system.base(c.compressor)
             self.regs[base + ht.OCP.ID] = ht.OCP.REGMAP_ID
             for name, value in ocp.mib_words(ht.OCP, c.generics).items():
                 self.regs[base + getattr(ht.OCP, name)] = value
+            registers = ocp.RuntimeRegisters(ht.OCP, c.generics, self.channels[c.port])
+            self.runtime |= {base + getattr(ht.OCP, name): (registers, name) for name in ocp.RUNTIME_REGISTERS}
         self.pending: deque[bytes] = deque()
+
+    def _read(self, address):
+        if address in self.runtime:
+            registers, name = self.runtime[address]
+            return registers.read(name)
+        return super()._read(address)
+
+    def _write(self, address, value):
+        if address in self.runtime:
+            registers, name = self.runtime[address]
+            registers.write(name, value)
+        else:
+            super()._write(address, value)
 
     def process(self, channel, data, user_application, loss):
         model = self.channels[channel.port]
@@ -49,11 +66,15 @@ class SystemModel(sysmodel.SystemModel):
         base = self.system.base(channel.compressor)
         for name, attr in ocp.COUNTERS.items():
             self._count(base + getattr(ht.OCP, name), getattr(model.counts, attr) - before[attr])
+        # the values of the last image that started
+        registers, _ = self.runtime[base + ht.OCP.CONTROL]
+        for name, value in registers.taken().items():
+            self.regs[base + getattr(ht.OCP, name)] = value
         return [self._image(channel, o) for o in outputs]
 
     @staticmethod
     def _image(channel, output: ocp.Output) -> bytes:
-        cfg = channel.cfg
+        cfg = output.cfg
         if output.complete:
             return ocp.compress(cfg, ocp.from_input_order(cfg, list(output.samples)))
         aborted = ocp.aborted_image(cfg, list(output.samples))

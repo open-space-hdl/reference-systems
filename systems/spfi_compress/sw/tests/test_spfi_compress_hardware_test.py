@@ -11,7 +11,7 @@ from pathlib import Path
 
 import pytest
 
-from refsys import ocp, systest
+from refsys import ocp, ocptest, systest
 from refsys.composer import SystemFile, instance_of
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
@@ -55,7 +55,9 @@ def test_procedure_passes_against_the_model():
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
     per_channel = len(LAB.kinds) + 5 + LAB.stream
-    assert ctx.images == 4 * per_channel and not m.pending
+    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
+    runtime = 2 * (ocptest.LAB_IMAGES + 1) + 2
+    assert ctx.images == 4 * per_channel + runtime and not m.pending
     assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
 
 
@@ -291,3 +293,92 @@ def test_the_shared_modules_of_the_other_systems_stay_in_place():
     # the modules of this system are not left under the names of those of the other systems
     import sys
     assert sys.modules.get("hardware_test") is not ht and sys.modules.get("system_model") is not sm
+
+
+# --- TC-RS-HW-10: runtime configuration ------------------------------------------------------------------------------
+def test_ocp0_and_ocp3_have_the_runtime_configuration():
+    runtime, fixed = ocptest.split_channels(LAB_SYSTEM)
+    assert [c.compressor for c in runtime] == ["ocp0", "ocp3"] and [c.compressor for c in fixed] == ["ocp1", "ocp2"]
+    # ocp0 is lossless (dimensions only), ocp3 near-lossless with absolute error limits and images of width 1
+    assert [c.cfg["quantizer_fidelity_control_method"] for c in runtime] == [0, 1]
+    assert [ocp_configs.width_one_allowed(c.cfg) for c in runtime] == [False, True]
+
+
+def test_the_runtime_images_of_the_profiles():
+    ch0, ch3 = (LAB_SYSTEM.channels[k] for k in (0, 3))
+    sim = context(system=LAB_SYSTEM, profile=ht.PROFILES["sim"])
+    assert ocptest.image_plan(sim, ch0) == [ocp.ImageConfig(2, 1, 1), ocp.ImageConfig(64, 1, 48),
+                                            ocp.ImageConfig(2, 64, 1)]
+    assert ocptest.image_plan(sim, ch3) == [ocp.ImageConfig(1, 1, 1), ocp.ImageConfig(64, 1, 48, 1023),
+                                            ocp.ImageConfig(1, 64, 1)]
+    lab = ocptest.image_plan(context(system=LAB_SYSTEM), ch3)
+    assert len(lab) == ocptest.LAB_IMAGES + 1 and lab[-1] == ocp.ImageConfig(64, 64, 48, 12)
+    assert all(ocp.commit_accepts(ch3.cfg, v) for v in lab)
+
+
+def test_tc10_ends_with_the_values_of_the_reset():
+    m = model()
+    results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
+    assert not any(results.values()), results
+    fresh = model()
+    for c in SYSTEM.channels:
+        base = SYSTEM.base(c.compressor)
+        for name in ocp.RUNTIME_REGISTERS + ocp.TAKEN_REGISTERS:
+            address = base + getattr(ht.OCP, name)
+            assert m._read(address) == fresh._read(address), (c.compressor, name)
+
+
+class Storing:
+    """Registers that read back what is written: a compressor without the runtime configuration that keeps the
+    writes of NEXT_X to NEXT_LIMITS."""
+
+    def __init__(self):
+        self.words = {}
+
+    def read(self, name):
+        return self.words.get(name, 0)
+
+    def write(self, name, value):
+        self.words[name] = value
+
+
+@pytest.mark.parametrize("mutation, message", [
+    # the channel passes values out of range on, and the core takes the nearest valid ones (CO-RC-07)
+    ("clamp", "ocp0: COMMIT with NEXT_X 0x00000001 gives STATUS (CFG_ERROR, CFG_PENDING) (False, True)"),
+    # the core keeps the configuration of its generics: the end mark of the small image ends a larger one early
+    ("ignore", "compressed image 0: large_n_x 16, expected 2"),
+    ("pending", "ocp0: COMMIT of"),
+    ("fixed", "ocp1 without the runtime configuration"),
+    ("taken", "ocp0 IMAGE_X"),
+    # ocp3 keeps the error limit value of its generics: the header of the image differs
+    ("limit", "compressed image 0"),
+])
+def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
+    m = model()
+    ch0, ch3 = m.channels[0], m.channels[3]
+    registers0, _ = m.runtime[SYSTEM.base("ocp0") + ht.OCP.CONTROL]
+    commit0, commit3 = ch0.commit, ch3.commit
+
+    def clamp(values):
+        ch0.next_cfg = ocp.image_config(ch0.cfg, ocp.ImageConfig(*ocp_configs.runtime_limit(
+            ch0.cfg, values.nx, values.ny, values.nz, values.abs_limit, values.rel_limit)))
+        return True
+
+    if mutation == "clamp":
+        ch0.commit = clamp
+    elif mutation == "ignore":
+        ch0.commit = lambda values: commit0(values) and (setattr(ch0, "next_cfg", ch0.cfg) or True)
+    elif mutation == "pending":
+        read = registers0.read
+        registers0.read = lambda name: read(name) & ~ocptest.CFG_PENDING
+    elif mutation == "fixed":
+        stored = Storing()
+        for name in ocp.RUNTIME_REGISTERS:
+            m.runtime[SYSTEM.base("ocp1") + getattr(ht.OCP, name)] = (stored, name)
+    elif mutation == "taken":
+        registers0.taken = lambda: {}
+    elif mutation == "limit":
+        ch3.commit = lambda values: commit3(values) and commit3(ocp.ImageConfig(values.nx, values.ny, values.nz, 12,
+                                                                                 values.rel_limit))
+    results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
+    assert message in (results["TC-RS-HW-10"] or ""), results

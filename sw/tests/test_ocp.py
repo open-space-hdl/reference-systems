@@ -312,3 +312,116 @@ def test_mib_words_are_those_that_the_opencompact_testbench_reads(name):
     expected = {register: int(word, 16) for register, word in entry["words"].items()}
     assert expected.pop("ID") == OCP_REGS.REGMAP_ID
     assert ocp.mib_words(OCP_REGS, generics) == expected
+
+
+# --- runtime configuration ------------------------------------------------------------------------------------------
+BOTH = ocp_configs.RUNTIME["rc04_bi_m4_sample_both"]       # BI, M = 4, absolute and relative error limits
+COLUMN = ocp_configs.RUNTIME["rc05_bsq_column_hybrid"]     # BSQ, lossless, images of width 1
+ImageConfig = ocp.ImageConfig
+
+
+@pytest.mark.parametrize("cfg, values, accepted", [
+    (BOTH, ImageConfig(16, 8, 12, 31, 511), True),             # the maxima and the largest error limit values
+    (BOTH, ImageConfig(2, 1, 1, 0, 0), True),
+    (BOTH, ImageConfig(1, 1, 1), False),                       # full prediction: images at least two samples wide
+    (BOTH, ImageConfig(17, 8, 12), False),
+    (BOTH, ImageConfig(16, 0, 12), False),
+    (BOTH, ImageConfig(16, 8, 13), False),
+    (BOTH, ImageConfig(16, 8, 12, 32, 0), False),              # 2^DA
+    (BOTH, ImageConfig(16, 8, 12, 0, 512), False),             # 2^DR
+    (COLUMN, ImageConfig(1, 1, 1), True),
+    (COLUMN, ImageConfig(8, 8, 5, 0xFFFF, 0xFFFF), True),      # the values of methods not in use are not checked
+    (COLUMN, ImageConfig(0, 8, 5), False),
+])
+def test_commit_accepts_the_ranges_of_the_user_guide(cfg, values, accepted):
+    assert ocp.commit_accepts(cfg, values) == accepted
+
+
+def test_the_refused_values_are_each_one_value_out_of_range():
+    valid = ImageConfig(2, 1, 1, 0, 0)
+    refused = ocp.refused_values(BOTH, valid)
+    assert [name for name, _ in refused] == ["NEXT_X", "NEXT_X", "NEXT_Y", "NEXT_Z", "NEXT_LIMITS", "NEXT_LIMITS"]
+    assert all(not ocp.commit_accepts(BOTH, v) for _, v in refused)
+    assert [name for name, _ in ocp.refused_values(COLUMN, ImageConfig(1, 1, 1))] == ["NEXT_X", "NEXT_Y", "NEXT_Z"]
+
+
+def test_the_image_configuration_is_that_of_the_runtime_testbench_of_opencompact():
+    values = ImageConfig(5, 3, 2, 7, 100)
+    cfg = ocp.image_config(BOTH, values)
+    want = ocp_configs.runtime_image_cfg(BOTH, 5, 3, 2, 7, 100, 0)
+    assert cfg == {k: v for k, v in want.items() if k != "seed"} | {"image": BOTH["image"]}
+    assert (cfg["large_m"], cfg["a_vector"], cfg["r_vector"]) == (2, [7], [100])      # BI: M = min(M, NZ)
+    assert ocp.ocp_model.header(cfg)[:len(ocp.ocp_model.header(BOTH))] != ocp.ocp_model.header(BOTH)
+
+
+def test_a_committed_configuration_applies_from_the_next_image_start():
+    cfg = small(CONFIGS["c25_tp_bsq_lossless"], 4, 3, 2)
+    channel = Channel(cfg, MARKS, runtime=True)
+    values = ImageConfig(2, 1, 2)
+    first = [(1000 + 7 * k) % 65536 for k in range(ocp.samples_per_image(cfg))]
+    data = ocp.encode_samples(cfg, first)
+    # the image in progress keeps its configuration: COMMIT after its first SDU
+    out = channel.sdu(data[:4], 0)
+    assert channel.commit(values) and channel.pending and not out
+    out = channel.sdu(data[4:], END)
+    assert [o.cfg for o in out] == [cfg] and channel.pending
+    out = channel.sdu(ocp.encode_samples(cfg, [1, 2, 3, 4]), END)
+    assert not channel.pending and [o.complete for o in out] == [True]
+    assert out[0].cfg == channel.image_cfg == ocp.image_config(cfg, values) and out[0].samples == (1, 2, 3, 4)
+
+
+def test_a_refused_commit_changes_nothing():
+    channel = Channel(BOTH, MARKS, runtime=True)
+    assert channel.commit(ImageConfig(4, 2, 3, 1, 2))
+    pending = channel.next_cfg
+    assert not channel.commit(ImageConfig(1, 2, 3))
+    assert channel.next_cfg is pending
+    with pytest.raises(ValueError):
+        Channel(BOTH, MARKS).commit(ImageConfig(4, 2, 3))
+
+
+def generics_of(name: str, runtime: bool) -> dict:
+    """The generics of an OpenCompact channel with a configuration of the runtime testbench of OpenCompact."""
+    return ocp_generics.generics(MIB_CONFIGS[name]) | MIB_WORDS[name]["generics"] | {"RuntimeConfig_g": runtime}
+
+
+def test_the_registers_of_the_runtime_configuration_after_a_reset():
+    words = ocp.runtime_words(OCP_REGS, generics_of("rc04_bi_m4_sample_both", True))
+    assert words == {"CONTROL": 0, "STATUS": 0, "NEXT_X": 16, "NEXT_Y": 8, "NEXT_Z": 12, "NEXT_LIMITS": (64 << 16) | 4}
+    assert set(ocp.runtime_words(OCP_REGS, generics_of("rc04_bi_m4_sample_both", False)).values()) == {0}
+
+
+def test_the_model_of_the_runtime_registers():
+    g = generics_of("rc04_bi_m4_sample_both", True)
+    cfg = ocp.model_config(g)
+    regs = ocp.RuntimeRegisters(OCP_REGS, g, Channel(cfg, MARKS, runtime=True))
+    status = lambda: (OCP_REGS.get("STATUS", "CFG_ERROR", regs.read("STATUS")),  # noqa: E731
+                      OCP_REGS.get("STATUS", "CFG_PENDING", regs.read("STATUS")))
+    for name, word in ocp.next_words(OCP_REGS, ImageConfig(3, 2, 1, 5, 6)).items():
+        regs.write(name, word)
+    assert ocp.next_values(OCP_REGS, regs.words) == ImageConfig(3, 2, 1, 5, 6)
+    regs.write("CONTROL", 1)
+    assert status() == (0, 1) and regs.read("CONTROL") == 0
+    regs.write("NEXT_X", 1)
+    regs.write("CONTROL", 1)
+    assert status() == (1, 1) and regs.read("NEXT_X") == 1
+    regs.write("STATUS", OCP_REGS.field("STATUS", "CFG_ERROR", 1))
+    assert status() == (0, 1)
+    # without the runtime configuration the registers read zero and ignore writes
+    fixed = ocp.RuntimeRegisters(OCP_REGS, generics_of("rc04_bi_m4_sample_both", False), Channel(cfg, MARKS))
+    fixed.write("NEXT_X", 3)
+    fixed.write("CONTROL", 1)
+    assert [fixed.read(n) for n in ocp.RUNTIME_REGISTERS] == [0] * 6
+
+
+def test_the_status_interface_shows_the_values_taken():
+    g = generics_of("rc04_bi_m4_sample_both", True)
+    cfg = ocp.model_config(g)
+    image = ocp.image_config(cfg, ImageConfig(5, 3, 2, 7, 100))
+    words = ocp.mib_words(OCP_REGS, g, image)
+    reset = ocp.mib_words(OCP_REGS, g)
+    assert [OCP_REGS.get(n, "SIZE", words[n]) for n in ("IMAGE_X", "IMAGE_Y", "IMAGE_Z")] == [5, 3, 2]
+    assert OCP_REGS.get("ORDER", "SUB_FRAME_DEPTH", words["ORDER"]) == 2
+    assert words["LIMITS"] == (100 << 16) | 7 and reset["LIMITS"] == (64 << 16) | 4
+    assert {n: w for n, w in words.items() if n not in ocp.TAKEN_REGISTERS} == {
+        n: w for n, w in reset.items() if n not in ocp.TAKEN_REGISTERS}
