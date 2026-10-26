@@ -116,7 +116,9 @@ receive buffer of `spp0` holds (8186 bytes of data) 48 times and 288 bytes.
 
 All four use an output word size of 4 bytes and image framing by the end mark. The parameters are generics of the
 compressors, except on channels 0 and 3, whose compressors have the runtime configuration of OpenCompact
-(`RuntimeConfig_g`, OpenCompact user guide, section 4.4). Software sets the image dimensions of every image on both
+(`RuntimeConfig_g`, OpenCompact user guide, section 4.4) and its runtime parameters (`RuntimeParams_g`, section
+4.5: the user-defined data, M, the weight update parameters and the parameters of the entropy coder of every
+image). Software sets the image dimensions of every image on both
 channels over RMAP, up to the 64 x 64 x 48 of the table. On channel 3 it also sets the absolute error limit value, 0
 to 1023. It writes NEXT_X, NEXT_Y, NEXT_Z and NEXT_LIMITS and then CONTROL.COMMIT. STATUS shows a refused (CFG_ERROR)
 or pending (CFG_PENDING) configuration, and IMAGE_X to IMAGE_Z, ORDER and LIMITS show the values of the last image

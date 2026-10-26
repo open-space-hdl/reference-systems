@@ -98,8 +98,25 @@ APIDs and the buffer sizes from the Composer file of the system, and the registe
 Run the script on the test computer from the root of the repository:
 
 ```shell
-python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra> --profile lab --seed 1
+python systems/spfi_compress/sw/hardware_test.py --check-environment
+python systems/spfi_compress/sw/hardware_test.py --model --profile sim
+python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra> --profile lab --seed 1 --records <records>
 ```
+
+The first command checks the test computer: Python 3.10 or later, the reference model of OpenCompact and the Python
+package of the far-end software; it prints one line per item and exits with 0 when all are there. The second runs
+every test case against the software model of the system, without the test equipment: the dry run of the script and of
+the reference model before the hardware, a few minutes. The third is the hardware test; `--records` writes the results
+of every test case and the recorded values into a JSON file in the directory `<records>` (keep it outside the
+repository).
+
+Optional, after the scripted run: `python systems/spfi_compress/sw/compress_gui.py --device <STAR-Ultra>` opens an
+interactive tool that compresses one image at a time on channel 0 or 3 with runtime values of your choice (image
+dimensions, error limit value, runtime parameters) and a test pattern or an image file, compares the chunks with the
+model, decodes them with the decoder of the model and shows the compression ratio and the original, decoded and
+difference images; without `--device` it works with the model only. Its records are supplementary: the evidence of the
+test is the scripted run. Program the device again before another scripted run (or use "Restore reset values" of the
+tool).
 
 `<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System. Before the first test case the script reads channels 0
 and 1 until no packet arrives within 0.5 s and prints how many packets of an earlier run it discarded per channel. It
@@ -115,7 +132,7 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
 | TC-RS-HW-01 Link | As spfi_encrypt | Link initialised, all lanes of `ofb0` active |
-| TC-RS-HW-02 Identification | Read the identification register of every register window; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`) | `ID` of every register bank with an identification = its `SPFI_COMPRESS_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435002); `INFO` of `edac0` gives its channels and counter width; every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file |
+| TC-RS-HW-02 Identification | Read the identification register of every register window; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`) | `ID` of every register bank with an identification = its `SPFI_COMPRESS_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435003); `INFO` of `edac0` gives its channels and counter width; every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file |
 | TC-RS-HW-03 RMAP | As spfi_encrypt | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read the configuration registers of `ocp0` (`ID` to `BLOCK`, 48 bytes) with one command and word by word; write `WIN_CTRL`, `WIN_BASE` and `WIN_LAST` of the test window with one verified command, read them word by word, write back the values read before | Both reads give the same words; the window was disabled before; the three registers hold the written values; the window is restored |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i, continuity check on); the packet and loss counters of `spp0` and the image, SDU and memory error counters of every compressor cleared | Table entries read back with the port, the enable and the continuity check; no table overrun |
@@ -123,11 +140,17 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 | TC-RS-HW-07 Counters | Read the counters of `spp0`, of the status interfaces of the compressors and of `edac0` | Received and sent Space Packets match TC-RS-HW-06; `IMAGES_DONE` of every compressor is 5; `RX_LOSS`, `IMAGES_ABORTED`, `SDU_ERRORS`, `SDUS_DISCARDED` and the memory error counters of the compressors and of `edac0` are 0 |
 | TC-RS-HW-08 Lost data | Counters cleared, then per channel five images: (a) image 1 without its 25th Space Packet (of 49), image 2 intact; (b) image 3 without its last Space Packet, images 4 and 5 intact. The script leaves the Space Packets out and skips their sequence counts | (a) The Space Packet after the gap carries the Data Loss Indicator; image 1 ends after the samples of Space Packets 1 to 24 and 26 with an error, Space Packets 27 to 49 are discarded; image 2 equals the model. (b) Space Packet 1 of image 4 carries the Data Loss Indicator; its first 144 samples complete image 3, which ends with an error and equals the model of these samples; the rest of image 4 is discarded and gives no output; image 5 equals the model. Every image, the aborted ones included, comes back as its chunks and equals the compressed image of the model (for an aborted image: of the samples taken). Per channel `IMAGES_DONE` 2, `IMAGES_ABORTED` 2, `SDU_ERRORS` 2, `SDUS_DISCARDED` 23 + 48 = 71; `RX_LOSS` of `spp0` 8 |
 | TC-RS-HW-09 Sustained rate | Counters cleared, then eight images per channel, all channels at once, as fast as the test equipment sends | No loss, every compressed image equals the model, the counters match; the rate of the samples, compressed bytes and images is recorded. It is limited by the test equipment and the host as long as they send less than the system takes (9.6 Gbit/s of samples for compressed images of at most 32 bits per sample, [README](../../../README.md#throughput), section Throughput) |
-| TC-RS-HW-10 Runtime configuration | `ocp0` and `ocp3` have the runtime configuration (`RuntimeConfig_g`), `ocp1` and `ocp2` do not. Counters cleared. Read `CONTROL` to `NEXT_LIMITS` of `ocp0` and `ocp3`; write `NEXT_X` to `NEXT_LIMITS` and `CONTROL.COMMIT` of `ocp1` and `ocp2`. Then 21 images on each of channels 0 and 3, every one after its values in `NEXT_X` to `NEXT_LIMITS` (one command) and `CONTROL.COMMIT`: the seeded sequence of the runtime testbench of OpenCompact (first the bounds of every dimension, 1 or 2 to 64 and 48, and of the error limit value of channel 3, 0 to 1023, then 12 images at random), then the values of the README. After the first COMMIT, COMMITs with one value out of range: NX 1 (channel 0 only), NX 65, NY 0, NZ 49 and the absolute error limit value 1024 (channel 3 only), each followed by a write of 1 to `STATUS.CFG_ERROR`. With the first image, one image of the generics on each of channels 1 and 2 | `ocp0` and `ocp3` read the values of the reset (`CONTROL` and `STATUS` 0, `NEXT_X` to `NEXT_Z` 64, 64 and 48, `NEXT_LIMITS` 0 and 12); `ocp1` and `ocp2` read 0 in the six registers and keep `IMAGE_X` to `LIMITS`. Every valid COMMIT gives `STATUS.CFG_PENDING` 1; every COMMIT with a value out of range gives `STATUS.CFG_ERROR` 1 with `CFG_PENDING` still 1, and the register reads back the value written; every compressed image comes back as its chunks and equals the image of the model for its values, header included; after every image `IMAGE_X` to `IMAGE_Z`, `ORDER` and `LIMITS` show its values and `STATUS` is 0. The counters match: `IMAGES_DONE` 21 on channels 0 and 3 and 1 on channels 1 and 2, no error |
+| TC-RS-HW-10 Runtime configuration | `ocp0` and `ocp3` have the runtime configuration and the runtime parameters (`RuntimeConfig_g`, `RuntimeParams_g`), `ocp1` and `ocp2` do not. Counters cleared. Read `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3`; write `NEXT_X` to `NEXT_BLOCK` and `CONTROL.COMMIT` of `ocp1` and `ocp2`. Then 22 images on each of channels 0 and 3, every one after its values in `NEXT_X` to `NEXT_LIMITS` (one command), `NEXT_SAMPLES` to `NEXT_BLOCK` (one command) and `CONTROL.COMMIT`: the seeded sequence of the runtime parameter testbench of OpenCompact (first the bounds of every dimension, 1 or 2 to 64 and 48, of the error limit value of channel 3, 0 to 1023, and of every parameter in use, then images at random, then an image of the maximum dimensions with log2 t_inc 4 and vmin = vmax = -6), then the values of the README. After the first COMMIT, COMMITs with one value out of range: NX 1 (channel 0 only), NX 65, NY 0, NZ 49, the absolute error limit value 1024 (channel 3 only), log2 t_inc 3, vmax below vmin, gamma* equal to gamma0, Umax 33, K 15 (channel 0 only) and M above NZ (channel 0, when NZ is below 48), each followed by a write of 1 to `STATUS.CFG_ERROR`. With the first image, one image of the generics on each of channels 1 and 2 | `ocp0` and `ocp3` read the values of the reset (`CONTROL` and `STATUS` 0, `NEXT_X` to `NEXT_Z` 64, 64 and 48, `NEXT_LIMITS` 0 and 12, `NEXT_SAMPLES` to `NEXT_BLOCK` the parameters of the generics); `ocp1` and `ocp2` read 0 in the eleven registers and keep `IMAGE_X` to `LIMITS`. Every valid COMMIT gives `STATUS.CFG_PENDING` 1; every COMMIT with a value out of range gives `STATUS.CFG_ERROR` 1 with `CFG_PENDING` still 1, and the register reads back the value written; every compressed image comes back as its chunks, equals the image of the model for its values, header included, and decodes to the image sent; after every image `IMAGE_X` to `IMAGE_Z`, `SAMPLES`, `ORDER`, `WEIGHTS`, `ADAPTIVE`, `BLOCK` and `LIMITS` show its values and `STATUS` is 0. The counters match: `IMAGES_DONE` 22 on channels 0 and 3 and 1 on channels 1 and 2, no error |
 
 TC-RS-HW-10 ends with the values of the reset on channels 0 and 3. After a run that stopped in TC-RS-HW-10, program
 the device again before the next run: the runtime registers and the values taken may still hold the values of an image
 of its sequence, which TC-RS-HW-02 and TC-RS-HW-10 would report.
+
+Every complete compressed image, in every test case, is also decoded with the decoder of the reference model of
+OpenCompact (`ocp_model.decompress`) and compared with the image that was sent: equal for the lossless channels 0 to
+2, every sample within the maximum error that the decoder gives for it on channel 3 (near-lossless). TC-RS-HW-06 and
+TC-RS-HW-10 record how many images they decoded (`RECORD model decoder: ...`). A reference model without the decoder
+skips this check and records that it did.
 
 The Space Packets do not mark the end of an image (system [README](../../../README.md#images-on-the-link)): the
 script knows the length of every compressed image from the model, the aborted images included, and checks the cut
@@ -151,6 +174,6 @@ Keep for every build and every test run, with the date:
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back; LEDs after programming, version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
-| Test run | Command line (profile, seed) and the complete output of the script with the `RECORD` lines of TC-RS-HW-01, the rate of TC-RS-HW-09 included, for example redirected into a file |
+| Test run | Command line (profile, seed) and the complete output of the script with the `RECORD` lines of TC-RS-HW-01, the rate of TC-RS-HW-09 included, for example redirected into a file; the JSON file of `--records` and the output of `--check-environment` |
 
 A failing test case is recorded with its output and the register values it reports.
