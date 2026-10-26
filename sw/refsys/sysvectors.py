@@ -26,7 +26,8 @@ reply is checked and removed.
 Operations of stimulus.txt, one per line, numbered from 0 without the comments:
 
   mark <name>                                  start of a test case
-  mibw <address> <data>                        write of a register of the far end
+  mibw <address> <data>                        write of a register of the far end (a link reset of the far end: the
+                                               operator step of TC-RS-HW-12)
   mibp <address> <mask> <value> <limit ns>     reads a register of the far end until it has the value
   send <vc> <bytes> <packet>                   sends a packet on a virtual channel
   recv <vc> <count> <limit ns>                 waits for count more packets on a virtual channel
@@ -48,7 +49,7 @@ from pathlib import Path
 from types import ModuleType
 
 from refsys import systest
-from refsys.transport import Transport, TransportError
+from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
 
 STIMULUS = "stimulus.txt"
 VECTORS = "vectors.json"
@@ -188,6 +189,23 @@ class Recorder(Transport):
     def end_poll(self) -> None:
         self.polled = False
 
+    def operator(self, step: str) -> None:
+        """The operator step as operations of the far end: its link reset (DL_CTRL.LINK_RESET with DATA_SCRAMBLED
+        kept, OpenFibre register map), a wait of QUIET_NS on the virtual channel of RMAP, during which no packet may
+        arrive, and the wait until the link of the far end is initialised again."""
+        assert step == FAR_END_LINK_RESET
+        self.model.operator(step)
+        self.quiet = None
+        ofb = systest.OFB
+        reset = ofb.field("DL_CTRL", "LINK_RESET", 1) | ofb.field("DL_CTRL", "DATA_SCRAMBLED", 1)
+        mask = ofb.field("DL_STATUS", "LINK_STATE", ofb.DL_STATUS_LINK_STATE_MASK)
+        value = ofb.field("DL_STATUS", "LINK_STATE", systest.LINK_INITIALISED)
+        vc = self.routes[min(self.routes)].vc
+        lines = [self.line(f"mibw {ofb.DL_CTRL:08x} {reset:08x}"),
+                 self.line(f"quiet {vc} {QUIET_NS} {QUIET_LIMIT_NS}"),
+                 self.line(f"mibp {ofb.DL_STATUS:08x} {mask:08x} {value:08x} {LINK_TIMEOUT_NS}")]
+        self.ops.append({"kind": "operator", "step": step, "lines": lines})
+
 
 class RecordingRegisters(PollingRegisters):
     def wait(self, address: int, mask: int, value: int, timeout: float = 1.0) -> int:
@@ -273,6 +291,7 @@ class Replay(Transport):
         self.routes = routes_
         self.rx = {vc: deque(packets) for vc, packets in received.items()}
         self.tries = {line: int(values[0]) for _, kind, line, values in events if kind == "poll"}
+        self.mibp = {line for _, kind, line, _ in events if kind == "mibp"}
         self.quiet_counts = {line: int(values[0]) for _, kind, line, values in events if kind == "quiet"}
         self.timeouts = {line for _, kind, line, _ in events if kind == "timeout"}
         self.poll: tuple[int, int] | None = None
@@ -306,6 +325,18 @@ class Replay(Transport):
                 queue.popleft()
             return self._take(rx_channel, 1)
         return self._take(rx_channel, count)
+
+    def operator(self, step: str) -> None:
+        op = self._next()
+        if op["kind"] != "operator" or op["step"] != step:
+            raise TransportError(f"operator step {step} where the recording has {op}")
+        _, quiet, link = op["lines"]
+        if self.quiet_counts.get(quiet) != 0:
+            raise TransportError(f"operator step {step}: {self.quiet_counts.get(quiet)} packets arrived during the "
+                                 f"link reset of the far end (operation {quiet})")
+        if link not in self.mibp:
+            raise TransportError(f"operator step {step}: the link of the far end did not initialise again within "
+                                 f"{LINK_TIMEOUT_NS} ns of simulated time (operation {link})")
 
     def receive(self, channel, timeout):
         if self.quiet is None or self.quiet[0] != channel:
@@ -476,6 +507,8 @@ def play(directory: Path, model: Transport, system, setup, drop_last: bool = Fal
             events.append(f"{ns} end {index}")
         else:
             assert f[0] == "mibw" and len(f) == 3
+            if int(f[1], 16) == systest.OFB.DL_CTRL and int(f[2], 16) & systest.OFB.field("DL_CTRL", "LINK_RESET", 1):
+                model.operator(FAR_END_LINK_RESET)
     (directory / EVENTS).write_text("\n".join(events) + "\n", encoding="utf-8")
     for vc, lines in rx.items():
         (directory / rx_file(vc)).write_text("".join(f"{t}\n" for t in lines), encoding="utf-8")

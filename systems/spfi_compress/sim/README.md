@@ -40,13 +40,23 @@ The hardware test and the simulation share their test cases and differ in size o
 | `lab` | 5 (scene, stripes, noise, flat bands with steps, flat bands with spikes) | cases (a) and (b) on every channel, five images per channel | 8 | 21 on channels 0 and 3 (the sequence of OpenCompact, then the values of the generics), 1 on channels 1 and 2 | Hardware test |
 | `sim` | 1 (scene) | case (a) on channels 0 and 2 (two images), case (b) on channels 1 and 3 (three images) | 2 | 3 on channels 0 and 3, the bounds: 2 x 1 x 1, 64 x 1 x 48 and 2 x 64 x 1 on channel 0; 1 x 1 x 1, 64 x 1 x 48 with the error limit value 1023 and 1 x 64 x 1 on channel 3 | System simulation |
 
+TC-RS-HW-12, 13, 14 and 16 send a round of images after the event they provoke: in the `lab` profile one image of
+the generics per channel, in the `sim` profile one image of at most 64 x 16 x 8 samples on each of channels 0 and 3,
+committed through the runtime configuration before it and followed by a COMMIT of the values of the generics.
+TC-RS-HW-11, 15 and 17 send no images.
+
 Every error path of the channel (the abort after the Data Loss Indicator, the image without its end mark, the
 discarded SDUs and the counters) is thus simulated at the configuration of the device image, two channels per case.
 TC-RS-HW-09 measures the sustained rate of the test equipment and runs on hardware only; in simulation, TC-RS-HW-06
 shows the data path with the four compressors in parallel. The procedure takes every expected compressed image from
 the reference model of OpenCompact, for an image that ended with an error the compressed image of the samples that
 the channel took (`aborted_image` of `sw/refsys/ocp.py`), and so knows every Space Packet in advance: it never waits
-for a quiet channel.
+for a quiet channel of Space Packets.
+
+The operator step of TC-RS-HW-12, the link reset at the port of the test equipment, is a step of the far end of the
+bench: it writes `DL_CTRL.LINK_RESET` (with `DATA_SCRAMBLED` kept) into its own register map, waits 100 us on the
+virtual channel of RMAP, where no packet may arrive, and waits until its link is initialised again (the operations
+`mibw`, `quiet` and `mibp` of `stimulus.txt`, [sim/README.md](../../../sim/README.md)).
 
 ## Running
 
@@ -63,8 +73,8 @@ OpenCompact, a few seconds per image.
 
 `python -m pytest systems/spfi_compress/sim` checks the stimuli and the checks without a simulator, on the system of
 the Composer file with smaller images and chunks of 256 bytes, so that every compressed image takes several Space
-Packets: the records of the model pass, the procedure never waits for a quiet channel, and a Space Packet that no
-request awaits and a lost Space Packet fail.
+Packets: the records of the model pass, the procedure never waits for a quiet channel of Space Packets, and a Space
+Packet that no request awaits and a lost Space Packet fail.
 
 ## Results
 

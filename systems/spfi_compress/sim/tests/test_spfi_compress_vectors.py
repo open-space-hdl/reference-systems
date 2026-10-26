@@ -43,9 +43,11 @@ def test_records_of_the_model_pass(tmp_path):
 
 def test_the_procedure_knows_every_space_packet_in_advance(tmp_path):
     # the model of OpenCompact gives every compressed image, the aborted ones included: the procedure never receives
-    # until a channel is quiet
+    # until the channel of the Space Packets is quiet (the far end waits on the channel of RMAP only during its link
+    # reset in TC-RS-HW-12)
     sysvectors.write(BENCH, tmp_path, "sim", 1, None)
-    assert not [op for op in operations(tmp_path) if op[0] == "quiet"]
+    quiet = [op for op in operations(tmp_path) if op[0] == "quiet"]
+    assert quiet == [["quiet", str(SYSTEM.rmap_vc), str(sysvectors.QUIET_NS), str(sysvectors.QUIET_LIMIT_NS)]]
 
 
 def append_last_packet(directory: Path) -> None:

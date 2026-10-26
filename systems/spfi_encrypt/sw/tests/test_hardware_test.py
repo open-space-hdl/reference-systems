@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 import hardware_test as ht  # noqa: E402
-from refsys import transport  # noqa: E402
+from refsys import systest, transport  # noqa: E402
 from refsys.transport import Transport, TransportError  # noqa: E402
 from system_model import SPECIFIED, SYSTEM, SYSTEM_FILE, SystemModel  # noqa: E402
 
@@ -86,7 +86,8 @@ def test_procedure_detects_a_corrupted_chunk():
 def test_procedure_detects_a_target_without_key_check():
     class AnyKey(SystemModel):
         def _rmap(self, packet):
-            self.key = packet[len(self.setup.rmap_path) + 3]
+            # TGT_KEY.KEY_EN 0: the target accepts every key
+            self.regs[self.system.base(self.system.rmap) + systest.OMAP.TGT_KEY] = 0
             return super()._rmap(packet)
     with pytest.raises(ht.TestFailed, match="wrong key"):
         run_all(AnyKey(ht.Setup()))

@@ -30,32 +30,41 @@ TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_
 limit values of every image over RMAP and compares the images with the model images of these values
 (sw/refsys/ocptest.py).
 
+Every complete compressed image is also decoded with the decoder of the reference model of OpenCompact
+(ocp_model.decompress) and compared with the image that was sent: equal for lossless compression, within the
+maximum error of every sample for near-lossless compression. A model of OpenCompact without the decoder skips this
+check and says so.
+
 Before the first test case the script discards the packets that an earlier run left on both channels (drain).
 
 Usage: python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
-       [--test TC-RS-HW-nn ...]
-Exit code 0 when every test case passes.
+       [--test TC-RS-HW-nn ...] [--records DIR]
+       python systems/spfi_compress/sw/hardware_test.py --model [--profile P] ...   (against the system model)
+       python systems/spfi_compress/sw/hardware_test.py --check-environment
+Exit code 0 when every test case passes (every item is there).
 """
 
 import copy
+import hashlib
 import itertools
 import random
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import ocp, ocptest, systest  # noqa: E402
+from refsys import ecctest, errorstate, ocp, ocptest, rmaptest, spptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
-from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
+from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
 from refsys.systest import (  # noqa: E402, F401
-    OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc01_link, tc03_rmap, test_name)
+    OFB, OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
+from refsys.transport import FAR_END_LINK_RESET  # noqa: E402
 
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 SYSTEM_FILE = SYSTEM_DIR / "spfi_compress.composer.json"
@@ -87,18 +96,22 @@ class Profile:
     per channel at once; TC-RS-HW-08 runs both cases of lost SDUs on every channel, or with split_lost case (a) on
     the channels of even and case (b) on those of odd number; TC-RS-HW-10 sends the full image plan of every channel
     with the runtime configuration and one image of every other channel, or without runtime_full three images of the
-    bounds (refsys.ocptest.image_plan). The hardware test runs the lab profile, the system simulation the sim
-    profile."""
+    bounds (refsys.ocptest.image_plan). The test cases that check the data path after a provoked event
+    (traffic_round) send one image per channel, or with small only one image of at most small samples (NX, NY, NZ)
+    on each channel with the runtime configuration. The hardware test runs the lab profile, the system simulation the
+    sim profile."""
 
     name: str
     kinds: tuple[str, ...]
     stream: int
     split_lost: bool = False
     runtime_full: bool = True
+    small: tuple[int, int, int] | None = None
 
 
 PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
-                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False))}
+                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
+                                        small=(64, 16, 8)))}
 
 
 @dataclass
@@ -211,6 +224,14 @@ class System(systest.System):
     def id_offsets(self) -> dict[str, int]:
         return super().id_offsets() | {c.compressor: OCP.ID for c in self.channels}
 
+    def error_registers(self) -> list:
+        """With the memory error counters of every compressor (a write clears them). Its image and SDU error counters
+        count the errors of the input on purpose (TC-RS-HW-08); every test case with images checks them against the
+        model (check_status)."""
+        return super().error_registers() + [
+            errorstate.Register(f"{c.compressor}.{name}", self.base(c.compressor) + getattr(OCP, name))
+            for c in self.channels for name in ocp.ECC_COUNTERS]
+
 
 @dataclass
 class Traffic:
@@ -234,17 +255,22 @@ class Context(systest.Context):
     traffic: Traffic = field(default_factory=Traffic)
     images: int = 0
     rate: str = ""
+    decoded: int = 0                                                  # images decoded with the model decoder
+    undecoded: int = 0                                                # complete images without it (no decoder)
+    image_records: list[dict] = field(default_factory=list)          # every compressed image received
 
 
 @dataclass(frozen=True)
 class Sdu:
     """An SDU of an image for channel port: lost SDUs are left out by the sender, which skips their Packet Sequence
-    Count, so that the Space Packet node sets the Data Loss Indicator of the next SDU of the APID."""
+    Count, so that the Space Packet node sets the Data Loss Indicator of the next SDU of the APID; before an SDU with
+    gap the sender skips one Packet Sequence Count and sends it (an APID without the continuity check)."""
 
     port: int
     data: bytes
     end: bool
     lost: bool = False
+    gap: bool = False
 
 
 def image_samples(ctx: Context, ch: Channel, kind: str, index: int) -> list[int]:
@@ -281,7 +307,7 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     for sdu in order:
         ch = s.channels[sdu.port]
         apid = setup.input_apid_base + ch.port
-        count = ctx.input_count.get(apid, 0)
+        count = (ctx.input_count.get(apid, 0) + sdu.gap) & 0x3FFF
         ctx.input_count[apid] = (count + 1) & 0x3FFF
         if sdu.lost:
             ctx.pending_loss.add(apid)
@@ -304,14 +330,20 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
 
 
 def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -> dict[int, list[bytes]]:
-    """Checks the Space Packets of every channel (APID, Packet Sequence Count, length) and every compressed image,
-    put together from its chunks, against its expected bytes."""
+    """Checks the Space Packets of every channel (APID, Packet Sequence Count, length; the fields of the Packet
+    Primary Header that the send port sets: telemetry, no secondary header, Sequence Flags '11'; the User Application
+    value 0 of destination 0 in the CPTP packet) and every compressed image, put together from its chunks, against
+    its expected bytes."""
     s, setup = ctx.system, ctx.setup
     by_apid: dict[int, list[SpacePacket]] = {c.output_apid: [] for c in s.channels}
     for raw in received:
-        _, payload = cptp_decode(raw, setup.far_end_tla)
+        user_application, payload = cptp_decode(raw, setup.far_end_tla)
         packet = SpacePacket.decode(payload)
         check(packet.apid in by_apid, f"output packet with APID 0x{packet.apid:03X}")
+        header = (packet.telecommand, packet.secondary_header, packet.sequence_flags, user_application)
+        check(header == (False, False, SEQ_UNSEGMENTED, 0),
+              f"APID {packet.apid}: Space Packet {packet.sequence_count} with type, secondary header flag, Sequence "
+              f"Flags and User Application {header}, expected telemetry, 0, '11' and 0")
         by_apid[packet.apid].append(packet)
     ctx.traffic.packets += len(received)
     result = {}
@@ -340,10 +372,42 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
             lengths, want_lengths = [len(p.data) for p in got], [len(p) for p in parts]
             if not problems and lengths != want_lengths:
                 problems = [f"Space Packets of {lengths} bytes, expected {want_lengths}"]
+            decoded = "aborted, not decoded"
+            if not problems and output.complete:
+                if ocp.decoder_available():
+                    problems = ocp.decode_problems(output.cfg, data, list(output.samples))
+                    ctx.decoded += 1
+                    lossless = output.cfg["quantizer_fidelity_control_method"] == 0
+                    decoded = "equal" if lossless else "within the maximum error"
+                else:
+                    ctx.undecoded += 1
+                    decoded = "skipped, no decoder"
+            ctx.image_records.append(image_record(ctx, ch, output, data, "failed" if problems else decoded))
+            if problems:
+                ctx.image_records[-1]["data"] = data.hex()
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
             back.append(data)
         result[port] = back
     return result
+
+
+def image_record(ctx: Context, ch: Channel, output: ocp.Output, data: bytes, decoded: str) -> dict:
+    """The record of a compressed image received: test case, channel, dimensions, length, SHA-256, whether it is
+    complete and the result of the decoding check (the bytes only when a check failed)."""
+    cfg = output.cfg
+    return {"test": ctx.current, "port": ch.port, "compressor": ch.compressor, "nx": cfg["large_n_x"],
+            "ny": cfg["large_n_y"], "nz": cfg["large_n_z"], "bytes": len(data),
+            "sha256": hashlib.sha256(data).hexdigest(), "complete": output.complete, "decoded": decoded}
+
+
+def record_decoding(ctx: Context, decoded: int, undecoded: int) -> None:
+    """Records the decoding check of the images of a test case."""
+    if decoded:
+        systest.record(ctx, f"model decoder: {decoded} compressed images decode to the images sent (lossless: equal; "
+                            "near-lossless: within the maximum error)")
+    if undecoded:
+        systest.record(ctx, f"model decoder: not in the pinned OpenCompact, decoding check skipped for {undecoded} "
+                            "images")
 
 
 def clear_status(regs: Registers, ctx: Context) -> None:
@@ -380,15 +444,38 @@ def check_status(regs: Registers, ctx: Context) -> None:
     systest.ecc_counters(regs, ctx)
 
 
+def tc01_link(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP, the lanes are recorded
+    (sw/refsys/systest.py); then the baseline of the error and memory error registers of every block: recorded,
+    cleared and read again as 0 (refsys.errorstate)."""
+    systest.tc01_link(regs, ctx)
+    systest.baseline(regs, ctx)
+
+
 def tc02_identification(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-02: every register window answers with the identification of its block; the status interface of
-    every compressor reports the configuration of its generics."""
+    """TC-RS-HW-02: every register window answers with the identification of its block; the SpaceFibre port, the
+    RMAP target and the Space Packet node report the generics of the Composer file, the SpaceFibre port the
+    initialised link with all lanes; the status interface of every compressor reports the configuration of its
+    generics."""
     systest.tc02_identification(regs, ctx)
+    systest.check_generics(regs, ctx)
+    systest.check_link_state(regs, ctx)
     for ch in ctx.system.channels:
         base = ctx.system.base(ch.compressor)
         for name, value in ocp.mib_words(OCP, ch.generics).items():
             word = regs.read(base + getattr(OCP, name))
             check(word == value, f"{ch.compressor} {name}: 0x{word:08X}, expected 0x{value:08X}")
+
+
+def tc03_rmap(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-03: verified write and read back; a command with a wrong key is rejected (sw/refsys/systest.py). The
+    RMAP target counts the command with the wrong key (TGT_CNT_ERR2.KEY 1, EVENTS.TGT_ERROR) and no other error;
+    the error registers are cleared."""
+    systest.tc03_rmap(regs, ctx)
+    rmap = ctx.system.rmap
+    systest.caused(regs, ctx, "TC-RS-HW-03", expected={
+        f"{rmap}.TGT_CNT_ERR2": OMAP.field("TGT_CNT_ERR2", "KEY", 1),
+        f"{rmap}.EVENTS": OMAP.field("EVENTS", "TGT_ERROR", 1)})
 
 
 def tc04_multi_word(regs: Registers, ctx: Context) -> None:
@@ -434,7 +521,9 @@ def tc06_compression(regs: Registers, ctx: Context) -> None:
             sdus += image_sdus(ctx, ch, image_samples(ctx, ch, kind, ctx.images))
             ctx.images += 1
         streams[ch.port] = sdus
+    decoded, undecoded = ctx.decoded, ctx.undecoded
     send_images(regs, ctx, streams)
+    record_decoding(ctx, ctx.decoded - decoded, ctx.undecoded - undecoded)
 
 
 def tc07_counters(regs: Registers, ctx: Context) -> None:
@@ -512,6 +601,7 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     for ch in fixed:
         ocptest.check_fixed(regs, ctx, ch)
     plans = {ch.port: ocptest.image_plan(ctx, ch) for ch in runtime}
+    decoded, undecoded = ctx.decoded, ctx.undecoded
     for k in range(max(len(plan) for plan in plans.values())):
         streams = {}
         for ch in (ch for ch in runtime if k < len(plans[ch.port])):
@@ -530,15 +620,208 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
         send_images(regs, ctx, streams)
         for ch in (ch for ch in runtime if k < len(plans[ch.port])):
             ocptest.check_taken(regs, ctx, ch)
+    record_decoding(ctx, ctx.decoded - decoded, ctx.undecoded - undecoded)
     check_status(regs, ctx)
 
 
-TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config]
+def traffic_round(regs: Registers, ctx: Context, gap: tuple[int, ...] = ()) -> list[Channel]:
+    """One image per channel for the test cases that check the data path after a provoked event: in a profile without
+    small images every channel compresses a scene image of its generics; with small images only the channels with the
+    runtime configuration, each a scene image of at most Profile.small samples, committed before it, and the values of
+    the generics committed after it. gap: the ports whose sender skips one Packet Sequence Count before the second
+    SDU of the image. The counters are cleared before and match the images after; returns the channels used."""
+    clear_status(regs, ctx)
+    runtime, _ = ocptest.split_channels(ctx.system)
+    channels = runtime if ctx.profile.small else ctx.system.channels
+    streams = {}
+    for ch in channels:
+        if ctx.profile.small:
+            values = ocp.build_values(ch.cfg)
+            nx, ny, nz = (min(a, b) for a, b in zip(ctx.profile.small, (values.nx, values.ny, values.nz)))
+            ocptest.commit(regs, ctx, ch, replace(values, nx=nx, ny=ny, nz=nz))
+            cfg = ctx.models[ch.port].next_cfg
+            samples = ocp.input_order(cfg, ocp.test_image(cfg, "scene", f"{ctx.seed} {ch.port} {ctx.images}"))
+        else:
+            samples = image_samples(ctx, ch, "scene", ctx.images)
+        ctx.images += 1
+        sdus = image_sdus(ctx, ch, samples)
+        if ch.port in gap:
+            check(len(sdus) > 1, f"{ch.compressor}: an image of one SDU has no second SDU for the gap")
+            sdus[1] = replace(sdus[1], gap=True)
+        streams[ch.port] = sdus
+    send_images(regs, ctx, streams)
+    if ctx.profile.small:
+        for ch in channels:
+            ocptest.commit(regs, ctx, ch, ocp.build_values(ch.cfg))
+    check_status(regs, ctx)
+    return channels
 
-# Test cases that a test case builds on; they run before it when it is selected on its own
-REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
-            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure]}
+
+def lane_names(ctx: Context, lanes: list[int], *names: str) -> dict[str, int]:
+    """The error registers of these lanes of the SpaceFibre port that a test case may move, with any value."""
+    port = ctx.system.port
+    out = {}
+    for lane in lanes:
+        out |= {f"{port}.LANE_EVENTS({lane})": errorstate.ALL, f"{port}.LANE_TIMEOUT_COUNT({lane})": errorstate.ALL,
+                f"{port}.LANE_STATUS({lane}).RXERR_COUNT": errorstate.ALL}
+    return out | {f"{port}.{name}": errorstate.ALL for name in names}
+
+
+def tc12_far_end_link_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-12: link reset from the far end, no traffic in flight. The operator resets the link at the port of the
+    test equipment (operator step); the script waits until the RMAP target answers again. The SpaceFibre port reports
+    the far-end link reset (DL_ERRORS.FAR_END_LINK_RESET, DL-LR-03) and the initialised link with all lanes; the lanes
+    are recorded. A round of images (traffic_round) equals the model, the counters match. Before the error registers
+    are cleared: DL_ERRORS holds FAR_END_LINK_RESET only; the lane registers (events, timeouts and receiver resets,
+    RXERR_COUNT), ML_MISALIGNED and DL_RETRIES of the restart may hold any value and are recorded; every other error
+    register is still 0."""
+    s = ctx.system
+    regs.transport.operator(FAR_END_LINK_RESET)
+    systest.await_rmap(regs, ctx)
+    port = s.base(s.port)
+    reset = OFB.field("DL_ERRORS", "FAR_END_LINK_RESET", 1)
+    regs.wait(port + OFB.DL_ERRORS, reset, reset)
+    systest.check_link_state(regs, ctx)
+    systest.lane_records(regs, ctx, "after the far-end link reset: ")
+    traffic_round(regs, ctx)
+    systest.caused(regs, ctx, "TC-RS-HW-12", expected={f"{s.port}.DL_ERRORS": reset},
+                   allowed=lane_names(ctx, list(range(s.lanes)), "ML_MISALIGNED", "DL_RETRIES"))
+
+
+def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-13: lane removal and rejoin from the near end (ML-LM-12, ECSS-E-ST-50-11C 5.6.9.5), between rounds of
+    images: with the link idle the last lane gets LANE_CTRL.TX_EN = RX_EN = 0 over RMAP (RMAP keeps the link on the
+    other lanes); ML_STATUS shows the other lanes sending and receiving, aligned, and the lane leaves the Active
+    state. A round of images (traffic_round) on these lanes equals the model. The lane gets TX_EN and RX_EN again and
+    rejoins: Active, ML_STATUS with all lanes. Another round of images equals the model. Before the error registers
+    are cleared: ML_MISALIGNED, DL_RETRIES and the registers of the lane may hold any value and are recorded; every
+    other error register is still 0. A run that stops here may leave the lane out: program the device again."""
+    s = ctx.system
+    port = s.base(s.port)
+    lane = s.lanes - 1
+    address = port + OFB.LANE_CTRL(lane)
+    ctrl = 0x62 | systest.generic_value(s.file.generic(s.port, "LaneStart_g"))
+    check(regs.read(address) == ctrl, f"{s.port} LANE_CTRL({lane}) does not read its value of the reset 0x{ctrl:02X}")
+    enable = OFB.field("LANE_CTRL", "TX_EN", 1) | OFB.field("LANE_CTRL", "RX_EN", 1)
+    fields = (OFB.field("ML_STATUS", "DATA_SENDING", OFB.ML_STATUS_DATA_SENDING_MASK)
+              | OFB.field("ML_STATUS", "DATA_RECEIVING", OFB.ML_STATUS_DATA_RECEIVING_MASK)
+              | OFB.field("ML_STATUS", "ALIGN_STATE", OFB.ML_STATUS_ALIGN_STATE_MASK))
+
+    def lanes_up(mask: int) -> int:
+        return (OFB.field("ML_STATUS", "DATA_SENDING", mask) | OFB.field("ML_STATUS", "DATA_RECEIVING", mask)
+                | OFB.field("ML_STATUS", "ALIGN_STATE", 2))
+
+    all_lanes = (1 << s.lanes) - 1
+    regs.write(address, ctrl & ~enable)
+    regs.wait(port + OFB.ML_STATUS, fields, lanes_up(all_lanes & ~(1 << lane)))
+    state = OFB.get("LANE_STATUS", "STATE", regs.read(port + OFB.LANE_STATUS(lane)))
+    check(state != systest.LANE_ACTIVE, f"{s.port} lane {lane} without TX_EN and RX_EN is still Active")
+    traffic_round(regs, ctx)
+    regs.write(address, ctrl)
+    active = OFB.field("LANE_STATUS", "STATE", OFB.LANE_STATUS_STATE_MASK)
+    regs.wait(port + OFB.LANE_STATUS(lane), active, OFB.field("LANE_STATUS", "STATE", systest.LANE_ACTIVE))
+    regs.wait(port + OFB.ML_STATUS, fields, lanes_up(all_lanes))
+    traffic_round(regs, ctx)
+    systest.lane_records(regs, ctx, "after the rejoin: ")
+    systest.caused(regs, ctx, "TC-RS-HW-13", allowed=lane_names(ctx, [lane], "ML_MISALIGNED", "DL_RETRIES"))
+
+
+def tc14_memory_errors(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-14: memory errors injected through ECC_INJECT of the SpaceFibre port, the RMAP target and the Space
+    Packet node during rounds of images (sw/refsys/ecctest.py): single errors into every buffer that the traffic
+    writes, then a round of images that equals the model, and the counters of the monitor channels; then double errors
+    with an outcome that the test sees: the transmit and the receive row crossing of the SpaceFibre port, each followed
+    by a round of images (the frame is sent again, the link stays up), a verified write of the RMAP target that ends
+    with the status 1 and a sacrificial Space Packet that the node discards with the code 0x1B. Before each clear
+    every other error register is still 0 (systest.caused)."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    channels = runtime if ctx.profile.small else ctx.system.channels
+    ecctest.inject_singles(regs, ctx, channels[0].port)
+    traffic_round(regs, ctx)
+    ecctest.check_singles(regs, ctx)
+    for channel in ecctest.OFB_DOUBLES:
+        ecctest.inject_ofb_double(regs, ctx, channel)
+        traffic_round(regs, ctx)
+    systest.check_link_state(regs, ctx)
+    ecctest.rmap_double(regs, ctx)
+    ecctest.spp_double(regs, ctx)
+    ecctest.check_doubles(regs, ctx)
+
+
+def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-16: Space Packets that the Space Packet node discards before and after its APID table, each counted in
+    ERR_RX1 to ERR_RX6 and shown in LAST_ERROR (sw/refsys/spptest.py), none received (RX_PACKETS) and none given to a
+    compressor. Then one round of images (traffic_round) through the normal paths that the other test cases do not
+    take: on the first channel of the round the Packet Sequence Count of its input APID wraps from 16383 to 0 without
+    the Data Loss Indicator (RX_TABLE_ENTRY preset with LAST 16382) and the count of its output APID from 16383 to 0
+    (TX_TABLE_ENTRY preset), on the last channel the input APID has no continuity check and the sender skips a count
+    without the Data Loss Indicator, and the send ports take turns (CONFIG.ROUND_ROBIN). Every image equals the model;
+    the tables and CONFIG are restored, the counters of the discards checked and cleared."""
+    s, setup = ctx.system, ctx.setup
+    node = s.base(s.node)
+    clear_status(regs, ctx)
+    expected = spptest.discards(regs, ctx)
+    check_status(regs, ctx)
+    runtime, _ = ocptest.split_channels(s)
+    channels = runtime if ctx.profile.small else s.channels
+    first, last = channels[0], channels[-1]
+    entry = {ch.port: SPP.field("RX_TABLE_ENTRY", "ENABLE", 1) | SPP.field("RX_TABLE_ENTRY", "PORT", ch.port)
+             for ch in (first, last)}
+    check_on = SPP.field("RX_TABLE_ENTRY", "CHECK", 1)
+    wrap = setup.input_apid_base + first.port
+    spptest.write_entry(regs, node, wrap, entry[first.port] | check_on | SPP.field("RX_TABLE_ENTRY", "VALID", 1)
+                        | SPP.field("RX_TABLE_ENTRY", "LAST", 16382))
+    ctx.input_count[wrap] = 16383
+    spptest.write_entry(regs, node, setup.input_apid_base + last.port, entry[last.port])
+    tx = SPP.field("TX_TABLE_ENTRY", "ENABLE", 1) | SPP.field("TX_TABLE_ENTRY", "COUNT", 16383)
+    regs.wait(node + SPP.TABLE_STATUS, SPP.field("TABLE_STATUS", "TX_BUSY", 1), 0)
+    regs.write(node + SPP.TX_TABLE_APID, first.output_apid)
+    regs.read(node + SPP.TX_TABLE_ENTRY)
+    regs.write(node + SPP.TX_TABLE_ENTRY, tx)
+    check(regs.read(node + SPP.TX_TABLE_ENTRY) == tx, f"send APID table entry of APID {first.output_apid}")
+    ctx.output_count[first.output_apid] = 16383
+    config = regs.read(node + SPP.CONFIG)
+    check(not SPP.get("CONFIG", "ROUND_ROBIN", config), f"{s.node} CONFIG.ROUND_ROBIN is set: 0x{config:08X}")
+    regs.write(node + SPP.CONFIG, config | SPP.field("CONFIG", "ROUND_ROBIN", 1))
+    traffic_round(regs, ctx, gap=(last.port,))
+    regs.write(node + SPP.CONFIG, config)
+    for ch in (first, last):
+        spptest.write_entry(regs, node, setup.input_apid_base + ch.port, entry[ch.port] | check_on)
+    systest.caused(regs, ctx, "TC-RS-HW-16", expected=expected | {
+        f"{s.node}.EVENTS": SPP.field("EVENTS", "RX_DISCARD", 1)})
+
+
+def tc15_rmap_errors(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-15: the RMAP target against commands that it refuses, discards or treats specially: the reply, TGT_LAST
+    and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py); a
+    write outside the register windows of the system gives the status 1."""
+    rmaptest.tc15_rmap_errors(regs, ctx, ctx.system.unmapped_address())
+
+
+def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-17: end of the run: every error and memory error register of the SpaceFibre port, the RMAP target,
+    the Space Packet node, the ECC monitor and the compressors still reads 0 since the baseline of TC-RS-HW-01 (the
+    test cases that provoke errors clear what they caused), the leaky RXERR_COUNT of every lane at most its baseline;
+    the values, the lanes and the rate of TC-RS-HW-09 are recorded."""
+    if ctx.rate:
+        systest.record(ctx, f"TC-RS-HW-09: {ctx.rate}")
+    systest.end_of_run(regs, ctx)
+
+
+TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
+         tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal,
+         tc17_end_of_run]
+
+# Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
+# registers build on the baseline of TC-RS-HW-01
+REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
+            tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
+            tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
+            tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
+            tc14_memory_errors: [tc01_link, tc05_configure],
+            tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
+            tc17_end_of_run: [tc01_link]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
@@ -572,11 +855,31 @@ def run(transport, ctx: Context, tests: list | None = None,
 
 
 def main() -> int:
-    parser = systest.arguments(__doc__.splitlines()[0])
+    parser = systest.arguments(__doc__.splitlines()[0], model=True)
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
-    ctx = make_context(args.seed, PROFILES[args.profile])
-    return systest.run_on_device(args.device, ctx, select_tests(args.test))
+    if args.check_environment:
+        return systest.check_environment(gui=(SYSTEM_DIR / "sw" / "compress_gui.py").exists())
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    if args.model:
+        # the module as the system model imports it (this script runs as __main__), so that both share its classes
+        import hardware_test as ht
+        import system_model
+
+        ctx = ht.make_context(args.seed, ht.PROFILES[args.profile])
+        results = ht.run(system_model.SystemModel(ht.Setup(), system=ctx.system), ctx, ht.select_tests(args.test))
+        code = 0 if all(error is None for _, error in results) and len(results) == len(ht.select_tests(args.test))             else 1
+        target = "system model"
+    else:
+        ctx = make_context(args.seed, PROFILES[args.profile])
+        results = []
+        code = systest.run_on_device(args.device, ctx, select_tests(args.test), results_out=results)
+        target = "device"
+    if args.records:
+        systest.write_records(args.records, "spfi_compress", target, args.profile, ctx, results, started,
+                              {"images": ctx.image_records, "decoded": ctx.decoded, "undecoded": ctx.undecoded,
+                               "rate": ctx.rate})
+    return code
 
 
 if __name__ == "__main__":

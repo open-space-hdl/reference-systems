@@ -121,6 +121,62 @@ def read_command(target: Target, address: int, length: int, transaction_id: int,
                                  length)
 
 
+def command(target: Target, code: int, address: int, length: int, transaction_id: int, *, data: bytes | None = None,
+            extended_address: int = 0, ra_words: int | None = None, packet_type: int = 0b01) -> bytes:
+    """Any command, also one that a target refuses, for the tests of a target: the command code (bits 5:2 of the
+    instruction: write, verify, reply, increment), the packet type (bits 7:6), the Reply Address field of ra_words
+    words (by default the fewest that hold the reply path) and, for data, the data and its CRC."""
+    reply_address, words = _reply_address(target.reply_path)
+    if ra_words is not None:
+        if ra_words < words:
+            raise ValueError("the Reply Address field is too short for the reply path")
+        reply_address, words = bytes(4 * (ra_words - words)) + reply_address, ra_words
+    instruction = (packet_type << 6) | (code << 2) | words
+    header = _header(target, instruction, reply_address, transaction_id, extended_address, address, length)
+    packet = target.path + header
+    return packet + bytes(data) + bytes([crc8(data)]) if data is not None else packet
+
+
+def rmw_command(target: Target, address: int, data: bytes, mask: bytes, transaction_id: int, *,
+                extended_address: int = 0) -> bytes:
+    """Read-modify-write command (5.5.1): the data and the mask, each Data Length / 2 bytes."""
+    if len(data) != len(mask):
+        raise ValueError("the data and the mask of a read-modify-write command have the same length")
+    return command(target, 0b0111, address, 2 * len(data), transaction_id, data=bytes(data) + bytes(mask),
+                   extended_address=extended_address)
+
+
+@dataclass(frozen=True)
+class AnyReply:
+    """The fields of a reply of either format, whatever the command (for the tests of a target)."""
+
+    instruction: int
+    status: int
+    target_logical_address: int
+    transaction_id: int
+    data: bytes | None
+
+
+def parse_any_reply(packet: bytes) -> AnyReply:
+    """Checks the header CRC and the format of a reply whose Reply SpaceWire Address has been removed: the write reply
+    of 8 bytes, or the read reply of 12 bytes with the data of its Data Length and their CRC."""
+    if len(packet) == 8:
+        if crc8(packet) != 0:
+            raise RmapError("header CRC error in the reply")
+        data = None
+    else:
+        if len(packet) < 13 or crc8(packet[:12]) != 0:
+            raise RmapError(f"reply of {len(packet)} bytes: neither a write reply nor a read reply with a good CRC")
+        length = int.from_bytes(packet[8:11], "big")
+        data = packet[12:]
+        if len(data) != length + 1 or crc8(data) != 0:
+            raise RmapError(f"read reply with {len(data)} bytes after the header for a Data Length of {length}")
+        data = bytes(data[:-1])
+    if packet[1] != PROTOCOL_ID or packet[2] >> 6 != 0:
+        raise RmapError(f"not an RMAP reply (protocol 0x{packet[1]:02X}, instruction 0x{packet[2]:02X})")
+    return AnyReply(packet[2], packet[3], packet[4], (packet[5] << 8) | packet[6], data)
+
+
 def parse_reply(packet: bytes, target: Target, transaction_id: int, *, read: bool) -> Reply:
     """Checks a write reply (5.3.2) or read reply (5.4.2) whose Reply SpaceWire Address has been removed."""
     size = 12 if read else 8

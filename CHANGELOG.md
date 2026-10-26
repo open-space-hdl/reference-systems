@@ -94,6 +94,24 @@
 - Hardware test: TC-RS-HW-01 records for every lane of `ofb0` the completed receiver resets, the initialisation
   timeouts and the receiver status (`RECORD` lines, no pass criterion); `report.txt` of the system simulation lists
   them.
+- spfi_compress, hardware test plan of the cores: TC-RS-HW-01 takes the baseline of the error and memory error
+  registers of every block (`sw/refsys/errorstate.py`) and TC-RS-HW-17 checks at the end of the run that none counted
+  since; TC-RS-HW-02 also checks the generics registers of the SpaceFibre port, the RMAP target and the Space Packet
+  node and the initialised link, TC-RS-HW-06 the header fields of the Space Packets sent. New test cases: TC-RS-HW-11
+  (registers of the SpaceFibre port), TC-RS-HW-12 (link reset from the far end, an operator step), TC-RS-HW-13 (a
+  lane leaves the link and rejoins), TC-RS-HW-14 (single and double memory errors injected into the SpaceFibre port,
+  the RMAP target and the Space Packet node), TC-RS-HW-15 (RMAP commands that the target refuses, discards or treats
+  specially, `sw/refsys/rmaptest.py`) and TC-RS-HW-16 (Space Packets that the node discards, sequence counts that
+  wrap, round robin, `sw/refsys/spptest.py`). A test case that provokes errors checks that only the registers it
+  targets moved. The procedure lists per core what the test cases exercise and what they do not (section 10). The
+  system model follows the RMAP target (`sw/refsys/rmapmodel.py`), the receive checks of the Space Packet node and
+  the register semantics of the cores.
+- Hardware test of spfi_compress: `--model` runs it against the system model, `--check-environment` checks the test
+  computer, `--records` writes the records of a run (every compressed image with its hash, the recorded values with
+  their test case), which `tools/render_records.py` renders into the tables of a report. Every complete compressed
+  image is decoded with the decoder of the reference model of OpenCompact when the pinned version has it. The test
+  computer needs Python and the far-end software only; `sw/tests/test_lab_software.py` checks that the software of
+  the hardware tests starts no other program.
 - `sw/refsys/`: the shared parts of the hardware tests and the system model also serve a system without framers and
   AES-GCM cores: the key material of the test context is optional, the identification and the key slots cover the
   channels with an AES-GCM core, and a system gives the Packet Data Fields that a channel sends (`send()` of the
