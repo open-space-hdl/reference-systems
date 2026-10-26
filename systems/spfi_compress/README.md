@@ -188,3 +188,11 @@ compressor must refuse with CFG_ERROR while the configuration stays pending. Eve
 the image of the reference model for the values committed before it; the configuration of each image comes from
 `runtime_image_cfg` of OpenCompact (`tools/ocp_configs.py`), which builds the expected images of its own runtime
 testbench. Channels 1 and 2 must ignore the writes of the runtime registers.
+
+TC-RS-HW-11 to TC-RS-HW-17 check the error handling of the SpaceFibre port, the RMAP target and the Space Packet node
+and the protection of their memories: registers of the port written and read back, a link reset from the far end, a
+lane that leaves the link and rejoins, memory errors injected through the `ECC_INJECT` registers, RMAP commands and
+Space Packets that the blocks refuse or discard, and at the end of the run the error registers of every block, which
+must not have counted since the baseline of TC-RS-HW-01. Section 10 of the
+[hardware test](targets/vck190/docs/hardware_test.md) lists per core the requirements that the test cases exercise
+and those they do not.
