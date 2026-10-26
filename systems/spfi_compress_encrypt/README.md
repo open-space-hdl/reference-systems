@@ -83,7 +83,17 @@ bytes of data) 48 times and 288 bytes.
 | 3 | c26 | BIL (M = 1) | reduced, P = 3, narrow column-oriented local sums, Omega = 19, R = 48 | near-lossless, absolute error limit 12 (DA = 10), sample representatives Theta = 2 | hybrid, Umax = 16, gamma0 = 2 |
 
 All four use an output word size of 4 bytes and image framing by the end mark. The parameters are generics of the
-compressors: one device image has one configuration per channel.
+compressors, except on channels 0 and 3, whose compressors have the runtime configuration of OpenCompact
+(`RuntimeConfig_g`, OpenCompact user guide, section 4.4). Software sets the image dimensions of every image on both
+channels over RMAP, up to the 64 x 64 x 48 of the table. On channel 3 it also sets the absolute error limit value, 0
+to 1023. It writes NEXT_X, NEXT_Y, NEXT_Z and NEXT_LIMITS and then CONTROL.COMMIT. STATUS shows a refused (CFG_ERROR)
+or pending (CFG_PENDING) configuration, and IMAGE_X to IMAGE_Z, ORDER and LIMITS show the values of the last image
+that started (OpenCompact register map). After a reset both channels compress with the values of the table. Channel 0
+is lossless, so it has no error limit to change; in its BIP order the sub-frame depth follows the number of bands (M =
+min(48, NZ)). Only channel 3, with reduced prediction and column-oriented local sums, takes images one sample wide. A
+compressor with the runtime configuration needs 8 to 10 clock cycles more per image, so the throughput figures below
+also hold for channels 0 and 3. Channels 1 and 2 keep the configuration of their generics: one device image holds both
+kinds.
 
 ## Throughput
 
@@ -145,3 +155,10 @@ The hardware test computes the expected compressed image of every test image wit
 Composer file, and the images and counters of every channel after lost SDUs with a model of the OpenCompact channel
 (`sw/refsys/ocp.py`). The test images are deterministic for a seed and depend on every bit of the sample address, so
 that an address fault of a memory of a compressor changes its compressed image.
+
+TC-RS-HW-10 tests the runtime configuration (`sw/refsys/ocptest.py`). Before every image of its plan, channels 0 and 3
+get the values of that image. The first COMMIT is followed by COMMITs with one value out of range, which the
+compressor must refuse with CFG_ERROR while the configuration stays pending. Every compressed image is compared with
+the image of the reference model for the values committed before it; the configuration of each image comes from
+`runtime_image_cfg` of OpenCompact (`tools/ocp_configs.py`), which builds the expected images of its own runtime
+testbench. Channels 1 and 2 must ignore the writes of the runtime registers.

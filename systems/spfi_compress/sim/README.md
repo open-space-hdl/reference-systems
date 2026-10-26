@@ -35,10 +35,10 @@ hardware builds with `--sysclk-mhz 150`; the frequency sets only the clock of th
 The hardware test and the simulation share their test cases and differ in size only (`PROFILES` of
 `sw/hardware_test.py`), as in spfi_compress_encrypt:
 
-| Profile | Images per channel in TC-RS-HW-06 | Lost SDUs in TC-RS-HW-08 | Images per channel in TC-RS-HW-09 | Use |
-| --- | --- | --- | --- | --- |
-| `lab` | 5 (scene, stripes, noise, flat bands with steps, flat bands with spikes) | cases (a) and (b) on every channel, five images per channel | 8 | Hardware test |
-| `sim` | 1 (scene) | case (a) on channels 0 and 2 (two images), case (b) on channels 1 and 3 (three images) | 2 | System simulation |
+| Profile | Images per channel in TC-RS-HW-06 | Lost SDUs in TC-RS-HW-08 | Images per channel in TC-RS-HW-09 | Images in TC-RS-HW-10 | Use |
+| --- | --- | --- | --- | --- | --- |
+| `lab` | 5 (scene, stripes, noise, flat bands with steps, flat bands with spikes) | cases (a) and (b) on every channel, five images per channel | 8 | 21 on channels 0 and 3 (the sequence of OpenCompact, then the values of the generics), 1 on channels 1 and 2 | Hardware test |
+| `sim` | 1 (scene) | case (a) on channels 0 and 2 (two images), case (b) on channels 1 and 3 (three images) | 2 | 3 on channels 0 and 3, the bounds: 2 x 1 x 1, 64 x 1 x 48 and 2 x 64 x 1 on channel 0; 1 x 1 x 1, 64 x 1 x 48 with the error limit value 1023 and 1 x 64 x 1 on channel 3 | System simulation |
 
 Every error path of the channel (the abort after the Data Loss Indicator, the image without its end mark, the
 discarded SDUs and the counters) is thus simulated at the configuration of the device image, two channels per case.
