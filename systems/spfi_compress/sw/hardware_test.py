@@ -26,6 +26,10 @@ the Composer file of the system, the register maps from the headers of the cores
 TC-RS-HW-03, the register access and the run are those of sw/refsys/systest.py. The set-up and the procedure are
 described with the board target.
 
+TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_g) the image dimensions and error
+limit values of every image over RMAP and compares the images with the model images of these values
+(sw/refsys/ocptest.py).
+
 Before the first test case the script discards the packets that an earlier run left on both channels (drain).
 
 Usage: python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
@@ -46,7 +50,7 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import ocp, systest  # noqa: E402
+from refsys import ocp, ocptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -81,16 +85,20 @@ EQUIPMENT_RATE = 20e6
 class Profile:
     """Size of a test run: TC-RS-HW-06 sends one image of every kind of kinds per channel, TC-RS-HW-09 stream images
     per channel at once; TC-RS-HW-08 runs both cases of lost SDUs on every channel, or with split_lost case (a) on
-    the channels of even and case (b) on those of odd number. The hardware test runs the lab profile, the system
-    simulation the sim profile."""
+    the channels of even and case (b) on those of odd number; TC-RS-HW-10 sends the full image plan of every channel
+    with the runtime configuration and one image of every other channel, or without runtime_full three images of the
+    bounds (refsys.ocptest.image_plan). The hardware test runs the lab profile, the system simulation the sim
+    profile."""
 
     name: str
     kinds: tuple[str, ...]
     stream: int
     split_lost: bool = False
+    runtime_full: bool = True
 
 
-PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8), Profile("sim", ("scene",), 2, split_lost=True))}
+PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
+                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False))}
 
 
 @dataclass
@@ -254,9 +262,10 @@ def expected_image(ch: Channel, output: ocp.Output) -> bytes:
     """The compressed image of an output of the channel: that of the model for a complete image, for an aborted one
     that of the samples taken (ocp.aborted_image). The Space Packets carry no mark of the end of an image, so the test
     needs the length of every image, also of an aborted one."""
+    cfg = output.cfg
     if output.complete:
-        return ocp.compress(ch.cfg, ocp.from_input_order(ch.cfg, list(output.samples)))
-    data = ocp.aborted_image(ch.cfg, list(output.samples))
+        return ocp.compress(cfg, ocp.from_input_order(cfg, list(output.samples)))
+    data = ocp.aborted_image(cfg, list(output.samples))
     if data is None:
         raise TestFailed("the model of OpenCompact gives no aborted image (compress_aborted): the test cannot tell "
                          "where an aborted image ends")
@@ -319,11 +328,11 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
         check(len(out) == sum(len(w) for w in wanted),
               f"APID {apid}: {len(out)} Space Packets, expected {sum(len(w) for w in wanted)}")
         back, k = [], 0
-        for n, ((_, want), parts) in enumerate(zip(expected, wanted)):
+        for n, ((output, want), parts) in enumerate(zip(expected, wanted)):
             got = out[k:k + len(parts)]
             k += len(parts)
             data = b"".join(p.data for p in got)
-            problems = ocp.header_problems(data, ch.cfg)
+            problems = ocp.header_problems(data, output.cfg)
             if not problems and data != want:
                 first_byte = next((i for i, (a, b) in enumerate(zip(data, want)) if a != b), min(len(data),
                                                                                                 len(want)))
@@ -488,12 +497,48 @@ def tc09_rate(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-10: the runtime configuration of the compressors with RuntimeConfig_g (refsys/ocptest.py). Their
+    registers hold the values of the reset, and every other compressor ignores the writes of the runtime
+    configuration. Before every image of its plan a channel gets the values of the image with a COMMIT, the first one
+    followed by COMMITs with one value out of range, which the compressor refuses; every compressed image equals the
+    model image of its values, header included, and the compressor shows the values it took. In the lab profile every
+    other channel compresses one image of its generics alongside. The counters match."""
+    runtime, fixed = ocptest.split_channels(ctx.system)
+    check(bool(runtime), "no compressor has the runtime configuration (RuntimeConfig_g)")
+    clear_status(regs, ctx)
+    for ch in runtime:
+        ocptest.check_reset(regs, ctx, ch)
+    for ch in fixed:
+        ocptest.check_fixed(regs, ctx, ch)
+    plans = {ch.port: ocptest.image_plan(ctx, ch) for ch in runtime}
+    for k in range(max(len(plan) for plan in plans.values())):
+        streams = {}
+        for ch in (ch for ch in runtime if k < len(plans[ch.port])):
+            ocptest.commit(regs, ctx, ch, plans[ch.port][k])
+            if k == 0:
+                ocptest.refuse(regs, ctx, ch, plans[ch.port][k])
+            cfg = ctx.models[ch.port].next_cfg
+            kind = ctx.profile.kinds[k % len(ctx.profile.kinds)]
+            samples = ocp.input_order(cfg, ocp.test_image(cfg, kind, f"{ctx.seed} {ch.port} {ctx.images}"))
+            streams[ch.port] = image_sdus(ctx, ch, samples)
+            ctx.images += 1
+        if k == 0 and ctx.profile.runtime_full:
+            for ch in fixed:
+                streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+                ctx.images += 1
+        send_images(regs, ctx, streams)
+        for ch in (ch for ch in runtime if k < len(plans[ch.port])):
+            ocptest.check_taken(regs, ctx, ch)
+    check_status(regs, ctx)
+
+
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
-            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure]}
+            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
@@ -514,7 +559,7 @@ def make_context(seed: int, profile: Profile, setup: Setup = Setup(), system: Sy
     longest = system.rx_buffer_bytes - PRIMARY_HEADER_BYTES
     ctx = Context(system=system, setup=setup, seed=seed, profile=profile, sdu_bytes=min(sdu_bytes or longest, longest),
                   window_words=window_words(random.Random(seed)))
-    ctx.models = {c.port: ocp.Channel(c.cfg, c.marks) for c in system.channels}
+    ctx.models = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
     ctx.cleared = {port: ocp.Counts() for port in ctx.models}
     return ctx
 
