@@ -50,14 +50,14 @@ import random
 import re
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import errorstate, ocp, ocptest, rmaptest, systest  # noqa: E402
+from refsys import errorstate, ocp, ocptest, rmaptest, spptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -94,18 +94,22 @@ class Profile:
     per channel at once; TC-RS-HW-08 runs both cases of lost SDUs on every channel, or with split_lost case (a) on
     the channels of even and case (b) on those of odd number; TC-RS-HW-10 sends the full image plan of every channel
     with the runtime configuration and one image of every other channel, or without runtime_full three images of the
-    bounds (refsys.ocptest.image_plan). The hardware test runs the lab profile, the system simulation the sim
-    profile."""
+    bounds (refsys.ocptest.image_plan). The test cases that check the data path after a provoked event
+    (traffic_round) send one image per channel, or with small only one image of at most small samples (NX, NY, NZ)
+    on each channel with the runtime configuration. The hardware test runs the lab profile, the system simulation the
+    sim profile."""
 
     name: str
     kinds: tuple[str, ...]
     stream: int
     split_lost: bool = False
     runtime_full: bool = True
+    small: tuple[int, int, int] | None = None
 
 
 PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
-                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False))}
+                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
+                                        small=(64, 16, 8)))}
 
 
 @dataclass
@@ -256,12 +260,14 @@ class Context(systest.Context):
 @dataclass(frozen=True)
 class Sdu:
     """An SDU of an image for channel port: lost SDUs are left out by the sender, which skips their Packet Sequence
-    Count, so that the Space Packet node sets the Data Loss Indicator of the next SDU of the APID."""
+    Count, so that the Space Packet node sets the Data Loss Indicator of the next SDU of the APID; before an SDU with
+    gap the sender skips one Packet Sequence Count and sends it (an APID without the continuity check)."""
 
     port: int
     data: bytes
     end: bool
     lost: bool = False
+    gap: bool = False
 
 
 def image_samples(ctx: Context, ch: Channel, kind: str, index: int) -> list[int]:
@@ -298,7 +304,7 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     for sdu in order:
         ch = s.channels[sdu.port]
         apid = setup.input_apid_base + ch.port
-        count = ctx.input_count.get(apid, 0)
+        count = (ctx.input_count.get(apid, 0) + sdu.gap) & 0x3FFF
         ctx.input_count[apid] = (count + 1) & 0x3FFF
         if sdu.lost:
             ctx.pending_loss.add(apid)
@@ -599,6 +605,82 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def traffic_round(regs: Registers, ctx: Context, gap: tuple[int, ...] = ()) -> list[Channel]:
+    """One image per channel for the test cases that check the data path after a provoked event: in a profile without
+    small images every channel compresses a scene image of its generics; with small images only the channels with the
+    runtime configuration, each a scene image of at most Profile.small samples, committed before it, and the values of
+    the generics committed after it. gap: the ports whose sender skips one Packet Sequence Count before the second
+    SDU of the image. The counters are cleared before and match the images after; returns the channels used."""
+    clear_status(regs, ctx)
+    runtime, _ = ocptest.split_channels(ctx.system)
+    channels = runtime if ctx.profile.small else ctx.system.channels
+    streams = {}
+    for ch in channels:
+        if ctx.profile.small:
+            values = ocp.build_values(ch.cfg)
+            nx, ny, nz = (min(a, b) for a, b in zip(ctx.profile.small, (values.nx, values.ny, values.nz)))
+            ocptest.commit(regs, ctx, ch, replace(values, nx=nx, ny=ny, nz=nz))
+            cfg = ctx.models[ch.port].next_cfg
+            samples = ocp.input_order(cfg, ocp.test_image(cfg, "scene", f"{ctx.seed} {ch.port} {ctx.images}"))
+        else:
+            samples = image_samples(ctx, ch, "scene", ctx.images)
+        ctx.images += 1
+        sdus = image_sdus(ctx, ch, samples)
+        if ch.port in gap:
+            check(len(sdus) > 1, f"{ch.compressor}: an image of one SDU has no second SDU for the gap")
+            sdus[1] = replace(sdus[1], gap=True)
+        streams[ch.port] = sdus
+    send_images(regs, ctx, streams)
+    if ctx.profile.small:
+        for ch in channels:
+            ocptest.commit(regs, ctx, ch, ocp.build_values(ch.cfg))
+    check_status(regs, ctx)
+    return channels
+
+
+def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-16: Space Packets that the Space Packet node discards before and after its APID table, each counted in
+    ERR_RX1 to ERR_RX6 and shown in LAST_ERROR (sw/refsys/spptest.py), none received (RX_PACKETS) and none given to a
+    compressor. Then one round of images (traffic_round) through the normal paths that the other test cases do not
+    take: on the first channel of the round the Packet Sequence Count of its input APID wraps from 16383 to 0 without
+    the Data Loss Indicator (RX_TABLE_ENTRY preset with LAST 16382) and the count of its output APID from 16383 to 0
+    (TX_TABLE_ENTRY preset), on the last channel the input APID has no continuity check and the sender skips a count
+    without the Data Loss Indicator, and the send ports take turns (CONFIG.ROUND_ROBIN). Every image equals the model;
+    the tables and CONFIG are restored, the counters of the discards checked and cleared."""
+    s, setup = ctx.system, ctx.setup
+    node = s.base(s.node)
+    clear_status(regs, ctx)
+    expected = spptest.discards(regs, ctx)
+    check_status(regs, ctx)
+    runtime, _ = ocptest.split_channels(s)
+    channels = runtime if ctx.profile.small else s.channels
+    first, last = channels[0], channels[-1]
+    entry = {ch.port: SPP.field("RX_TABLE_ENTRY", "ENABLE", 1) | SPP.field("RX_TABLE_ENTRY", "PORT", ch.port)
+             for ch in (first, last)}
+    check_on = SPP.field("RX_TABLE_ENTRY", "CHECK", 1)
+    wrap = setup.input_apid_base + first.port
+    spptest.write_entry(regs, node, wrap, entry[first.port] | check_on | SPP.field("RX_TABLE_ENTRY", "VALID", 1)
+                        | SPP.field("RX_TABLE_ENTRY", "LAST", 16382))
+    ctx.input_count[wrap] = 16383
+    spptest.write_entry(regs, node, setup.input_apid_base + last.port, entry[last.port])
+    tx = SPP.field("TX_TABLE_ENTRY", "ENABLE", 1) | SPP.field("TX_TABLE_ENTRY", "COUNT", 16383)
+    regs.wait(node + SPP.TABLE_STATUS, SPP.field("TABLE_STATUS", "TX_BUSY", 1), 0)
+    regs.write(node + SPP.TX_TABLE_APID, first.output_apid)
+    regs.read(node + SPP.TX_TABLE_ENTRY)
+    regs.write(node + SPP.TX_TABLE_ENTRY, tx)
+    check(regs.read(node + SPP.TX_TABLE_ENTRY) == tx, f"send APID table entry of APID {first.output_apid}")
+    ctx.output_count[first.output_apid] = 16383
+    config = regs.read(node + SPP.CONFIG)
+    check(not SPP.get("CONFIG", "ROUND_ROBIN", config), f"{s.node} CONFIG.ROUND_ROBIN is set: 0x{config:08X}")
+    regs.write(node + SPP.CONFIG, config | SPP.field("CONFIG", "ROUND_ROBIN", 1))
+    traffic_round(regs, ctx, gap=(last.port,))
+    regs.write(node + SPP.CONFIG, config)
+    for ch in (first, last):
+        spptest.write_entry(regs, node, setup.input_apid_base + ch.port, entry[ch.port] | check_on)
+    systest.caused(regs, ctx, "TC-RS-HW-16", expected=expected | {
+        f"{s.node}.EVENTS": SPP.field("EVENTS", "RX_DISCARD", 1)})
+
+
 def tc15_rmap_errors(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-15: the RMAP target against commands that it refuses, discards or treats specially: the reply, TGT_LAST
     and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py); a
@@ -618,14 +700,14 @@ def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers, tc15_rmap_errors,
-         tc17_end_of_run]
+         tc16_space_packet_errors, tc17_end_of_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
 REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
             tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure], tc15_rmap_errors: [tc01_link],
-            tc17_end_of_run: [tc01_link]}
+            tc16_space_packet_errors: [tc01_link, tc05_configure], tc17_end_of_run: [tc01_link]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

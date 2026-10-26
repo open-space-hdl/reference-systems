@@ -38,6 +38,13 @@ OCR = RegisterMap(CORES / "opencrypto" / "sw" / "ocr_regs.h", "OCR")
 OFB = RegisterMap(CORES / "openfibre" / "sw" / "ofb_regs.h", "OFB")
 OMAP = RegisterMap(CORES / "openrmap" / "sw" / "omap_regs.h", "OMAP")
 
+# The receive error codes of the Space Packet node with their counters (OpenSPP register map, LAST_ERROR and
+# ERR_RX1 to ERR_RX6: two 16-bit counters per register, the lower code in bits 15:0)
+SPP_RX_ERRORS = {0x10: ("ERR_RX1", "EEP"), 0x11: ("ERR_RX1", "PROTOCOL_ID"), 0x12: ("ERR_RX2", "RESERVED"),
+                 0x13: ("ERR_RX2", "ADDRESS"), 0x14: ("ERR_RX3", "SHORT"), 0x15: ("ERR_RX3", "VERSION"),
+                 0x16: ("ERR_RX4", "LENGTH"), 0x17: ("ERR_RX4", "OVERSIZE"), 0x18: ("ERR_RX5", "IDLE"),
+                 0x19: ("ERR_RX5", "NO_PATH"), 0x1A: ("ERR_RX6", "FLAGS"), 0x1B: ("ERR_RX6", "BUFFER")}
+
 # olo_ft_ecc_monitor_axi (register map of its Open Logic documentation): INFO, IRQ_ENA, counters of channel ch
 EDAC_INFO, EDAC_IRQ_ENA, EDAC_CNT = 0x00, 0x0C, 0x10
 

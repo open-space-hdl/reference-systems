@@ -36,8 +36,8 @@ from refsys import chunks, errorstate, rmap
 from refsys.composer import SystemFile
 from refsys.rmapmodel import RmapTargetModel
 from refsys.spp import SpacePacket, cptp_decode, cptp_encode
-from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, SPP, Setup,
-                            System, generic_value, generic_words, loaded_slot)
+from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, SPP,
+                            SPP_RX_ERRORS, Setup, System, generic_value, generic_words, loaded_slot)
 from refsys.transport import Transport, TransportError
 
 SPECIFIED = (False, False)                    # reads and writes of several words as specified
@@ -112,10 +112,9 @@ class SystemModel(Transport):
             self.regs[core + OCR.GENERICS] = OCR.field("GENERICS", "NUM_KEYS", ch.key_slots)
             self.regs[core + OCR.RELEASE_BYTES] = system_file.generic(ch.core, "ReleaseBytes_g")
         self.regs |= reset_values(s, system_file)
-        self.rx_table = {}
+        self.rx_table = {}                                # APID: entry of the receive APID table
+        self.tx_table = {}                                # APID: entry of the send APID table
         self.slots = {}                                   # (core, slot): [key, fixed, next counter]
-        self.seq = {}
-        self.last = {}                                    # APID: last Packet Sequence Count (continuity check)
         # how the error registers clear (refsys.errorstate): write-one-to-clear bits, any write, the writes that clear
         # the memory error counters, and the counters read through a select register
         items = s.error_registers()
@@ -173,7 +172,9 @@ class SystemModel(Transport):
         if address in self.selected:
             return self.ecc.get((address, self.regs.get(self.selected[address], 0)), 0)
         if address == node + SPP.RX_TABLE_ENTRY:
-            return self.rx_table.get(self.regs.get(node + SPP.RX_TABLE_APID, 0), 0)
+            return self._rx_entry(self.regs.get(node + SPP.RX_TABLE_APID, 0))
+        if address == node + SPP.TX_TABLE_ENTRY:
+            return self._tx_entry(self.regs.get(node + SPP.TX_TABLE_APID, 0))
         return self.regs.get(address, 0)
 
     def _write(self, address, value):
@@ -188,10 +189,10 @@ class SystemModel(Transport):
             self._clear_ecc(self.clears[address])
             return
         self.regs[address] = value & ~self.zero_bits.get(address, 0)
-        if address == node + SPP.RX_TABLE_ENTRY:
-            apid = self.regs.get(node + SPP.RX_TABLE_APID, 0)
-            self.rx_table[apid] = value
-            self.last.pop(apid, None)                     # the next packet of the APID sets no loss indicator
+        if address == node + SPP.RX_TABLE_ENTRY:          # the raw entry, LAST and VALID included
+            self.rx_table[self.regs.get(node + SPP.RX_TABLE_APID, 0)] = value
+        elif address == node + SPP.TX_TABLE_ENTRY:
+            self.tx_table[self.regs.get(node + SPP.TX_TABLE_APID, 0)] = value
         for ch in self.system.cores():
             core = self.system.base(ch.core)
             if address == core + OCR.KEY_LOAD:
@@ -222,20 +223,70 @@ class SystemModel(Transport):
         User Application value of its CPTP packet and its Data Loss Indicator."""
         raise NotImplementedError
 
+    def _rx_entry(self, apid: int) -> int:
+        """The entry of the receive APID table: as written, else the path default (enabled, to port 0)."""
+        return self.rx_table.get(apid, SPP.field("RX_TABLE_ENTRY", "ENABLE", 1))
+
+    def _tx_entry(self, apid: int) -> int:
+        """The entry of the send APID table: as written or counted, else the path default (enabled, to destination
+        0, count 0)."""
+        return self.tx_table.get(apid, SPP.field("TX_TABLE_ENTRY", "ENABLE", 1))
+
     def _loss(self, apid: int, entry: int, count: int) -> bool:
-        """Continuity check of the receive APID table: the Data Loss Indicator of a packet of the APID."""
+        """Continuity check of the receive APID table: the Data Loss Indicator of a packet of the APID; with CHECK the
+        entry takes the count as its LAST and becomes VALID (OpenSPP user guide 4.2)."""
         if not SPP.get("RX_TABLE_ENTRY", "CHECK", entry):
             return False
-        last = self.last.get(apid)
-        self.last[apid] = count
-        return last is not None and count != (last + 1) & 0x3FFF
+        valid, last = SPP.get("RX_TABLE_ENTRY", "VALID", entry), SPP.get("RX_TABLE_ENTRY", "LAST", entry)
+        keep = entry & ~(SPP.field("RX_TABLE_ENTRY", "LAST", 0x3FFF) | SPP.field("RX_TABLE_ENTRY", "VALID", 1))
+        self.rx_table[apid] = keep | SPP.field("RX_TABLE_ENTRY", "LAST", count) | SPP.field("RX_TABLE_ENTRY", "VALID", 1)
+        return bool(valid) and count != (last + 1) & 0x3FFF
+
+    def _discard(self, code: int, port: int = 0, apid: int = 0) -> list[bytes]:
+        """A Space Packet that the node discards: its counter, LAST_ERROR and EVENTS.RX_DISCARD (OpenSPP register
+        map)."""
+        node = self.system.base(self.system.node)
+        register, counter = SPP_RX_ERRORS[code]
+        address = node + getattr(SPP, register)
+        shift, mask = getattr(SPP, f"{register}_{counter}_SHIFT"), getattr(SPP, f"{register}_{counter}_MASK")
+        word = self.regs.get(address, 0)
+        self.regs[address] = word & ~(mask << shift) | min((word >> shift & mask) + 1, mask) << shift
+        self.regs[node + SPP.LAST_ERROR] = (SPP.field("LAST_ERROR", "CODE", code) | SPP.field("LAST_ERROR", "PORT", port)
+                                            | SPP.field("LAST_ERROR", "APID", apid))
+        self.regs[node + SPP.EVENTS] = self.regs.get(node + SPP.EVENTS, 0) | SPP.field("EVENTS", "RX_DISCARD", 1)
+        return []
 
     def _spp(self, packet):
-        user_application, payload = cptp_decode(packet, self.setup.system_tla)
-        sp = SpacePacket.decode(payload)
+        """The receive checks of the Space Packet node in their order (OpenSPP specification, decapsulation, receive
+        buffer and demultiplexer; RX_STRIP 0, TLA_CHECK 0), then the processing of the channel."""
         node = self.system.base(self.system.node)
-        entry = self.rx_table.get(sp.apid, SPP.field("RX_TABLE_ENTRY", "ENABLE", 1))
-        ch = self.system.channels[SPP.get("RX_TABLE_ENTRY", "PORT", entry)]
+        if len(packet) <= 4:
+            return self._discard(0x14)
+        if packet[1] != 0x02:
+            return self._discard(0x11)
+        if packet[2] != 0:
+            return self._discard(0x12)
+        user_application, payload = packet[3], bytes(packet[4:])
+        head = (payload[:2] + b"\x00\x00")[:2]
+        apid = int.from_bytes(head, "big") & 0x7FF
+        if len(payload) < 7:
+            return self._discard(0x14, apid=apid)
+        if payload[0] >> 5:
+            return self._discard(0x15, apid=apid)
+        if len(payload) != int.from_bytes(payload[4:6], "big") + 7:
+            return self._discard(0x16, apid=apid)
+        if len(payload) > min(self.regs.get(node + SPP.MAX_LENGTH, 0), self.system.rx_buffer_bytes):
+            return self._discard(0x17, apid=apid)
+        if apid == 0x7FF and not SPP.get("CONFIG", "IDLE_DELIVER", self.regs.get(node + SPP.CONFIG, 0)):
+            return self._discard(0x18, apid=apid)
+        sp = SpacePacket.decode(payload)
+        entry = self._rx_entry(sp.apid)
+        port = SPP.get("RX_TABLE_ENTRY", "PORT", entry)
+        if not SPP.get("RX_TABLE_ENTRY", "ENABLE", entry) or port >= len(self.system.channels):
+            return self._discard(0x19, port, sp.apid)
+        if sp.sequence_flags != 0b11:
+            return self._discard(0x1A, port, sp.apid)
+        ch = self.system.channels[port]
         self._count(node + SPP.RX_PACKETS)
         loss = self._loss(sp.apid, entry, sp.sequence_count)
         if loss:
@@ -243,8 +294,10 @@ class SystemModel(Transport):
         out = []
         for data in self.process(ch, sp.data, user_application, loss):
             for data_field in self.send(ch, data):
-                seq = self.seq.get(ch.output_apid, 0)
-                self.seq[ch.output_apid] = (seq + 1) & 0x3FFF
+                tx = self._tx_entry(ch.output_apid)
+                seq = SPP.get("TX_TABLE_ENTRY", "COUNT", tx)
+                count = SPP.field("TX_TABLE_ENTRY", "COUNT", 0x3FFF)
+                self.tx_table[ch.output_apid] = tx & ~count | SPP.field("TX_TABLE_ENTRY", "COUNT", (seq + 1) & 0x3FFF)
                 packet = SpacePacket(apid=ch.output_apid, data=data_field, sequence_count=seq)
                 out.append(cptp_encode(packet.encode(), self.setup.far_end_tla))
         self._count(node + SPP.TX_PACKETS, len(out))

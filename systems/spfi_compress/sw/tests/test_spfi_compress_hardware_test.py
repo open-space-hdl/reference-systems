@@ -55,7 +55,8 @@ def test_procedure_passes_against_the_model():
     m, ctx = model(), context()
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
-    per_channel = len(LAB.kinds) + 5 + LAB.stream
+    # TC-RS-HW-06, 08 and 09, and one image per channel in the round of TC-RS-HW-16
+    per_channel = len(LAB.kinds) + 5 + LAB.stream + 1
     # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
     runtime = 2 * (ocptest.LAB_IMAGES + 1) + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
