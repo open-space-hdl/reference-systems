@@ -32,6 +32,10 @@ class Transport:
         """Returns the next packet received on a channel, or None when none arrives within timeout."""
         raise NotImplementedError
 
+    def transmit(self, channel: int, packets: list[bytes], timeout: float = 5.0) -> None:
+        """Sends packets on a channel without waiting for a packet in return (a packet that the system discards)."""
+        self.exchange(channel, packets, channel, 0, timeout)
+
     def begin(self, name: str) -> None:
         """Marks the start of a test case; a simulation records the time at which it starts."""
 
@@ -92,6 +96,18 @@ class StarSystemTransport(Transport):
             self._cancel([receive, transmit])
             raise
         return [bytes(item.getPacketData()) for item in receive.getTransferItemList()]
+
+    def transmit(self, channel, packets, timeout=5.0):
+        eop = self._enums.STAR_EOP_TYPE.STAR_EOP_TYPE_EOP
+        transmit = self._transmit([self._stream_item.createPacket([], list(p), eop) for p in packets])
+        try:
+            self._channels[channel].submitTransferOperation(transmit)
+            status = transmit.waitOnTransferOperationCompletion(timeout=int(timeout * 1000))
+            if status != self._enums.STAR_TRANSFER_STATUS.STAR_TRANSFER_STATUS_COMPLETE:
+                raise TransportError(f"transmit on channel {channel} did not complete within {timeout} s ({status})")
+        except BaseException:
+            self._cancel([transmit])
+            raise
 
     def receive(self, channel, timeout):
         receive = self._receive(1, receivePackets=True)

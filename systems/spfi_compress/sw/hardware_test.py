@@ -57,10 +57,10 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import errorstate, ocp, ocptest, systest  # noqa: E402
+from refsys import errorstate, ocp, ocptest, rmaptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
-from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
+from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
 from refsys.systest import (  # noqa: E402, F401
     OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
 
@@ -321,14 +321,20 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
 
 
 def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -> dict[int, list[bytes]]:
-    """Checks the Space Packets of every channel (APID, Packet Sequence Count, length) and every compressed image,
-    put together from its chunks, against its expected bytes."""
+    """Checks the Space Packets of every channel (APID, Packet Sequence Count, length; the fields of the Packet
+    Primary Header that the send port sets: telemetry, no secondary header, Sequence Flags '11'; the User Application
+    value 0 of destination 0 in the CPTP packet) and every compressed image, put together from its chunks, against
+    its expected bytes."""
     s, setup = ctx.system, ctx.setup
     by_apid: dict[int, list[SpacePacket]] = {c.output_apid: [] for c in s.channels}
     for raw in received:
-        _, payload = cptp_decode(raw, setup.far_end_tla)
+        user_application, payload = cptp_decode(raw, setup.far_end_tla)
         packet = SpacePacket.decode(payload)
         check(packet.apid in by_apid, f"output packet with APID 0x{packet.apid:03X}")
+        header = (packet.telecommand, packet.secondary_header, packet.sequence_flags, user_application)
+        check(header == (False, False, SEQ_UNSEGMENTED, 0),
+              f"APID {packet.apid}: Space Packet {packet.sequence_count} with type, secondary header flag, Sequence "
+              f"Flags and User Application {header}, expected telemetry, 0, '11' and 0")
         by_apid[packet.apid].append(packet)
     ctx.traffic.packets += len(received)
     result = {}
@@ -593,6 +599,13 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def tc15_rmap_errors(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-15: the RMAP target against commands that it refuses, discards or treats specially: the reply, TGT_LAST
+    and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py); a
+    write outside the register windows of the system gives the status 1."""
+    rmaptest.tc15_rmap_errors(regs, ctx, ctx.system.unmapped_address())
+
+
 def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-17: end of the run: every error and memory error register of the SpaceFibre port, the RMAP target,
     the Space Packet node, the ECC monitor and the compressors still reads 0 since the baseline of TC-RS-HW-01 (the
@@ -604,13 +617,15 @@ def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers, tc17_end_of_run]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers, tc15_rmap_errors,
+         tc17_end_of_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
 REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
-            tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure], tc17_end_of_run: [tc01_link]}
+            tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure], tc15_rmap_errors: [tc01_link],
+            tc17_end_of_run: [tc01_link]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

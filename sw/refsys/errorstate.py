@@ -37,7 +37,7 @@ class Register:
     whose write clears it (0 for a register that any write clears, the error bits for a write-one-to-clear one), None
     when another register clears it; select: (address of the select register, channel) for a counter read through a
     select register; leaky: a counter that no write clears and that counts down by itself (it may not exceed its
-    baseline)."""
+    baseline); shown: the bits of the register that are read and recorded (a field of a status register)."""
 
     name: str
     address: int
@@ -45,6 +45,7 @@ class Register:
     clear: int | None = 0
     select: tuple[int, int] | None = None
     leaky: bool = False
+    shown: int = ALL
 
 
 @dataclass(frozen=True)
@@ -73,7 +74,7 @@ def ofb_registers(regs, name: str, base: int, lanes: int, vcs: int, ecc_channels
     for lane in range(lanes):
         rxerr = regs.field("LANE_STATUS", "RXERR_COUNT", regs.LANE_STATUS_RXERR_COUNT_MASK)
         out += [Register(f"{name}.LANE_STATUS({lane}).RXERR_COUNT", base + regs.LANE_STATUS(lane), rxerr, None,
-                         leaky=True),
+                         leaky=True, shown=rxerr),
                 Register(f"{name}.LANE_EVENTS({lane})", base + regs.LANE_EVENTS(lane), 0xFF, 0xFF),
                 Register(f"{name}.LANE_REASONS({lane})", base + regs.LANE_REASONS(lane), 0, None),
                 Register(f"{name}.LANE_TIMEOUT_COUNT({lane})", base + regs.LANE_TIMEOUT_COUNT(lane))]
@@ -148,7 +149,7 @@ def read_state(regs, items: list) -> dict[str, int]:
             regs.write(select, channel)
             selects += [select] if select not in selects else []
         for r, value in zip(run, regs.read_block(address, len(run))):
-            state[r.name] = value
+            state[r.name] = value & r.shown
     for select in selects:
         regs.write(select, 0)
     return state

@@ -193,16 +193,16 @@ class RmapTargetModel:
             return False
         if self.generics["Windows_g"] == 0:
             return True
+        # any window that is enabled, covers every byte and permits the access authorises it
         for n in range(self.generics["Windows_g"]):
             ctrl = self.mib(f"WIN_CTRL({n})")
             base = (ctrl >> 8 & 0xFF) << 32 | self.mib(f"WIN_BASE({n})")
             top = (ctrl >> 16 & 0xFF) << 32 | self.mib(f"WIN_LAST({n})")
-            if not (base <= start and last <= top):
-                continue
             allowed = {"read": ctrl >> 1 & 1,
                        "write": ctrl >> 2 & 1 and (not ctrl >> 3 & 1 or code & VERIFY),
                        "rmw": ctrl >> 4 & 1}[kind]
-            return bool(ctrl & 1 and allowed and (not single or ctrl >> 5 & 1))
+            if ctrl & 1 and allowed and (not single or ctrl >> 5 & 1) and base <= start and last <= top:
+                return True
         return False
 
     # --- execution ------------------------------------------------------------------------------------------------

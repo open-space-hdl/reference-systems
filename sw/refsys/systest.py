@@ -107,6 +107,12 @@ class System:
     def base(self, instance: str) -> int:
         return self.windows[instance]
 
+    def unmapped_address(self) -> int:
+        """The first address after the register windows of the system: the AXI-Lite decoder answers DECERR (Open
+        Logic, olo_axi_lite_decoder)."""
+        decoder = self.file.instances_of("olo/olo_axi_lite_decoder")[0]
+        return max(self.windows.values()) + (1 << self.file.generic(decoder, "PortAddrWidth_g"))
+
     def error_registers(self) -> list:
         """The error and memory error registers of the SpaceFibre port, the RMAP target, the Space Packet node and the
         ECC monitor (refsys.errorstate); a system adds those of its own blocks."""
