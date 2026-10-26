@@ -15,6 +15,12 @@ class TransportError(Exception):
     """A transfer that did not complete."""
 
 
+# Steps of the operator at the far end that a test case asks for, with the text shown to the operator
+FAR_END_LINK_RESET = "far-end link reset"
+OPERATOR_STEPS = {FAR_END_LINK_RESET: "Reset the SpaceFibre link at the port of the test equipment (a link reset of "
+                                      "that port, nothing else), then press Enter."}
+
+
 class Transport:
     """Interface of a transport."""
 
@@ -38,6 +44,11 @@ class Transport:
 
     def begin(self, name: str) -> None:
         """Marks the start of a test case; a simulation records the time at which it starts."""
+
+    def operator(self, step: str) -> None:
+        """A step of the operator at the far end (OPERATOR_STEPS): shown, and the test waits for Enter. A simulation
+        does what the operator does with the far end of its bench."""
+        input(f"OPERATOR: {OPERATOR_STEPS[step]} ")
 
     def close(self) -> None:
         pass

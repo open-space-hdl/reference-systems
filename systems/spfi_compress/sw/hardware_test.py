@@ -62,7 +62,8 @@ from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
 from refsys.systest import (  # noqa: E402, F401
-    OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
+    OFB, OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
+from refsys.transport import FAR_END_LINK_RESET  # noqa: E402
 
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 SYSTEM_FILE = SYSTEM_DIR / "spfi_compress.composer.json"
@@ -638,6 +639,75 @@ def traffic_round(regs: Registers, ctx: Context, gap: tuple[int, ...] = ()) -> l
     return channels
 
 
+def lane_names(ctx: Context, lanes: list[int], *names: str) -> dict[str, int]:
+    """The error registers of these lanes of the SpaceFibre port that a test case may move, with any value."""
+    port = ctx.system.port
+    out = {}
+    for lane in lanes:
+        out |= {f"{port}.LANE_EVENTS({lane})": errorstate.ALL, f"{port}.LANE_TIMEOUT_COUNT({lane})": errorstate.ALL,
+                f"{port}.LANE_STATUS({lane}).RXERR_COUNT": errorstate.ALL}
+    return out | {f"{port}.{name}": errorstate.ALL for name in names}
+
+
+def tc12_far_end_link_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-12: link reset from the far end, no traffic in flight. The operator resets the link at the port of the
+    test equipment (operator step); the script waits until the RMAP target answers again. The SpaceFibre port reports
+    the far-end link reset (DL_ERRORS.FAR_END_LINK_RESET, DL-LR-03) and the initialised link with all lanes; the lanes
+    are recorded. A round of images (traffic_round) equals the model, the counters match. Before the error registers
+    are cleared: DL_ERRORS holds FAR_END_LINK_RESET only; the lane registers (events, timeouts and receiver resets,
+    RXERR_COUNT), ML_MISALIGNED and DL_RETRIES of the restart may hold any value and are recorded; every other error
+    register is still 0."""
+    s = ctx.system
+    regs.transport.operator(FAR_END_LINK_RESET)
+    systest.await_rmap(regs, ctx)
+    port = s.base(s.port)
+    reset = OFB.field("DL_ERRORS", "FAR_END_LINK_RESET", 1)
+    regs.wait(port + OFB.DL_ERRORS, reset, reset)
+    systest.check_link_state(regs, ctx)
+    systest.lane_records(regs, ctx, "after the far-end link reset: ")
+    traffic_round(regs, ctx)
+    systest.caused(regs, ctx, "TC-RS-HW-12", expected={f"{s.port}.DL_ERRORS": reset},
+                   allowed=lane_names(ctx, list(range(s.lanes)), "ML_MISALIGNED", "DL_RETRIES"))
+
+
+def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-13: lane removal and rejoin from the near end (ML-LM-12, ECSS-E-ST-50-11C 5.6.9.5), between rounds of
+    images: with the link idle the last lane gets LANE_CTRL.TX_EN = RX_EN = 0 over RMAP (RMAP keeps the link on the
+    other lanes); ML_STATUS shows the other lanes sending and receiving, aligned, and the lane leaves the Active
+    state. A round of images (traffic_round) on these lanes equals the model. The lane gets TX_EN and RX_EN again and
+    rejoins: Active, ML_STATUS with all lanes. Another round of images equals the model. Before the error registers
+    are cleared: ML_MISALIGNED, DL_RETRIES and the registers of the lane may hold any value and are recorded; every
+    other error register is still 0. A run that stops here may leave the lane out: program the device again."""
+    s = ctx.system
+    port = s.base(s.port)
+    lane = s.lanes - 1
+    address = port + OFB.LANE_CTRL(lane)
+    ctrl = 0x62 | systest.generic_value(s.file.generic(s.port, "LaneStart_g"))
+    check(regs.read(address) == ctrl, f"{s.port} LANE_CTRL({lane}) does not read its value of the reset 0x{ctrl:02X}")
+    enable = OFB.field("LANE_CTRL", "TX_EN", 1) | OFB.field("LANE_CTRL", "RX_EN", 1)
+    fields = (OFB.field("ML_STATUS", "DATA_SENDING", OFB.ML_STATUS_DATA_SENDING_MASK)
+              | OFB.field("ML_STATUS", "DATA_RECEIVING", OFB.ML_STATUS_DATA_RECEIVING_MASK)
+              | OFB.field("ML_STATUS", "ALIGN_STATE", OFB.ML_STATUS_ALIGN_STATE_MASK))
+
+    def lanes_up(mask: int) -> int:
+        return (OFB.field("ML_STATUS", "DATA_SENDING", mask) | OFB.field("ML_STATUS", "DATA_RECEIVING", mask)
+                | OFB.field("ML_STATUS", "ALIGN_STATE", 2))
+
+    all_lanes = (1 << s.lanes) - 1
+    regs.write(address, ctrl & ~enable)
+    regs.wait(port + OFB.ML_STATUS, fields, lanes_up(all_lanes & ~(1 << lane)))
+    state = OFB.get("LANE_STATUS", "STATE", regs.read(port + OFB.LANE_STATUS(lane)))
+    check(state != systest.LANE_ACTIVE, f"{s.port} lane {lane} without TX_EN and RX_EN is still Active")
+    traffic_round(regs, ctx)
+    regs.write(address, ctrl)
+    active = OFB.field("LANE_STATUS", "STATE", OFB.LANE_STATUS_STATE_MASK)
+    regs.wait(port + OFB.LANE_STATUS(lane), active, OFB.field("LANE_STATUS", "STATE", systest.LANE_ACTIVE))
+    regs.wait(port + OFB.ML_STATUS, fields, lanes_up(all_lanes))
+    traffic_round(regs, ctx)
+    systest.lane_records(regs, ctx, "after the rejoin: ")
+    systest.caused(regs, ctx, "TC-RS-HW-13", allowed=lane_names(ctx, [lane], "ML_MISALIGNED", "DL_RETRIES"))
+
+
 def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-16: Space Packets that the Space Packet node discards before and after its APID table, each counted in
     ERR_RX1 to ERR_RX6 and shown in LAST_ERROR (sw/refsys/spptest.py), none received (RX_PACKETS) and none given to a
@@ -699,15 +769,17 @@ def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers, tc15_rmap_errors,
-         tc16_space_packet_errors, tc17_end_of_run]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
+         tc12_far_end_link_reset, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal, tc17_end_of_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
 REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
-            tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure], tc15_rmap_errors: [tc01_link],
-            tc16_space_packet_errors: [tc01_link, tc05_configure], tc17_end_of_run: [tc01_link]}
+            tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
+            tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
+            tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
+            tc17_end_of_run: [tc01_link]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

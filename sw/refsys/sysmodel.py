@@ -38,7 +38,7 @@ from refsys.rmapmodel import RmapTargetModel
 from refsys.spp import SpacePacket, cptp_decode, cptp_encode
 from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, SPP,
                             SPP_RX_ERRORS, Setup, System, generic_value, generic_words, loaded_slot)
-from refsys.transport import Transport, TransportError
+from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
 
 SPECIFIED = (False, False)                    # reads and writes of several words as specified
 
@@ -134,6 +134,27 @@ class SystemModel(Transport):
         # bits that read 0 whatever is written: the VN of VC 0 (OpenFibre register map, VC_CFG, MG-VN-01)
         self.zero_bits = {port + OFB.VC_CFG(0): OFB.field("VC_CFG", "VN", OFB.VC_CFG_VN_MASK)}
 
+    # --- link -------------------------------------------------------------------------------------
+    def operator(self, step: str) -> None:
+        """The link reset of the far end: the port of the system sets DL_ERRORS.FAR_END_LINK_RESET, its lanes start
+        again and the link initialises again (OpenFibre, DL-LR-03)."""
+        assert step == FAR_END_LINK_RESET
+        port = self.system.base(self.system.port)
+        self.regs[port + OFB.DL_ERRORS] = self.regs.get(port + OFB.DL_ERRORS, 0) | OFB.field(
+            "DL_ERRORS", "FAR_END_LINK_RESET", 1)
+
+    def _lane_control(self, lane: int, value: int) -> None:
+        """A lane without TX_EN and RX_EN is held in reset and leaves the link, which realigns on the other lanes
+        (ML_MISALIGNED counts); with both again it joins the link (OpenFibre, ML-LM-12, ML-AL-09)."""
+        port = self.system.base(self.system.port)
+        on = OFB.get("LANE_CTRL", "TX_EN", value) and OFB.get("LANE_CTRL", "RX_EN", value)
+        self.regs[port + OFB.LANE_STATUS(lane)] = OFB.field("LANE_STATUS", "STATE", LANE_ACTIVE if on else 0)
+        ml = self.regs[port + OFB.ML_STATUS]
+        bits = OFB.field("ML_STATUS", "DATA_SENDING", 1 << lane) | OFB.field("ML_STATUS", "DATA_RECEIVING", 1 << lane)
+        if bool(ml & bits) != bool(on):
+            self.regs[port + OFB.ML_STATUS] = ml | bits if on else ml & ~bits
+            self._count(port + OFB.ML_MISALIGNED)
+
     # --- RMAP target -------------------------------------------------------------------------------
     def _rmap(self, packet) -> bytes | None:
         """The reply of the RMAP target (refsys.rmapmodel) to a command, without the reply address that the routing
@@ -189,6 +210,10 @@ class SystemModel(Transport):
             self._clear_ecc(self.clears[address])
             return
         self.regs[address] = value & ~self.zero_bits.get(address, 0)
+        port = self.system.base(self.system.port)
+        for lane in range(self.system.lanes):
+            if address == port + OFB.LANE_CTRL(lane):
+                self._lane_control(lane, value)
         if address == node + SPP.RX_TABLE_ENTRY:          # the raw entry, LAST and VALID included
             self.rx_table[self.regs.get(node + SPP.RX_TABLE_APID, 0)] = value
         elif address == node + SPP.TX_TABLE_ENTRY:

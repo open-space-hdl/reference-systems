@@ -429,6 +429,19 @@ def check_link_state(regs: Registers, ctx: Context) -> None:
         check(state == LANE_ACTIVE, f"{s.port} LANE_STATUS({lane}).STATE = {state}")
 
 
+def await_rmap(regs: Registers, ctx: Context, attempts: int = 10) -> None:
+    """Waits until the RMAP target answers again after a link reset: a request that times out or whose reply does not
+    belong to it (a late reply of an earlier request) is followed by a drain of the channel and another request."""
+    for attempt in range(attempts):
+        try:
+            regs.read(ctx.system.base(ctx.system.port) + OFB.DL_STATUS)
+            return
+        except (TransportError, rmap.RmapError, TestFailed) as err:
+            print(f"RMAP request {attempt + 1} after the link reset: {err}")
+            drain(regs.transport, (ctx.setup.rmap_channel,))
+    raise TestFailed(f"the RMAP target does not answer after {attempts} requests")
+
+
 def check_generics(regs: Registers, ctx: Context) -> None:
     """The SpaceFibre port, the RMAP target and the Space Packet node report the generics of the Composer file in
     their registers (generic_words)."""
