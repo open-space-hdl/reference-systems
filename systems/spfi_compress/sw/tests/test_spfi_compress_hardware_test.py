@@ -7,6 +7,7 @@ OpenCompact that its channels use and against the bounds that the system README 
 """
 
 import copy
+import json
 from pathlib import Path
 
 import pytest
@@ -382,3 +383,71 @@ def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
                                                                                  values.rel_limit))
     results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
     assert message in (results["TC-RS-HW-10"] or ""), results
+
+
+# --- decoding check and the options of the hardware test ------------------------------------------------------------
+class StubDecodeError(Exception):
+    pass
+
+
+@pytest.fixture
+def stub_decoder(monkeypatch):
+    """A decoder for an OpenCompact without one (ocp_model.decompress, 0.3.0): it gives back the image that the model
+    compressed into the bytes, and an error for bytes that the model did not make. wrong: the decoded value of the
+    first sample is off by one more than its maximum error."""
+    known, compress = {}, ocp.ocp_model.compress
+    state = {"wrong": False}
+
+    def recording(cfg, img):
+        data = compress(cfg, img)
+        known[bytes(data)] = (cfg, copy.deepcopy(img))
+        return data
+
+    def decompress(data, optional_tables=None, tables=None):
+        if bytes(data) not in known:
+            raise StubDecodeError("not a compressed image of the model")
+        cfg, img = known[bytes(data)]
+        img = copy.deepcopy(img)
+        max_error = [[[0] * len(row) for row in band] for band in img]
+        if state["wrong"]:
+            img[0][0][0] += 1
+        return dict(cfg), img, max_error
+
+    monkeypatch.setattr(ocp.ocp_model, "compress", recording)
+    monkeypatch.setattr(ocp.ocp_model, "decompress", decompress, raising=False)
+    monkeypatch.setattr(ocp.ocp_model, "DecodeError", StubDecodeError, raising=False)
+    return state
+
+
+def test_tc06_decodes_every_image_with_the_model_decoder(stub_decoder):
+    m, ctx = model(), context()
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-06"]))
+    assert not any(results.values()), results
+    assert ctx.decoded == 4 * len(LAB.kinds) and ctx.undecoded == 0
+    assert any("model decoder: 20 compressed images decode" in r for r in ctx.records)
+
+
+def test_the_decoding_check_reports_an_image_that_decodes_wrongly(stub_decoder):
+    stub_decoder["wrong"] = True
+    results = run(model(), context(), ht.select_tests(["TC-RS-HW-06"]))
+    assert "decoded sample (0, 0, 0)" in (results["TC-RS-HW-06"] or ""), results
+
+
+def test_without_the_decoder_the_check_is_skipped_and_recorded(monkeypatch):
+    monkeypatch.setattr(ocp, "decoder_available", lambda: False)
+    m, ctx = model(), context()
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-06"]))
+    assert not any(results.values()), results
+    assert ctx.decoded == 0 and ctx.undecoded == 4 * len(LAB.kinds)
+    assert any("decoding check skipped for 20 images" in r for r in ctx.records)
+
+
+def test_the_records_of_a_run(tmp_path):
+    m, ctx = model(), context()
+    results = ht.run(m, ctx, ht.select_tests(["TC-RS-HW-02"]))
+    path = systest.write_records(tmp_path, "spfi_compress", "system model", "lab", ctx, results,
+                                 "2026-10-27 09:00:00", {"images": ctx.images})
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["started"] == "2026-10-27 09:00:00" and data["seed"] == ctx.seed
+    assert [r["test"] for r in data["results"]] == ["TC-RS-HW-02"] and data["results"][0]["pass"]
+    assert str(tmp_path) not in path.read_text(encoding="utf-8")

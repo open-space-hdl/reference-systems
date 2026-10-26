@@ -8,6 +8,8 @@ included, and returns received packets as they arrive, with the path addresses a
 switches removed.
 """
 
+from pathlib import Path
+
 
 class TransportError(Exception):
     """A transfer that did not complete."""
@@ -41,6 +43,14 @@ class Transport:
 
     def __exit__(self, *exc):
         self.close()
+
+
+def far_end_software() -> str:
+    """Imports the Python package of the far-end software that StarSystemTransport uses (--check-environment);
+    raises ImportError when it is not installed."""
+    import STAR_system
+
+    return f"found ({Path(STAR_system.__file__).parent.name})"
 
 
 class StarSystemTransport(Transport):

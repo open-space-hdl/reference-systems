@@ -30,11 +30,18 @@ TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_
 limit values of every image over RMAP and compares the images with the model images of these values
 (sw/refsys/ocptest.py).
 
+Every complete compressed image is also decoded with the decoder of the reference model of OpenCompact
+(ocp_model.decompress) and compared with the image that was sent: equal for lossless compression, within the
+maximum error of every sample for near-lossless compression. A model of OpenCompact without the decoder skips this
+check and says so.
+
 Before the first test case the script discards the packets that an earlier run left on both channels (drain).
 
 Usage: python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N] [--profile P]
-       [--test TC-RS-HW-nn ...]
-Exit code 0 when every test case passes.
+       [--test TC-RS-HW-nn ...] [--records DIR]
+       python systems/spfi_compress/sw/hardware_test.py --model [--profile P] ...   (against the system model)
+       python systems/spfi_compress/sw/hardware_test.py --check-environment
+Exit code 0 when every test case passes (every item is there).
 """
 
 import copy
@@ -50,12 +57,12 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import ocp, ocptest, systest  # noqa: E402
+from refsys import errorstate, ocp, ocptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
 from refsys.systest import (  # noqa: E402, F401
-    OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc01_link, tc03_rmap, test_name)
+    OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
 
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 SYSTEM_FILE = SYSTEM_DIR / "spfi_compress.composer.json"
@@ -211,6 +218,14 @@ class System(systest.System):
     def id_offsets(self) -> dict[str, int]:
         return super().id_offsets() | {c.compressor: OCP.ID for c in self.channels}
 
+    def error_registers(self) -> list:
+        """With the memory error counters of every compressor (a write clears them). Its image and SDU error counters
+        count the errors of the input on purpose (TC-RS-HW-08); every test case with images checks them against the
+        model (check_status)."""
+        return super().error_registers() + [
+            errorstate.Register(f"{c.compressor}.{name}", self.base(c.compressor) + getattr(OCP, name))
+            for c in self.channels for name in ocp.ECC_COUNTERS]
+
 
 @dataclass
 class Traffic:
@@ -234,6 +249,8 @@ class Context(systest.Context):
     traffic: Traffic = field(default_factory=Traffic)
     images: int = 0
     rate: str = ""
+    decoded: int = 0                                                  # images decoded with the model decoder
+    undecoded: int = 0                                                # complete images without it (no decoder)
 
 
 @dataclass(frozen=True)
@@ -340,10 +357,26 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
             lengths, want_lengths = [len(p.data) for p in got], [len(p) for p in parts]
             if not problems and lengths != want_lengths:
                 problems = [f"Space Packets of {lengths} bytes, expected {want_lengths}"]
+            if not problems and output.complete:
+                if ocp.decoder_available():
+                    problems = ocp.decode_problems(output.cfg, data, list(output.samples))
+                    ctx.decoded += 1
+                else:
+                    ctx.undecoded += 1
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
             back.append(data)
         result[port] = back
     return result
+
+
+def record_decoding(ctx: Context, decoded: int, undecoded: int) -> None:
+    """Records the decoding check of the images of a test case."""
+    if decoded:
+        systest.record(ctx, f"model decoder: {decoded} compressed images decode to the images sent (lossless: equal; "
+                            "near-lossless: within the maximum error)")
+    if undecoded:
+        systest.record(ctx, f"model decoder: not in the pinned OpenCompact, decoding check skipped for {undecoded} "
+                            "images")
 
 
 def clear_status(regs: Registers, ctx: Context) -> None:
@@ -380,15 +413,38 @@ def check_status(regs: Registers, ctx: Context) -> None:
     systest.ecc_counters(regs, ctx)
 
 
+def tc01_link(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP, the lanes are recorded
+    (sw/refsys/systest.py); then the baseline of the error and memory error registers of every block: recorded,
+    cleared and read again as 0 (refsys.errorstate)."""
+    systest.tc01_link(regs, ctx)
+    systest.baseline(regs, ctx)
+
+
 def tc02_identification(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-02: every register window answers with the identification of its block; the status interface of
-    every compressor reports the configuration of its generics."""
+    """TC-RS-HW-02: every register window answers with the identification of its block; the SpaceFibre port, the
+    RMAP target and the Space Packet node report the generics of the Composer file, the SpaceFibre port the
+    initialised link with all lanes; the status interface of every compressor reports the configuration of its
+    generics."""
     systest.tc02_identification(regs, ctx)
+    systest.check_generics(regs, ctx)
+    systest.check_link_state(regs, ctx)
     for ch in ctx.system.channels:
         base = ctx.system.base(ch.compressor)
         for name, value in ocp.mib_words(OCP, ch.generics).items():
             word = regs.read(base + getattr(OCP, name))
             check(word == value, f"{ch.compressor} {name}: 0x{word:08X}, expected 0x{value:08X}")
+
+
+def tc03_rmap(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-03: verified write and read back; a command with a wrong key is rejected (sw/refsys/systest.py). The
+    RMAP target counts the command with the wrong key (TGT_CNT_ERR2.KEY 1, EVENTS.TGT_ERROR) and no other error;
+    the error registers are cleared."""
+    systest.tc03_rmap(regs, ctx)
+    rmap = ctx.system.rmap
+    systest.caused(regs, ctx, "TC-RS-HW-03", expected={
+        f"{rmap}.TGT_CNT_ERR2": OMAP.field("TGT_CNT_ERR2", "KEY", 1),
+        f"{rmap}.EVENTS": OMAP.field("EVENTS", "TGT_ERROR", 1)})
 
 
 def tc04_multi_word(regs: Registers, ctx: Context) -> None:
@@ -434,7 +490,9 @@ def tc06_compression(regs: Registers, ctx: Context) -> None:
             sdus += image_sdus(ctx, ch, image_samples(ctx, ch, kind, ctx.images))
             ctx.images += 1
         streams[ch.port] = sdus
+    decoded, undecoded = ctx.decoded, ctx.undecoded
     send_images(regs, ctx, streams)
+    record_decoding(ctx, ctx.decoded - decoded, ctx.undecoded - undecoded)
 
 
 def tc07_counters(regs: Registers, ctx: Context) -> None:
@@ -512,6 +570,7 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     for ch in fixed:
         ocptest.check_fixed(regs, ctx, ch)
     plans = {ch.port: ocptest.image_plan(ctx, ch) for ch in runtime}
+    decoded, undecoded = ctx.decoded, ctx.undecoded
     for k in range(max(len(plan) for plan in plans.values())):
         streams = {}
         for ch in (ch for ch in runtime if k < len(plans[ch.port])):
@@ -530,15 +589,28 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
         send_images(regs, ctx, streams)
         for ch in (ch for ch in runtime if k < len(plans[ch.port])):
             ocptest.check_taken(regs, ctx, ch)
+    record_decoding(ctx, ctx.decoded - decoded, ctx.undecoded - undecoded)
     check_status(regs, ctx)
 
 
-TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config]
+def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-17: end of the run: every error and memory error register of the SpaceFibre port, the RMAP target,
+    the Space Packet node, the ECC monitor and the compressors still reads 0 since the baseline of TC-RS-HW-01 (the
+    test cases that provoke errors clear what they caused), the leaky RXERR_COUNT of every lane at most its baseline;
+    the values, the lanes and the rate of TC-RS-HW-09 are recorded."""
+    if ctx.rate:
+        systest.record(ctx, f"TC-RS-HW-09: {ctx.rate}")
+    systest.end_of_run(regs, ctx)
 
-# Test cases that a test case builds on; they run before it when it is selected on its own
-REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
-            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure]}
+
+TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers, tc17_end_of_run]
+
+# Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
+# registers build on the baseline of TC-RS-HW-01
+REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
+            tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
+            tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure], tc17_end_of_run: [tc01_link]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
@@ -572,11 +644,31 @@ def run(transport, ctx: Context, tests: list | None = None,
 
 
 def main() -> int:
-    parser = systest.arguments(__doc__.splitlines()[0])
+    parser = systest.arguments(__doc__.splitlines()[0], model=True)
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
-    ctx = make_context(args.seed, PROFILES[args.profile])
-    return systest.run_on_device(args.device, ctx, select_tests(args.test))
+    if args.check_environment:
+        return systest.check_environment(gui=(SYSTEM_DIR / "sw" / "compress_gui.py").exists())
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    if args.model:
+        # the module as the system model imports it (this script runs as __main__), so that both share its classes
+        import hardware_test as ht
+        import system_model
+
+        ctx = ht.make_context(args.seed, ht.PROFILES[args.profile])
+        results = ht.run(system_model.SystemModel(ht.Setup(), system=ctx.system), ctx, ht.select_tests(args.test))
+        code = 0 if all(error is None for _, error in results) and len(results) == len(ht.select_tests(args.test))             else 1
+        target = "system model"
+    else:
+        ctx = make_context(args.seed, PROFILES[args.profile])
+        results = []
+        code = systest.run_on_device(args.device, ctx, select_tests(args.test), results_out=results)
+        target = "device"
+    if args.records:
+        systest.write_records(args.records, "spfi_compress", target, args.profile, ctx, results, started,
+                              {"images": ctx.images, "decoded": ctx.decoded, "undecoded": ctx.undecoded,
+                               "rate": ctx.rate})
+    return code
 
 
 if __name__ == "__main__":

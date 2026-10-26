@@ -32,14 +32,58 @@ simulation:
 - ECC monitor: INFO with the channel count and the counter width (Open Logic FT, olo_ft_ecc_monitor_axi).
 """
 
-from refsys import chunks, rmap
+from refsys import chunks, errorstate, rmap
 from refsys.composer import SystemFile
+from refsys.rmapmodel import RmapTargetModel
 from refsys.spp import SpacePacket, cptp_decode, cptp_encode
 from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, SPP, Setup,
-                            System, loaded_slot)
+                            System, generic_value, generic_words, loaded_slot)
 from refsys.transport import Transport, TransportError
 
 SPECIFIED = (False, False)                    # reads and writes of several words as specified
+
+# Window 0 of the RMAP target after the reset without WinInit_g: enabled for reads, writes, RMW and single-address
+# accesses to the whole address range (OpenRMAP register map, WIN_CTRL)
+WINDOW0 = (0x00FF0037, 0x00000000, 0xFFFFFFFF)
+
+
+def reset_values(s: System, f: SystemFile) -> dict[int, int]:
+    """The registers of the SpaceFibre port, the RMAP target and the Space Packet node that hold a value other than 0
+    after the reset of an initialised link, by address (register maps of the cores)."""
+    out = {}
+    for instance, words in generic_words(f, s).items():
+        regmap = {s.port: OFB, s.rmap: OMAP, s.node: SPP}[instance]
+        out |= {s.base(instance) + getattr(regmap, name): value for name, value in words.items()}
+    port, ofb = s.base(s.port), f.generics(s.port)
+    lanes = (1 << s.lanes) - 1
+    out |= {port + OFB.DL_CTRL: OFB.field("DL_CTRL", "DATA_SCRAMBLED", 1), port + OFB.DL_BC_INTERVAL: 0x28,
+            port + OFB.DL_STATUS: OFB.field("DL_STATUS", "LINK_STATE", LINK_INITIALISED)
+            | OFB.field("DL_STATUS", "TX_READY", 1),
+            port + OFB.ML_STATUS: OFB.field("ML_STATUS", "ALIGN_STATE", 2) | OFB.field("ML_STATUS", "DATA_RECEIVING", lanes)
+            | OFB.field("ML_STATUS", "DATA_SENDING", lanes),
+            port + OFB.VC_HAS_CREDIT: (1 << s.num_vcs) - 1, port + OFB.VC_IDLE_LIMIT: 0x2625A,
+            port + OFB.ML_CTRL: 0x004, port + OFB.LANE_INIT_TIMEOUT: ofb["InitTimeoutWords_g"],
+            port + OFB.PA_CTRL: 0x03600005}
+    for lane in range(s.lanes):
+        out[port + OFB.LANE_CTRL(lane)] = 0x62 | generic_value(ofb["LaneStart_g"])
+        out[port + OFB.LANE_STATUS(lane)] = OFB.field("LANE_STATUS", "STATE", LANE_ACTIVE)
+    for vc in range(s.num_vcs):
+        out[port + OFB.VC_CFG(vc)] = OFB.field("VC_CFG", "VN", vc) | OFB.field("VC_CFG", "PRIORITY", 3)
+        out[port + OFB.VC_BANDWIDTH(vc)] = 0x0A00 if vc == 0 else 0xFFFF
+        out[port + OFB.VC_SLOTS_LO(vc)] = out[port + OFB.VC_SLOTS_HI(vc)] = 0xFFFFFFFF
+    target, omap = s.base(s.rmap), f.generics(s.rmap)
+    out |= {target + OMAP.TGT_LA: generic_value(omap["La0_g"]) | generic_value(omap["La1_g"]) << 8 | 1 << 16
+            | OMAP.field("TGT_LA", "DEF_LA_EN", generic_value(omap["DefLaEn_g"])),
+            target + OMAP.TGT_KEY: OMAP.field("TGT_KEY", "KEY_EN", 1) | generic_value(omap["Key_g"])}
+    if omap.get("WinInit_g") is None and omap["Windows_g"]:
+        for address, value in zip((OMAP.WIN_CTRL(0), OMAP.WIN_BASE(0), OMAP.WIN_LAST(0)), WINDOW0):
+            out[target + address] = value
+    node, spp = s.base(s.node), f.generics(s.node)
+    out |= {node + SPP.CONFIG: generic_value(spp["RoundRobin_g"]) | generic_value(spp["Tla_g"]) << 8,
+            node + SPP.MAX_LENGTH: spp["MaxLength_g"], node + SPP.SCRUB: 1}
+    for dest in range(spp["NumDest_g"]):
+        out[node + SPP.DEST_CTRL(dest)] = SPP.field("DEST_CTRL", "TLA", 0xFE)
+    return out
 
 
 class SystemModel(Transport):
@@ -56,7 +100,6 @@ class SystemModel(Transport):
         self.setup = setup
         self.corrupt = corrupt
         self.first_word_read, self.first_word_write = first_word
-        self.key = 0x00                                   # Key_g
         port, node = s.base(s.port), s.base(s.node)
         self.regs = {port + OFB.ID: OFB.REGMAP_ID, port + OFB.DL_STATUS: LINK_INITIALISED,
                      node + SPP.ID: SPP.REGMAP_ID, s.base(s.rmap) + OMAP.ID: OMAP.REGMAP_ID,
@@ -68,52 +111,83 @@ class SystemModel(Transport):
             self.regs[core + OCR.ID] = OCR.REGMAP_ID
             self.regs[core + OCR.GENERICS] = OCR.field("GENERICS", "NUM_KEYS", ch.key_slots)
             self.regs[core + OCR.RELEASE_BYTES] = system_file.generic(ch.core, "ReleaseBytes_g")
+        self.regs |= reset_values(s, system_file)
         self.rx_table = {}
         self.slots = {}                                   # (core, slot): [key, fixed, next counter]
         self.seq = {}
         self.last = {}                                    # APID: last Packet Sequence Count (continuity check)
+        # how the error registers clear (refsys.errorstate): write-one-to-clear bits, any write, the writes that clear
+        # the memory error counters, and the counters read through a select register
+        items = s.error_registers()
+        self.w1c = {r.address: r.clear for r in items if isinstance(r, errorstate.Register) and r.clear}
+        self.rc = {r.address for r in items if isinstance(r, errorstate.Register) and r.clear == 0}
+        self.selected = {r.address: r.select[0] for r in items if isinstance(r, errorstate.Register) and r.select}
+        self.ecc = {}                                     # (address of ECC_COUNT, channel): counter word
+        self.clears = {c.address: c for c in items if isinstance(c, errorstate.Clear)}
+        rmap0 = s.base(s.rmap)
+        self.target = RmapTargetModel(system_file.generics(s.rmap), OMAP, rmap0, self._bus_read, self._bus_write,
+                                      lambda a: self.regs.get(a, 0), self.regs.__setitem__,
+                                      first_word_read=self.first_word_read, first_word_write=self.first_word_write)
+        self.windows = [s.base(name) for name in s.windows]
+        decoder = system_file.instances_of("olo/olo_axi_lite_decoder")[0]
+        self.window_bytes = 1 << system_file.generic(decoder, "PortAddrWidth_g")
+        self.error_items = {r.name: r for r in items if isinstance(r, errorstate.Register)}
+        # bits that read 0 whatever is written: the VN of VC 0 (OpenFibre register map, VC_CFG, MG-VN-01)
+        self.zero_bits = {port + OFB.VC_CFG(0): OFB.field("VC_CFG", "VN", OFB.VC_CFG_VN_MASK)}
 
     # --- RMAP target -------------------------------------------------------------------------------
-    def _rmap(self, packet):
+    def _rmap(self, packet) -> bytes | None:
+        """The reply of the RMAP target (refsys.rmapmodel) to a command, without the reply address that the routing
+        switch of the far end takes; None without a reply."""
         assert packet[:len(self.setup.rmap_path)] == self.setup.rmap_path
-        cmd = packet[len(self.setup.rmap_path):]          # the routing switch discards the path address
-        instr, key = cmd[2], cmd[3]
-        ra = 4 * (instr & 3)
-        header = cmd[:4 + ra + 12]
-        assert rmap.crc8(header) == 0
-        reply_path = bytes(cmd[4:4 + ra]).lstrip(b"\x00")
-        assert reply_path == self.setup.rmap_reply_path
-        ila, tid = header[4 + ra], (header[5 + ra] << 8) | header[6 + ra]
-        address = int.from_bytes(header[8 + ra:12 + ra], "big")
-        length = int.from_bytes(header[12 + ra:15 + ra], "big")
-        write = bool(instr & 0x20)
-        assert instr & 0x04 and address % 4 == 0 and length % 4 == 0  # incrementing, whole registers
-        first_word = self.first_word_write if write else self.first_word_read
-        status = 0 if key == self.key else 3
-        data = b""
-        if write and status == 0:
-            assert rmap.crc8(cmd[len(header):]) == 0
-            values = cmd[len(header):len(header) + length]
-            for n in range(0, length, 4):
-                self._write(address + (0 if first_word else n), int.from_bytes(values[n:n + 4], "little"))
-        elif status == 0:
-            values = [self._read(address + (0 if first_word else n)) for n in range(0, length, 4)]
-            data = b"".join(v.to_bytes(4, "little") for v in values)
-        out = bytes([ila, 0x01, instr & 0x3F, status, cmd[0], tid >> 8, tid & 0xFF])
-        if not write:
-            out += bytes([0]) + len(data).to_bytes(3, "big")
-        out += bytes([rmap.crc8(out)])
-        return out + data + bytes([rmap.crc8(data)]) if not write else out
+        reply = self.target.packet(bytes(packet[len(self.setup.rmap_path):]))  # the switch takes the path address
+        if reply is None:
+            return None
+        assert reply.startswith(self.setup.rmap_reply_path), reply[:4].hex()
+        return reply[len(self.setup.rmap_reply_path):]
+
+    def _bus_read(self, address: int) -> int | None:
+        """A read of the AXI master of the RMAP target: None (DECERR) outside the register windows of the system."""
+        return self._read(address) if self._decoded(address) else None
+
+    def _bus_write(self, address: int, value: int) -> bool:
+        if not self._decoded(address):
+            return False
+        self._write(address, value)
+        return True
+
+    def _decoded(self, address: int) -> bool:
+        return any(base <= address < base + self.window_bytes for base in self.windows)
+
+    def _clear_ecc(self, clear: errorstate.Clear) -> None:
+        """A write of ECC_STATUS (or CTRL.CLR_ALL of the ECC monitor): the registers it clears read 0."""
+        for name in clear.clears:
+            r = self.error_items[name]
+            if r.select:
+                self.ecc[(r.address, r.select[1])] = 0
+            else:
+                self.regs[r.address] = 0
 
     def _read(self, address):
         node = self.system.base(self.system.node)
+        if address in self.selected:
+            return self.ecc.get((address, self.regs.get(self.selected[address], 0)), 0)
         if address == node + SPP.RX_TABLE_ENTRY:
             return self.rx_table.get(self.regs.get(node + SPP.RX_TABLE_APID, 0), 0)
         return self.regs.get(address, 0)
 
     def _write(self, address, value):
         node = self.system.base(self.system.node)
-        self.regs[address] = value
+        if address in self.w1c:
+            self.regs[address] = self.regs.get(address, 0) & ~(value & self.w1c[address])
+            return
+        if address in self.rc:
+            self.regs[address] = 0
+            return
+        if address in self.clears:
+            self._clear_ecc(self.clears[address])
+            return
+        self.regs[address] = value & ~self.zero_bits.get(address, 0)
         if address == node + SPP.RX_TABLE_ENTRY:
             apid = self.regs.get(node + SPP.RX_TABLE_APID, 0)
             self.rx_table[apid] = value
@@ -195,7 +269,7 @@ class SystemModel(Transport):
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
         assert tx_channel == rx_channel
         if tx_channel == self.setup.rmap_channel:
-            out = [self._rmap(p) for p in packets]
+            out = [r for r in (self._rmap(p) for p in packets) if r is not None]
         else:
             assert tx_channel == self.setup.spp_channel
             out = [o for p in packets for o in self._spp(p)]

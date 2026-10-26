@@ -19,13 +19,14 @@ The register maps of the cores come from their headers (cores/<core>/sw/<prefix>
 
 import argparse
 import importlib
+import json
 import random
 import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from refsys import rmap
+from refsys import errorstate, rmap
 from refsys.composer import SystemFile, instance_of
 from refsys.regs import RegisterMap
 from refsys.transport import TransportError
@@ -63,11 +64,12 @@ class System:
     banks. A system adds its channels (channel()) from the receive ports of the Space Packet node."""
 
     def __init__(self, path: Path, banks: RegisterMap):
-        f = SystemFile(path)
+        f = self.file = SystemFile(path)
         self.node = f.instance_of_block("openspp/spp_core")
         self.rmap = f.instance_of_block("openrmap/omap_core")
         self.port = f.instance_of_block("openfibre/ofb_core")
         self.lanes = f.generic(self.port, "NumLanes_g")
+        self.num_vcs = f.generic(self.port, "NumVc_g")
         # virtual channels of the SpaceFibre port: the RMAP node behind its N-Char bridge, the Space Packet node
         vcs = {instance_of(f.connection_from(f"{self.port}.M_Vc[{k}]")["to"]): k
                for k in range(f.generic(self.port, "NumVc_g"))}
@@ -104,6 +106,62 @@ class System:
 
     def base(self, instance: str) -> int:
         return self.windows[instance]
+
+    def error_registers(self) -> list:
+        """The error and memory error registers of the SpaceFibre port, the RMAP target, the Space Packet node and the
+        ECC monitor (refsys.errorstate); a system adds those of its own blocks."""
+        return (errorstate.ofb_registers(OFB, self.port, self.base(self.port), self.lanes, self.num_vcs)
+                + errorstate.omap_registers(OMAP, self.rmap, self.base(self.rmap))
+                + errorstate.spp_registers(SPP, self.node, self.base(self.node))
+                + errorstate.edac_registers(self.ecc, self.base(self.ecc), self.ecc_channels))
+
+
+def generic_value(value, width: int = 32) -> int:
+    """The value of a generic of the Composer file as a number: an integer, a boolean, a bit or a bit string literal
+    ('1', x"FE", "0110") or an aggregate (others => '1') of width bits."""
+    if isinstance(value, bool) or isinstance(value, int):
+        return int(value)
+    text = str(value).strip()
+    if text.startswith("(others"):
+        return (1 << width) - 1 if "'1'" in text else 0
+    text = text.strip("'")
+    if text[:1] in "xX" and text[1:2] == '"':
+        return int(text[2:-1].replace("_", ""), 16)
+    return int(text.strip('"').replace("_", ""), 2)
+
+
+def generic_words(f: SystemFile, s: System) -> dict[str, dict[str, int]]:
+    """The registers that report the generics of the SpaceFibre port, the RMAP target and the Space Packet node, from
+    the generics of the Composer file (register maps of OpenFibre, OpenRMAP and OpenSPP): {instance: {register:
+    value}}."""
+    ofb, omap, spp = f.generics(s.port), f.generics(s.rmap), f.generics(s.node)
+    initiator = generic_value(omap["Initiator_g"])
+    rmap_generics = (OMAP.field("GENERICS", "TARGET", generic_value(omap["Target_g"]))
+                     | OMAP.field("GENERICS", "INITIATOR", initiator)
+                     | OMAP.field("GENERICS", "PASSTHROUGH", generic_value(omap["Passthrough_g"]))
+                     | OMAP.field("GENERICS", "EXT_AUTH", generic_value(omap["ExtAuth_g"]))
+                     | OMAP.field("GENERICS", "WINDOWS", omap["Windows_g"])
+                     | OMAP.field("GENERICS", "WORD_BYTES", omap["AxiDataWidth_g"] // 8))
+    if initiator:  # without the initiator omap_core reads 0 in these fields (OpenRMAP register map, GENERICS)
+        rmap_generics |= (OMAP.field("GENERICS", "TRANSACTIONS", omap["Transactions_g"])
+                          | OMAP.field("GENERICS", "TGT_ADDR_BYTES", omap["TgtAddrBytes_g"]))
+    ports = (1 << spp["NumTx_g"]) - 1, (1 << spp["NumRx_g"]) - 1
+    return {
+        s.port: {"GENERICS": OFB.field("GENERICS", "NUM_LANES", ofb["NumLanes_g"])
+                 | OFB.field("GENERICS", "NUM_VC", ofb["NumVc_g"])},
+        s.rmap: {"GENERICS": rmap_generics,
+                 "BUFFERS": OMAP.field("BUFFERS", "VERIFY_BYTES", omap["BufferBytes_g"])
+                 | OMAP.field("BUFFERS", "CHUNK_BYTES", omap["ChunkBytes_g"])},
+        s.node: {"GENERICS": SPP.field("GENERICS", "NUM_TX", spp["NumTx_g"])
+                 | SPP.field("GENERICS", "NUM_RX", spp["NumRx_g"])
+                 | SPP.field("GENERICS", "NUM_DEST", spp["NumDest_g"])
+                 | SPP.field("GENERICS", "SPW_ADDR_BYTES", spp["SpwAddrBytes_g"])
+                 | SPP.field("GENERICS", "DATA_BYTES", spp["DataWidth_g"] // 8)
+                 | SPP.field("GENERICS", "ENCAPSULATION", generic_value(spp["Encapsulation_g"])),
+                 "SERVICES": SPP.field("SERVICES", "TX_OCTET", generic_value(spp["TxOctetString_g"], 16) & ports[0])
+                 | SPP.field("SERVICES", "RX_OCTET", generic_value(spp["RxOctetString_g"], 16) & ports[1]),
+                 "TX_BUFFER": spp["TxBufferBytes_g"], "RX_BUFFER": spp["RxBufferBytes_g"]},
+    }
 
 
 def encryption(f: SystemFile, framer: str) -> dict:
@@ -218,6 +276,7 @@ class Context:
     test_fixed: int = field(default=0, kw_only=True)
     test_counter: int = field(default=0, kw_only=True)
     records: list[str] = field(default_factory=list, kw_only=True)
+    baseline: dict[str, int] = field(default_factory=dict, kw_only=True)   # error registers after link-up
 
 
 def record(ctx: Context, text: str) -> None:
@@ -280,19 +339,153 @@ def tc01_link(regs: Registers, ctx: Context) -> None:
     check(regs.read(base + OFB.ID) == ctx.system.ids[port], "ID of the SpaceFibre port")
     state = OFB.get("DL_STATUS", "LINK_STATE", regs.read(base + OFB.DL_STATUS))
     check(state == LINK_INITIALISED, f"DL_STATUS.LINK_STATE = {state}")
+    for lane, state in enumerate(lane_records(regs, ctx)):
+        check(state == LANE_ACTIVE, f"LANE_STATUS({lane}).STATE = {state}")
+
+
+def lane_records(regs: Registers, ctx: Context, when: str = "") -> list[int]:
+    """Records for every lane the receiver resets of the physical adapter and the initialisation timeouts since they
+    were last cleared, and the receiver status (OpenFibre user guide, receiver reset of ofb_pa_gty); returns the
+    state of every lane. when: a prefix of the records."""
+    port = ctx.system.port
+    base = ctx.system.base(port)
     states = []
     for lane in range(ctx.system.lanes):
         status = regs.read(base + OFB.LANE_STATUS(lane))
         count = regs.read(base + OFB.LANE_TIMEOUT_COUNT(lane))
         states.append(OFB.get("LANE_STATUS", "STATE", status))
-        record(ctx, f"{port} lane {lane}: RX_RESETS {OFB.get('LANE_TIMEOUT_COUNT', 'RX_RESETS', count)}, "
+        record(ctx, f"{when}{port} lane {lane}: RX_RESETS {OFB.get('LANE_TIMEOUT_COUNT', 'RX_RESETS', count)}, "
                f"initialisation timeouts {OFB.get('LANE_TIMEOUT_COUNT', 'COUNT', count)}, "
                f"RXRESETDONE {OFB.get('LANE_STATUS', 'RX_RESET_DONE', status)}, "
                f"receiver reset in progress {OFB.get('LANE_STATUS', 'RX_RESET_BUSY', status)}, "
                f"CDR lock {OFB.get('LANE_STATUS', 'CDR_LOCK', status)}, "
                f"receiver electrical idle {OFB.get('LANE_STATUS', 'RX_ELEC_IDLE', status)}")
-    for lane, state in enumerate(states):
-        check(state == LANE_ACTIVE, f"LANE_STATUS({lane}).STATE = {state}")
+    return states
+
+
+def baseline(regs: Registers, ctx: Context) -> None:
+    """Step of TC-RS-HW-01: the baseline of the error registers of every block right after link-up (refsys.errorstate):
+    the registers that hold a value are recorded, then all are cleared and read again: every error register reads 0,
+    a leaky counter at most its first value, which stays its baseline."""
+    items = ctx.system.error_registers()
+    first = errorstate.read_state(regs, items)
+    record(ctx, f"error registers after link-up: {errorstate.nonzero(first)}")
+    errorstate.clear_state(regs, items)
+    ctx.baseline = errorstate.read_state(regs, items)
+    problems = errorstate.unexpected(items, ctx.baseline, baseline=first)
+    check(not problems, f"error registers that do not clear: {', '.join(problems)}")
+
+
+def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] | None = None,
+           allowed: dict[str, int] | None = None) -> dict[str, int]:
+    """The end of a test case that provokes errors on purpose: the error registers it targets hold the expected
+    values (expected: the error bits of the register, by name), those it may move hold any value in their allowed
+    bits (allowed: bits by name, errorstate.ALL for any value), and every other error register is still 0 (a leaky
+    counter at most its baseline). The values are recorded, then every error register is cleared. Returns the values
+    read."""
+    items = ctx.system.error_registers()
+    by_name = {r.name: r for r in items if isinstance(r, errorstate.Register)}
+    state = errorstate.read_state(regs, items)
+    record(ctx, f"{label} error registers: {errorstate.nonzero(state)}")
+    for name, value in (expected or {}).items():
+        got = state[name] & by_name[name].errors
+        check(got == value, f"{name} 0x{state[name]:08X}, expected 0x{value:08X} in its error bits")
+    targeted = dict(allowed or {}) | {name: errorstate.ALL for name in expected or {}}
+    problems = errorstate.unexpected(items, state, targeted, ctx.baseline)
+    check(not problems, f"error registers that the test case does not target: {', '.join(problems)}")
+    errorstate.clear_state(regs, items)
+    return state
+
+
+def check_link_state(regs: Registers, ctx: Context) -> None:
+    """The SpaceFibre port reports the initialised link with all lanes: DL_STATUS (LINK_STATE, TX_READY), ML_STATUS
+    (every lane sending and receiving data, aligned, no bypass) and the state of every lane (OpenFibre register
+    map)."""
+    s = ctx.system
+    base = s.base(s.port)
+    lanes = (1 << s.lanes) - 1
+    status = regs.read(base + OFB.DL_STATUS)
+    check(OFB.get("DL_STATUS", "LINK_STATE", status) == LINK_INITIALISED and OFB.get("DL_STATUS", "TX_READY", status),
+          f"{s.port} DL_STATUS 0x{status:08X}: LINK_STATE 3 and TX_READY 1 expected")
+    ml = regs.read(base + OFB.ML_STATUS)
+    fields = {f: OFB.get("ML_STATUS", f, ml) for f in ("DATA_SENDING", "DATA_RECEIVING", "ALIGN_STATE", "BYPASS")}
+    check(fields == {"DATA_SENDING": lanes, "DATA_RECEIVING": lanes, "ALIGN_STATE": 2, "BYPASS": 0},
+          f"{s.port} ML_STATUS 0x{ml:08X}: {fields}")
+    for lane in range(s.lanes):
+        state = OFB.get("LANE_STATUS", "STATE", regs.read(base + OFB.LANE_STATUS(lane)))
+        check(state == LANE_ACTIVE, f"{s.port} LANE_STATUS({lane}).STATE = {state}")
+
+
+def check_generics(regs: Registers, ctx: Context) -> None:
+    """The SpaceFibre port, the RMAP target and the Space Packet node report the generics of the Composer file in
+    their registers (generic_words)."""
+    s = ctx.system
+    for instance, words in generic_words(s.file, s).items():
+        regmap = {s.port: OFB, s.rmap: OMAP, s.node: SPP}[instance]
+        for name, value in words.items():
+            word = regs.read(s.base(instance) + getattr(regmap, name))
+            check(word == value, f"{instance} {name}: 0x{word:08X}, expected 0x{value:08X}")
+
+
+# TC-RS-HW-11: registers of the SpaceFibre port written and read back, with their writable bits (OpenFibre register
+# map; IRQ_MASK with its documented fields), each back at its value of the reset afterwards
+PORT_REGISTERS = (
+    ("IRQ_MASK", OFB.field("IRQ_MASK", "DL_ERRORS", 0x1FFF) | OFB.field("IRQ_MASK", "LANE_EVENTS", 0xFF)
+     | OFB.field("IRQ_MASK", "ECC_DED", 1) | OFB.field("IRQ_MASK", "ECC_SEC", 1)),
+    ("DL_BC_INTERVAL", 0xFFFF), ("VC_IDLE_LIMIT", 0xFFFFFFFF), ("ECC_SELECT", 0xF), ("LANE_INIT_TIMEOUT", 0xFFFFFF))
+# the values that LANE_INIT_TIMEOUT takes in TC-RS-HW-11 keep bit 23 set: a lane that would start in the meantime
+# waits at least 2^23 words (54 ms at 156.25 MHz), never less than with the value of the reset
+LONG_TIMEOUT = 1 << 23
+
+
+def port_reset_values(ctx: Context) -> dict[str, int]:
+    """The values of the reset of the registers of PORT_REGISTERS (OpenFibre register map)."""
+    return {"IRQ_MASK": 0, "DL_BC_INTERVAL": 0x28, "VC_IDLE_LIMIT": 0x2625A, "ECC_SELECT": 0,
+            "LANE_INIT_TIMEOUT": ctx.system.file.generic(ctx.system.port, "InitTimeoutWords_g")}
+
+
+def tc11_port_registers(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-11: registers of the SpaceFibre port over RMAP: every register of PORT_REGISTERS reads its value of
+    the reset, takes a random value, its complement and all ones in its writable bits with a verified write and reads
+    each back, then is restored; the virtual network number of every VC (VC_CFG.VN, the other fields at their reset
+    values) reads back as written, that of VC 0 reads 0 (MG-VN-01), and is restored."""
+    s = ctx.system
+    base = s.base(s.port)
+    rng = random.Random(f"{ctx.seed} TC-RS-HW-11")
+    reset = port_reset_values(ctx)
+    for name, mask in PORT_REGISTERS:
+        address = base + getattr(OFB, name)
+        check(regs.read(address) == reset[name], f"{s.port} {name} does not read its value of the reset "
+              f"0x{reset[name]:08X}")
+        p = rng.getrandbits(32) & mask
+        values = [p, ~p & mask, mask]
+        if name == "LANE_INIT_TIMEOUT":
+            values = [v | LONG_TIMEOUT for v in values]
+        for value in values + [reset[name]]:
+            regs.write(address, value)
+            word = regs.read(address)
+            check(word == value, f"{s.port} {name}: wrote 0x{value:08X}, read 0x{word:08X}")
+    for vc in range(s.num_vcs):
+        address = base + OFB.VC_CFG(vc)
+        cfg = OFB.field("VC_CFG", "VN", vc) | OFB.field("VC_CFG", "PRIORITY", 3)
+        check(regs.read(address) == cfg, f"{s.port} VC_CFG({vc}) does not read its value of the reset 0x{cfg:08X}")
+        vn = rng.randrange(1, 64)
+        regs.write(address, OFB.field("VC_CFG", "VN", vn) | OFB.field("VC_CFG", "PRIORITY", 3))
+        got = OFB.get("VC_CFG", "VN", regs.read(address))
+        check(got == (0 if vc == 0 else vn), f"{s.port} VC_CFG({vc}).VN: wrote {vn}, read {got}")
+        regs.write(address, cfg)
+        check(regs.read(address) == cfg, f"{s.port} VC_CFG({vc}) is not restored")
+
+
+def end_of_run(regs: Registers, ctx: Context) -> None:
+    """Step of TC-RS-HW-17: every error and memory error register of every block still reads 0 since the baseline of
+    TC-RS-HW-01, the leaky counters at most their baseline; the values and the lanes are recorded."""
+    items = ctx.system.error_registers()
+    state = errorstate.read_state(regs, items)
+    record(ctx, f"error registers at the end of the run: {errorstate.nonzero(state)}")
+    lane_records(regs, ctx, "end of the run: ")
+    problems = errorstate.unexpected(items, state, baseline=ctx.baseline)
+    check(not problems, f"error registers that counted since the baseline: {', '.join(problems)}")
 
 
 def tc02_identification(regs: Registers, ctx: Context) -> None:
@@ -459,23 +652,93 @@ def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,
     return counts
 
 
-def arguments(description: str) -> argparse.ArgumentParser:
-    """The arguments that the hardware test of every system takes; a system adds the size of its run."""
+def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
+    """The arguments that the hardware test of every system takes; a system adds the size of its run. With model the
+    test also runs against the software model of the system (--model, the dry run before the hardware) and checks
+    the test computer (--check-environment), and it can write the records of the run (--records)."""
     parser = argparse.ArgumentParser(description=description)
-    parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
+    if model:
+        target = parser.add_mutually_exclusive_group(required=True)
+        target.add_argument("--device", help="name of the STAR-Ultra device in STAR-System")
+        target.add_argument("--model", action="store_true",
+                            help="run against the software model of the system, without the test equipment")
+        target.add_argument("--check-environment", action="store_true",
+                            help="check the Python of the test computer and the packages that the test needs")
+        parser.add_argument("--records", type=Path,
+                            help="directory for the records of the run (a JSON file per run); nothing is written "
+                                 "without it")
+    else:
+        parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
     parser.add_argument("--test", action="append", help="run only this test case and those it builds on")
     return parser
 
 
-def run_on_device(device: str, ctx: Context, tests: list) -> int:
-    """Drains both channels of the test equipment, then runs the test cases; returns the exit code of the script
+def check_environment(gui: bool = False) -> int:
+    """--check-environment: Python 3.10 or later, the reference model of OpenCompact, the Python package of the
+    far-end software that the transport uses and, with gui, tkinter. One line per item; exit code 0 when every item
+    is there."""
+    from refsys import transport
+
+    def python() -> str:
+        if sys.version_info < (3, 10):
+            raise RuntimeError(f"Python {sys.version.split()[0]}, 3.10 or later needed")
+        return sys.version.split()[0]
+
+    def model() -> str:
+        module = importlib.import_module("ocp_model")
+        return f"found, decoder {'included' if hasattr(module, 'decompress') else 'not included'}"
+
+    def tk() -> str:
+        return f"Tk {importlib.import_module('tkinter').TkVersion}"
+
+    items = [("Python", python), ("reference model of OpenCompact", model),
+             ("Python package of the far-end software", transport.far_end_software)]
+    if gui:
+        items.append(("tkinter (GUI)", tk))
+    ok = True
+    for name, probe in items:
+        try:
+            print(f"OK   {name}: {probe()}")
+        except Exception as err:  # noqa: BLE001 - every missing item is reported
+            ok = False
+            print(f"FAIL {name}: {err}")
+    return 0 if ok else 1
+
+
+def run_on_model(model, ctx: Context, tests: list, run_tests=None) -> int:
+    """--model: runs the test cases against the software model of the system; returns the exit code of the script
     (0 when every test case passes)."""
+    results = (run_tests or run)(model, ctx, tests)
+    return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
+
+
+def write_records(directory: Path, system: str, target: str, profile: str, ctx: Context, results: list,
+                  started: str, extra: dict | None = None) -> Path:
+    """--records: one JSON file per run in directory, with the date and time of the run, the system, the target
+    (device or model), the profile and seed, the result of every test case, the recorded values and what the system
+    adds (extra). No host name and no path."""
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"records_{system}_{started.replace(':', '').replace('-', '').replace(' ', '_')}.json"
+    data = {"system": system, "started": started, "finished": time.strftime("%Y-%m-%d %H:%M:%S"), "target": target,
+            "profile": profile, "seed": ctx.seed,
+            "results": [{"test": name, "pass": error is None, "error": error} for name, error in results],
+            "records": ctx.records} | (extra or {})
+    path.write_text(json.dumps(data, indent=1), encoding="utf-8")
+    print(f"records written: {path.name}")
+    return path
+
+
+def run_on_device(device: str, ctx: Context, tests: list, run_tests=None, results_out: list | None = None) -> int:
+    """Drains both channels of the test equipment, then runs the test cases; returns the exit code of the script
+    (0 when every test case passes). results_out receives the results of the test cases."""
     from refsys.transport import StarSystemTransport
 
     with StarSystemTransport(device) as transport:
         drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
-        results = run(transport, ctx, tests)
+        results = (run_tests or run)(transport, ctx, tests)
+    if results_out is not None:
+        results_out.extend(results)
     return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
 
 

@@ -358,6 +358,34 @@ def aborted_problems(data: bytes, cfg: dict, taken: list[int]) -> list[str]:
     return []
 
 
+def decoder_available() -> bool:
+    """Whether the reference model of the pinned OpenCompact has the decoder (ocp_model.decompress, OpenCompact
+    0.3.0)."""
+    return hasattr(ocp_model, "decompress")
+
+
+def decode_problems(cfg: dict, data: bytes, samples: list[int]) -> list[str]:
+    """Decodes a complete compressed image with the decoder of the reference model and compares it with the image
+    that was compressed (samples in the input order of the compressor): equal for lossless compression, every sample
+    within the maximum error m_z(t) of the decoder for near-lossless compression. Empty when the image decodes to
+    its samples; the decoder takes the per-band values that the header leaves out from cfg."""
+    try:
+        header, img, max_error = ocp_model.decompress(data, tables=cfg)
+    except ocp_model.DecodeError as err:
+        return [f"the decoder of the model refuses it: {err}"]
+    dims = (header["large_n_x"], header["large_n_y"], header["large_n_z"])
+    if dims != (cfg["large_n_x"], cfg["large_n_y"], cfg["large_n_z"]):
+        return [f"the header gives {dims[0]} x {dims[1]} x {dims[2]} samples"]
+    source = from_input_order(cfg, list(samples))
+    for z, band in enumerate(img):
+        for y, row in enumerate(band):
+            for x, value in enumerate(row):
+                if abs(value - source[z][y][x]) > max_error[z][y][x]:
+                    return [f"decoded sample ({x}, {y}, {z}) is {value}, the image has {source[z][y][x]}, maximum "
+                            f"error {max_error[z][y][x]}"]
+    return []
+
+
 # ------------------------------------------------------------------------------------------------
 # Runtime configuration (RuntimeConfig_g; OpenCompact user guide, sections 4.3 and 4.4)
 # ------------------------------------------------------------------------------------------------

@@ -10,8 +10,6 @@ and 4.6):
 
 from dataclasses import dataclass
 
-from Crypto.Cipher import AES
-
 IV_BYTES = 12
 AAD_BYTES = 4
 TAG_BYTES = 16
@@ -61,6 +59,8 @@ def iv(fixed: int, counter: int) -> bytes:
 
 def encrypt(key: bytes, fixed: int, counter: int, pos: int, plaintext: bytes) -> bytes:
     """The byte string of one chunk as the core sends it (reference for tests)."""
+    from Crypto.Cipher import AES  # pycryptodome, needed by the systems with OpenCrypto only
+
     nonce = iv(fixed, counter)
     cipher = AES.new(key, AES.MODE_GCM, nonce=nonce, mac_len=TAG_BYTES)
     cipher.update(aad(pos))
@@ -70,6 +70,8 @@ def encrypt(key: bytes, fixed: int, counter: int, pos: int, plaintext: bytes) ->
 
 def decrypt(key: bytes, data: bytes) -> Chunk:
     """Authenticates and decrypts the byte string of one chunk."""
+    from Crypto.Cipher import AES  # pycryptodome, needed by the systems with OpenCrypto only
+
     if len(data) < OVERHEAD:
         raise ChunkError(f"chunk of {len(data)} bytes is shorter than IV, AAD and tag ({OVERHEAD} bytes)")
     nonce, header = data[:IV_BYTES], data[IV_BYTES:IV_BYTES + AAD_BYTES]
