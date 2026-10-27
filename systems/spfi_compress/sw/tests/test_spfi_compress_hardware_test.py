@@ -8,7 +8,9 @@ OpenCompact that its channels use and against the bounds that the system README 
 
 import copy
 import json
+import re
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -37,6 +39,8 @@ CHUNK_BYTES = 256            # compressed images of several chunks
 # The upper bound of the compressed image of every lab channel (max_image_bytes of the model of OpenCompact) and the
 # Space Packets of 4096 bytes that it takes, as the system README states them
 BOUNDS = [(835496, 204), (835496, 204), (399380, 98), (1303256, 319)]
+# On the channels with the runtime parameters, the maximum of that bound over the ranges of the parameters
+RUNTIME_BOUNDS = {"ocp0": (1179476, 288), "ocp3": (1698668, 415)}
 
 SYSTEM = ht.System(dims=DIMS, chunk_bytes=CHUNK_BYTES)
 LAB = ht.PROFILES["lab"]
@@ -62,7 +66,7 @@ def test_procedure_passes_against_the_model():
     # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two), 14 (three) and 16
     per_channel = len(LAB.kinds) + 5 + LAB.stream + 7
     # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
-    runtime = 2 * (ocptest.LAB_IMAGES + 1) + 2
+    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
     assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
 
@@ -93,6 +97,23 @@ def test_the_bounds_of_the_compressed_images_and_their_space_packets():
         assert -(-bound // ch.chunk_bytes) == packets, ch.compressor
         # every image needs several Space Packets: one compressed image is longer than a Packet Data Field
         assert bound > 65536
+
+
+def test_the_bounds_over_the_runtime_parameters_are_those_of_the_throughput_budget():
+    # the bound grows with Umax and as gamma* falls (more rescalings of the hybrid coder): its maximum over the ranges
+    # of CO-RP-02 is at Umax 32 and gamma* 4, the bound by which the Composer rates the channel
+    brief = Path(ht.SYSTEM_FILE).read_text(encoding="utf-8")       # the build brief is a string of the system file
+    channels = [ch for ch in LAB_SYSTEM.channels if ocp.runtime_params(ch.generics)]
+    assert [ch.compressor for ch in channels] == list(RUNTIME_BOUNDS)
+    for ch in channels:
+        bound, packets = RUNTIME_BOUNDS[ch.compressor]
+        hi = ocp_configs.param_bounds(ch.cfg, ch.cfg["large_n_z"])
+        sizes = {(u, g): ocp.ocp_model.max_image_bytes(dict(ch.cfg, large_u_max=u, gamma_star=g))
+                 for u in range(hi["umax"][0], hi["umax"][1] + 1) for g in range(hi["gstar"][0], hi["gstar"][1] + 1)}
+        assert max(sizes.values()) == sizes[(32, 4)] == bound, ch.compressor
+        assert -(-bound // ch.chunk_bytes) == packets, ch.compressor
+        assert re.search(rf"limited by `{ch.compressor}\.Out` \(System clock, 150 MHz: \d+ cycles per image of {bound} B",
+                         brief), ch.compressor
 
 
 def test_every_chunk_fits_the_send_buffer_twice_and_a_packet_data_field():
@@ -308,18 +329,33 @@ def test_ocp0_and_ocp3_have_the_runtime_configuration():
     # ocp0 is lossless (dimensions only), ocp3 near-lossless with absolute error limits and images of width 1
     assert [c.cfg["quantizer_fidelity_control_method"] for c in runtime] == [0, 1]
     assert [ocp_configs.width_one_allowed(c.cfg) for c in runtime] == [False, True]
+    # both also take the runtime parameters (OpenCompact 0.3.0): ocp0 M, Umax, gamma0, gamma* and K, ocp3 the
+    # parameters of the hybrid coder
+    assert [ocp.runtime_params(c.generics) for c in LAB_SYSTEM.channels] == [True, False, False, True]
+    assert [ocp.used_params(c.cfg) for c in runtime] == [
+        ["user", "tinc", "vmin", "vmax", "m", "umax", "g0", "gstar", "k"],
+        ["user", "tinc", "vmin", "vmax", "m", "umax", "g0", "gstar"]]
 
 
 def test_the_runtime_images_of_the_profiles():
     ch0, ch3 = (LAB_SYSTEM.channels[k] for k in (0, 3))
     sim = context(system=LAB_SYSTEM, profile=ht.PROFILES["sim"])
-    assert ocptest.image_plan(sim, ch0) == [ocp.ImageConfig(2, 1, 1), ocp.ImageConfig(64, 1, 48),
-                                            ocp.ImageConfig(2, 64, 1)]
-    assert ocptest.image_plan(sim, ch3) == [ocp.ImageConfig(1, 1, 1), ocp.ImageConfig(64, 1, 48, 1023),
-                                            ocp.ImageConfig(1, 64, 1)]
+
+    def dims(plan):
+        return [(v.nx, v.ny, v.nz, v.abs_limit) for v in plan]
+
+    assert dims(ocptest.image_plan(sim, ch0)) == [(2, 1, 1, 0), (64, 1, 48, 0), (2, 64, 1, 0)]
+    assert dims(ocptest.image_plan(sim, ch3)) == [(1, 1, 1, 0), (64, 1, 48, 1023), (1, 64, 1, 0)]
+    for ch in (ch0, ch3):
+        plan = ocptest.image_plan(sim, ch)
+        assert all(v.params is not None and ocp.commit_accepts(ch.cfg, v) for v in plan)
+        # the first image takes every parameter to the high bound of its range, the second to the low bound
+        first, second = (dict(zip(ocp.PARAM_NAMES, v.params)) for v in plan[:2])
+        assert (first["tinc"], first["vmax"], first["umax"], second["tinc"], second["vmin"], second["umax"]) == (
+            11, 9, 32, 4, -6, 8)
     lab = ocptest.image_plan(context(system=LAB_SYSTEM), ch3)
-    assert len(lab) == ocptest.LAB_IMAGES + 1 and lab[-1] == ocp.ImageConfig(64, 64, 48, 12)
-    assert all(ocp.commit_accepts(ch3.cfg, v) for v in lab)
+    assert len(lab) == ocptest.LAB_IMAGES + 2 and lab[-1] == ocp.build_values(ch3.cfg, params=True)
+    assert lab[-1].abs_limit == 12 and all(ocp.commit_accepts(ch3.cfg, v) for v in lab)
 
 
 def test_tc10_ends_with_the_values_of_the_reset():
@@ -329,7 +365,7 @@ def test_tc10_ends_with_the_values_of_the_reset():
     fresh = model()
     for c in SYSTEM.channels:
         base = SYSTEM.base(c.compressor)
-        for name in ocp.RUNTIME_REGISTERS + ocp.TAKEN_REGISTERS:
+        for name in ocp.CONFIG_REGISTERS + ocp.TAKEN_REGISTERS:
             address = base + getattr(ht.OCP, name)
             assert m._read(address) == fresh._read(address), (c.compressor, name)
 
@@ -351,13 +387,21 @@ class Storing:
 @pytest.mark.parametrize("mutation, message", [
     # the channel passes values out of range on, and the core takes the nearest valid ones (CO-RC-07)
     ("clamp", "ocp0: COMMIT with NEXT_X 0x00000001 gives STATUS (CFG_ERROR, CFG_PENDING) (False, True)"),
-    # the core keeps the configuration of its generics: the end mark of the small image ends a larger one early
-    ("ignore", "compressed image 0: large_n_x 16, expected 2"),
+    # the core keeps the configuration of its generics: the first image (the maximum dimensions with the parameters
+    # at their high bounds) gives another compressed image, of another number of chunks
+    ("ignore", "packets"),
     ("pending", "ocp0: COMMIT of"),
     ("fixed", "ocp1 without the runtime configuration"),
-    ("taken", "ocp0 IMAGE_X"),
+    # the first image has the dimensions of the generics: the user-defined data of SAMPLES differ first
+    ("taken", "ocp0 SAMPLES"),
     # ocp3 keeps the error limit value of its generics: the header of the image differs
     ("limit", "compressed image 0"),
+    # ocp0 keeps the runtime parameters of its generics: the compressed image differs, here in its number of chunks
+    ("params", "packets"),
+    # NEXT_SAMPLES to NEXT_BLOCK of ocp0 do not read back what was written
+    ("readback", "NEXT_SAMPLES to NEXT_BLOCK"),
+    # SAMPLES to BLOCK of ocp3 keep the values of the generics
+    ("taken_params", "ocp3 SAMPLES"),
 ])
 def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
     m = model()
@@ -379,13 +423,22 @@ def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
         registers0.read = lambda name: read(name) & ~ocptest.CFG_PENDING
     elif mutation == "fixed":
         stored = Storing()
-        for name in ocp.RUNTIME_REGISTERS:
+        for name in ocp.CONFIG_REGISTERS:
             m.runtime[SYSTEM.base("ocp1") + getattr(ht.OCP, name)] = (stored, name)
     elif mutation == "taken":
         registers0.taken = lambda: {}
     elif mutation == "limit":
-        ch3.commit = lambda values: commit3(values) and commit3(ocp.ImageConfig(values.nx, values.ny, values.nz, 12,
-                                                                                 values.rel_limit))
+        ch3.commit = lambda values: commit3(values) and commit3(replace(values, abs_limit=12))
+    elif mutation == "params":
+        ch0.commit = lambda values: commit0(values) and commit0(replace(values, params=ocp.build_params(ch0.cfg)))
+    elif mutation == "readback":
+        read0 = registers0.read
+        registers0.read = lambda name: read0(name) ^ (1 << 8) if name == "NEXT_SAMPLES" else read0(name)
+    elif mutation == "taken_params":
+        registers3, _ = m.runtime[SYSTEM.base("ocp3") + ht.OCP.CONTROL]
+        taken3 = registers3.taken
+        generics = ocp.mib_words(ht.OCP, registers3.generics)
+        registers3.taken = lambda: taken3() | {n: generics[n] for n in ("SAMPLES", "WEIGHTS", "ADAPTIVE")}
     results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
     assert message in (results["TC-RS-HW-10"] or ""), results
 

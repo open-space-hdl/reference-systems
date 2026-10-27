@@ -26,9 +26,9 @@ the Composer file of the system, the register maps from the headers of the cores
 TC-RS-HW-03, the register access and the run are those of sw/refsys/systest.py. The set-up and the procedure are
 described with the board target.
 
-TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_g) the image dimensions and error
-limit values of every image over RMAP and compares the images with the model images of these values
-(sw/refsys/ocptest.py).
+TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_g) and the runtime parameters
+(RuntimeParams_g) the image dimensions, error limit values and parameters of every image over RMAP and compares the
+images with the model images of these values (sw/refsys/ocptest.py).
 
 Every complete compressed image is also decoded with the decoder of the reference model of OpenCompact
 (ocp_model.decompress) and compared with the image that was sent: equal for lossless compression, within the
@@ -332,6 +332,10 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     images = {p: [(o, expected_image(s.channels[p], o)) for o in outs] for p, outs in outputs.items()}
     expected = sum(len(chunks_of(data, s.channels[p].chunk_bytes)) for p, outs in images.items() for _, data in outs)
     size = sum(len(p) for p in packets) + sum(len(data) for outs in images.values() for _, data in outs)
+    # the channels work in parallel, each image after the other: a system simulation waits for the slowest channel
+    busy = getattr(regs.transport, "expect_busy", None)
+    if busy is not None:
+        busy(max((sum(ocp.image_cycles(o.cfg) for o, _ in outs) for outs in images.values()), default=0))
     received = regs.transport.exchange(setup.spp_channel, packets, setup.spp_channel, expected,
                                        timeout=10.0 + size / EQUIPMENT_RATE)
     return check_images(ctx, received, images)
@@ -641,17 +645,18 @@ def traffic_round(regs: Registers, ctx: Context, gap: tuple[int, ...] = ()) -> l
     """One image per channel for the test cases that check the data path after a provoked event: in a profile without
     small images every channel compresses a scene image of its generics; with small images only the channels with the
     runtime configuration, each a scene image of at most Profile.small samples, committed before it, and the values of
-    the generics committed after it. gap: the ports whose sender skips one Packet Sequence Count before the second
-    SDU of the image. The counters are cleared before and match the images after; returns the channels used."""
+    the generics committed after it (with the runtime parameters of the generics on a compressor that has them). gap:
+    the ports whose sender skips one Packet Sequence Count before the second SDU of the image. The counters are
+    cleared before and match the images after; returns the channels used."""
     clear_status(regs, ctx)
     runtime, _ = ocptest.split_channels(ctx.system)
     channels = runtime if ctx.profile.small else ctx.system.channels
     streams = {}
     for ch in channels:
         if ctx.profile.small:
-            values = ocp.build_values(ch.cfg)
+            values = ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics))
             nx, ny, nz = (min(a, b) for a, b in zip(ctx.profile.small, (values.nx, values.ny, values.nz)))
-            ocptest.commit(regs, ctx, ch, replace(values, nx=nx, ny=ny, nz=nz))
+            ocptest.commit(regs, ctx, ch, ocp.resized(values, nx, ny, nz))
             cfg = ctx.models[ch.port].next_cfg
             samples = ocp.input_order(cfg, ocp.test_image(cfg, "scene", f"{ctx.seed} {ch.port} {ctx.images}"))
         else:
@@ -665,7 +670,7 @@ def traffic_round(regs: Registers, ctx: Context, gap: tuple[int, ...] = ()) -> l
     send_images(regs, ctx, streams)
     if ctx.profile.small:
         for ch in channels:
-            ocptest.commit(regs, ctx, ch, ocp.build_values(ch.cfg))
+            ocptest.commit(regs, ctx, ch, ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics)))
     check_status(regs, ctx)
     return channels
 
@@ -882,7 +887,8 @@ def main() -> int:
 
         ctx = ht.make_context(args.seed, ht.PROFILES[args.profile])
         results = ht.run(system_model.SystemModel(ht.Setup(), system=ctx.system), ctx, ht.select_tests(args.test))
-        code = 0 if all(error is None for _, error in results) and len(results) == len(ht.select_tests(args.test))             else 1
+        code = 0 if all(error is None for _, error in results) and len(results) == len(ht.select_tests(args.test)) \
+            else 1
         target = "system model"
     else:
         ctx = make_context(args.seed, PROFILES[args.profile])

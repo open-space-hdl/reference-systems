@@ -4,9 +4,9 @@
 # ---------------------------------------------------------------------------------------------------
 """Interactive lab tool of spfi_compress: one image on channel 0 or 3 with runtime values of your choice.
 
-The tool takes the image dimensions and the error limit value of an image for a channel whose compressor has the
-runtime configuration (ocp0, ocp3), and an image: a test pattern of the hardware test or a file (raw samples, or
-PGM/PPM as one or three bands). It computes the expected compressed
+The tool takes the image dimensions, the error limit value and the runtime parameters of an image for a channel
+whose compressor has the runtime configuration and the runtime parameters (ocp0, ocp3), and an image: a test pattern
+of the hardware test or a file (raw samples, or PGM/PPM as one or three bands). It computes the expected compressed
 image with the reference model of OpenCompact, sends the image over the far end and compares the chunks that come
 back with the model (with --device), decodes the compressed image with the decoder of the model and compares it with
 the image sent, and shows the compression ratio and views of the original image, the decoded image and their
@@ -26,7 +26,7 @@ import queue
 import sys
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -34,8 +34,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import hardware_test as ht  # noqa: E402 - the system, its channels and the steps of the hardware test
 from refsys import ocp, ocptest, systest  # noqa: E402
 
-# The fields of the runtime values (name, label)
-LABELS = {"nx": "NX", "ny": "NY", "nz": "NZ", "abs_limit": "absolute error limit", "rel_limit": "relative error limit"}
+# The fields of the runtime values (name, label); the parameters follow ocp.PARAM_NAMES
+LABELS = {"nx": "NX", "ny": "NY", "nz": "NZ", "abs_limit": "absolute error limit", "rel_limit": "relative error limit",
+          "user": "user-defined data", "m": "M (sub-frame depth)", "tinc": "log2 t_inc", "vmin": "vmin", "vmax": "vmax",
+          "umax": "Umax", "g0": "gamma0", "gstar": "gamma*", "k": "K (accumulator initialisation)",
+          "r": "r (reference sample interval)"}
+# The image dimensions and error limit values of ocp.ImageConfig
+DIMS = ("nx", "ny", "nz", "abs_limit", "rel_limit")
 
 
 @dataclass
@@ -111,28 +116,44 @@ class Session:
         """The runtime values of a channel that the tool lets you set."""
         ch = self.channel(port)
         fid = ch.cfg["quantizer_fidelity_control_method"]
-        return ["nx", "ny", "nz"] + ["abs_limit"] * (fid in (1, 3)) + ["rel_limit"] * (fid in (2, 3))
+        names = ["nx", "ny", "nz"] + ["abs_limit"] * (fid in (1, 3)) + ["rel_limit"] * (fid in (2, 3))
+        if ocp.runtime_params(ch.generics):
+            names += ocp.used_params(ch.cfg)
+        return names
 
     def defaults(self, port: int) -> ocp.ImageConfig:
-        return ocp.build_values(self.channel(port).cfg)
+        ch = self.channel(port)
+        return ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics))
 
     def values(self, port: int, entries: dict[str, int]) -> ocp.ImageConfig:
         """The runtime values from the entries of the fields; the others keep their values of the generics."""
         base = self.defaults(port)
-        return ocp.ImageConfig(**{n: entries.get(n, getattr(base, n)) for n in ("nx", "ny", "nz", "abs_limit",
-                                                                              "rel_limit")})
+        dims = {n: entries.get(n, getattr(base, n)) for n in DIMS}
+        if base.params is None:
+            return ocp.ImageConfig(**dims)
+        p = dict(zip(ocp.PARAM_NAMES, base.params)) | {n: v for n, v in entries.items() if n in ocp.PARAM_NAMES}
+        if "m" not in entries and p["m"]:
+            p["m"] = min(p["m"], dims["nz"])        # M of the generics, at most the NZ of the image
+        return ocp.ImageConfig(**dims, params=tuple(p[n] for n in ocp.PARAM_NAMES))
 
     def problems(self, port: int, values: ocp.ImageConfig) -> list[str]:
-        """Why the COMMIT would refuse these values (empty when it takes them): every value that is out of range
-        with the others at their values of the generics."""
+        """Why the COMMIT would refuse these values (empty when it takes them): every dimension or error limit value
+        that is out of range with the others at their values of the generics, and every runtime parameter that the
+        core would not take as it is."""
         ch = self.channel(port)
         if ocp.commit_accepts(ch.cfg, values):
             return []
-        base = self.defaults(port)
-        out = [f"{LABELS[name]} {getattr(values, name)} is out of range"
-               for name in ("nx", "ny", "nz", "abs_limit", "rel_limit")
-               if not ocp.commit_accepts(ch.cfg, ocp.ImageConfig(**{n: getattr(values if n == name else base, n)
-                                                                    for n in LABELS}))]
+        base, dims = self.defaults(port), replace(values, params=None)
+        out = []
+        if not ocp.commit_accepts(ch.cfg, dims):
+            out = [f"{LABELS[name]} {getattr(values, name)} is out of range" for name in DIMS
+                   if not ocp.commit_accepts(ch.cfg, ocp.ImageConfig(**{n: getattr(values if n == name else base, n)
+                                                                        for n in DIMS}))]
+        if values.params is not None:
+            driven = dict(zip(ocp.PARAM_NAMES, values.params))
+            taken = dict(zip(ocp.PARAM_NAMES, ocp.ocp_configs.runtime_params_limit(ch.cfg, values.nz, values.params)))
+            out += [f"{LABELS[n]} {driven[n]} is out of range (the core would take {taken[n]})"
+                    for n in ocp.used_params(ch.cfg) if driven[n] != taken[n]]
         return out or ["the values are out of range"]
 
     def pattern(self, port: int, values: ocp.ImageConfig, kind: str, seed: int) -> list:
@@ -158,8 +179,7 @@ class Session:
                 return result
             self._configure()
             base = self.system.base(ch.compressor)
-            self.regs.write_block(base + systest.consecutive(ocptest.OCP, ocp.NEXT_REGISTERS),
-                                  list(ocp.next_words(ocptest.OCP, values).values()))
+            ocptest.write_next(self.regs, self.ctx, ch, values)
             self.regs.write(base + ocptest.OCP.CONTROL, ocptest.COMMIT)
             result.status = ocptest.read_status(self.regs, self.ctx, ch)
             self.regs.write(base + ocptest.OCP.STATUS, ocptest.CFG_ERROR)
@@ -206,7 +226,8 @@ class Session:
                 "target": "model" if self.offline else "device", "channel": result.port,
                 "compressor": self.channel(result.port).compressor,
                 "values": {"nx": result.values.nx, "ny": result.values.ny, "nz": result.values.nz,
-                           "abs_limit": result.values.abs_limit, "rel_limit": result.values.rel_limit},
+                           "abs_limit": result.values.abs_limit, "rel_limit": result.values.rel_limit}
+                | (dict(zip(ocp.PARAM_NAMES, result.values.params)) if result.values.params else {}),
                 "image": source, "refused": result.refused, "status": result.status,
                 "summary": result.summary(), "problems": result.problems,
                 "compressed": base64.b64encode(result.data).decode("ascii")}
@@ -308,6 +329,7 @@ def gui(session: Session) -> None:  # pragma: no cover - interactive
         entries.clear()
         p = port.get()
         base = session.defaults(p)
+        values = dict(zip(ocp.PARAM_NAMES, base.params)) if base.params else {}
         ttk.Label(form, text="Channel").grid(row=0, column=0, sticky="w")
         row = ttk.Frame(form)
         row.grid(row=0, column=1, sticky="w")
@@ -316,7 +338,7 @@ def gui(session: Session) -> None:  # pragma: no cover - interactive
                             command=build_form).pack(side="left")
         for k, name in enumerate(session.fields(p), start=1):
             ttk.Label(form, text=LABELS[name]).grid(row=k, column=0, sticky="w")
-            entries[name] = tk.StringVar(value=str(getattr(base, name)))
+            entries[name] = tk.StringVar(value=str(values.get(name, getattr(base, name, 0))))
             ttk.Entry(form, textvariable=entries[name], width=10).grid(row=k, column=1, sticky="w")
         ttk.Label(form, textvariable=check_text, foreground="red", wraplength=320).grid(
             row=len(entries) + 1, column=0, columnspan=2, sticky="w")
