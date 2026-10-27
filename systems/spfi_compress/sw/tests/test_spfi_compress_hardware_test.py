@@ -586,3 +586,34 @@ def test_the_error_registers_of_spfi_compress():
     assert [n for n in names if n.startswith("ocp")] == [f"ocp{k}.{c}" for k in range(4) for c in ocp.ECC_COUNTERS]
     # the reads take few commands: runs of consecutive registers and one per counter behind a select register
     assert len(errorstate.reads(SYSTEM.error_registers())) <= 70
+
+
+class Accesses(sm.SystemModel):
+    """The system model that notes the writes and reads of the bandwidth flags of the SpaceFibre port."""
+
+    def __init__(self):
+        super().__init__(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+        self.flags = {PORT + getattr(OFB, name): name for name in ht.BW_FLAGS}
+        self.log = []
+
+    def _bus_read(self, address):
+        if address in self.flags:
+            self.log.append(("read", self.flags[address]))
+        return super()._bus_read(address)
+
+    def _bus_write(self, address, value):
+        if address in self.flags:
+            self.log.append(("write", self.flags[address], value))
+        return super()._bus_write(address, value)
+
+
+@pytest.mark.parametrize("profile", ["sim", "lab"])
+def test_the_sim_profile_clears_the_bandwidth_flags_before_their_first_read(profile):
+    m = Accesses()
+    results = run(m, context(profile=ht.PROFILES[profile]), ht.select_tests(["TC-RS-HW-01"]))
+    assert not any(results.values()), results
+    writes = [("write", name, 0xFFFFFFFF) for name in ht.BW_FLAGS]
+    if profile == "sim":
+        assert m.log[:2] == writes and ("read", "VC_BW_OVER") in m.log[2:]
+    else:
+        assert not [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] and m.log[0][0] == "read"
