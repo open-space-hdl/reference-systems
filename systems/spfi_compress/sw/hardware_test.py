@@ -806,8 +806,9 @@ def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
 
 def tc15_rmap_errors(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-15: the RMAP target against commands that it refuses, discards or treats specially: the reply, TGT_LAST
-    and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py); a
-    write outside the register windows of the system gives the status 1."""
+    and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py). The
+    decoder of spfi_compress has 8 ports, so every address reaches a register window and the map repeats every
+    0x80000 bytes: a read at 0x80000 returns the identification of spp0."""
     rmaptest.tc15_rmap_errors(regs, ctx, ctx.system.unmapped_address())
 
 

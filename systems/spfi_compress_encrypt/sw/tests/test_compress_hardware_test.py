@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from refsys import ocp, ocptest, systest
+from refsys import ocp, ocptest, rmaptest, systest
 from refsys.composer import SystemFile, instance_of
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
@@ -312,3 +312,39 @@ def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
                                                                                  values.rel_limit))
     results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
     assert message in (results["TC-RS-HW-10"] or ""), results
+
+
+def test_the_decoder_of_spfi_compress_encrypt_answers_decerr_above_its_ports():
+    """The decoder has 12 ports of 64 KiB: the port indices 12 to 15 have no port and answer DECERR, the map repeats
+    every 0x100000 bytes."""
+    m = model()
+    node = SYSTEM.base("spp0") + systest.SPP.ID
+    assert SYSTEM.decoded_bytes() == 0x100000 and SYSTEM.unmapped_address() == 0xC0000
+    assert m._bus_read(0xC0000) is None and m._bus_read(0xFFFFC) is None and not m._bus_write(0xC0000, 1)
+    assert m._bus_read(0x100000 + node) == SYSTEM.ids["spp0"]
+
+
+def test_tc15_gives_the_status_1_at_the_unmapped_address_of_spfi_compress_encrypt():
+    """The steps of TC-RS-HW-15 (refsys.rmaptest) on a system with an address outside its register windows: the
+    write there gets the status 1 and no read one map further on is made."""
+    class Logged(sm.SystemModel):
+        def _bus_write(self, address, value):
+            done = super()._bus_write(address, value)
+            self.writes.append((address, done))
+            return done
+
+        def _bus_read(self, address):
+            self.reads.append(address)
+            return super()._bus_read(address)
+
+    system = ht.System(dims=DIMS)
+    system.rmap_windows = SYSTEM_FILE.generic(system.rmap, "Windows_g")  # as the hardware test of spfi_compress
+    m = Logged(ht.Setup(), system=system, system_file=SYSTEM_FILE)
+    m.writes, m.reads = [], []
+    ctx = context(system=system)
+    regs = systest.Registers(m, ctx.setup)
+    systest.tc01_link(regs, ctx)
+    systest.baseline(regs, ctx)
+    rmaptest.tc15_rmap_errors(regs, ctx, SYSTEM.unmapped_address())
+    assert (0xC0000, False) in m.writes
+    assert not [a for a in m.reads if a >= SYSTEM.decoded_bytes()]

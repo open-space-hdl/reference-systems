@@ -523,6 +523,11 @@ class Faulty(sm.SystemModel):
         if self.mutation != "far_end":
             super().operator(step)
 
+    def _bus_read(self, address):
+        if self.mutation == "no_alias" and address >= self.decoded_bytes:
+            return None                                  # a decoder that answers DECERR above its ports
+        return super()._bus_read(address)
+
     def _rmap(self, packet):
         cmd = bytes(packet[len(self.setup.rmap_path):])
         size = 16 + 4 * (cmd[2] & 3) if len(cmd) > 2 else 0
@@ -551,6 +556,7 @@ class Faulty(sm.SystemModel):
     ("no_single", "TC-RS-HW-14", "ofb0.ECC_COUNT(2)"),
     ("no_drop", "TC-RS-HW-14", "waited for 0x1B"),
     ("header_crc", "TC-RS-HW-15", "header CRC error: TGT_LAST"),
+    ("no_alias", "TC-RS-HW-15", "a read with an AXI error ends its reply with an EEP"),
     ("oversize", "TC-RS-HW-16", "Space Packet of 8193 bytes: LAST_ERROR"),
     ("crc_count", "TC-RS-HW-12", "error registers that the test case does not target: ofb0.DL_CRC16_COUNT"),
 ])
@@ -575,6 +581,18 @@ def test_tc17_finds_an_error_counted_after_the_baseline():
     m.done = True
     with pytest.raises(ht.TestFailed, match="counted since the baseline: ofb0.ML_MISALIGNED"):
         ht.tc17_end_of_run(regs, ctx)
+
+
+def test_every_address_reaches_a_register_window_of_spfi_compress():
+    """The decoder has 8 ports of 64 KiB and ignores the address bits above them: the map repeats every 0x80000
+    bytes, as the address map states, and no address answers DECERR."""
+    m = model()
+    assert SYSTEM.decoded_bytes() == 0x80000 and SYSTEM.unmapped_address() is None
+    address_map = (Path(ht.SYSTEM_FILE).parent / "hdl" / "spfi_compress_address_map.md").read_text(encoding="utf-8")
+    assert "the map repeats every 0x00080000 bytes" in address_map
+    assert m._bus_read(0x80000 + NODE + SPP.ID) == m._bus_read(0xFFF80000 + NODE + SPP.ID) == SYSTEM.ids["spp0"]
+    scratch = TARGET + OMAP.WIN_BASE(SYSTEM.rmap_windows - 1)
+    assert m._bus_write(0x80000 + scratch, 0x1234) and m._bus_read(scratch) == 0x1234
 
 
 def test_the_error_registers_of_spfi_compress():

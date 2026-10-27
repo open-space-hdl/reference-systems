@@ -114,11 +114,21 @@ class System:
     def base(self, instance: str) -> int:
         return self.windows[instance]
 
-    def unmapped_address(self) -> int:
-        """The first address after the register windows of the system: the AXI-Lite decoder answers DECERR (Open
-        Logic, olo_axi_lite_decoder)."""
+    def decoded_bytes(self) -> int:
+        """The bytes of addresses that the AXI-Lite decoder tells apart: it takes the port from the log2ceil(Ports_g)
+        address bits above the window of a port and ignores the bits above them, so the map repeats every
+        decoded_bytes() bytes (Open Logic, olo_axi_lite_decoder)."""
         decoder = self.file.instances_of("olo/olo_axi_lite_decoder")[0]
-        return max(self.windows.values()) + (1 << self.file.generic(decoder, "PortAddrWidth_g"))
+        ports = self.file.generic(decoder, "Ports_g")
+        return 1 << (self.file.generic(decoder, "PortAddrWidth_g") + (ports - 1).bit_length())
+
+    def unmapped_address(self) -> int | None:
+        """The first address after the register windows of the system, where the AXI-Lite decoder answers DECERR;
+        None when every port index of the decoder is a port (Ports_g a power of two): then every address reaches a
+        register window (decoded_bytes)."""
+        decoder = self.file.instances_of("olo/olo_axi_lite_decoder")[0]
+        address = max(self.windows.values()) + (1 << self.file.generic(decoder, "PortAddrWidth_g"))
+        return address if address < self.decoded_bytes() else None
 
     def error_registers(self) -> list:
         """The error and memory error registers of the SpaceFibre port, the RMAP target, the Space Packet node and the

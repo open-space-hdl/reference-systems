@@ -131,6 +131,7 @@ class SystemModel(Transport):
         self.windows = [s.base(name) for name in s.windows]
         decoder = system_file.instances_of("olo/olo_axi_lite_decoder")[0]
         self.window_bytes = 1 << system_file.generic(decoder, "PortAddrWidth_g")
+        self.decoded_bytes = s.decoded_bytes()
         self.error_items = {r.name: r for r in items if isinstance(r, errorstate.Register)}
         # bits that read 0 whatever is written: the VN of VC 0 (OpenFibre register map, VC_CFG, MG-VN-01)
         self.zero_bits = {port + OFB.VC_CFG(0): OFB.field("VC_CFG", "VN", OFB.VC_CFG_VN_MASK)}
@@ -218,17 +219,22 @@ class SystemModel(Transport):
         return reply[len(self.setup.rmap_reply_path):]
 
     def _bus_read(self, address: int) -> int | None:
-        """A read of the AXI master of the RMAP target: None (DECERR) outside the register windows of the system."""
-        return self._read(address) if self._decoded(address) else None
+        """A read of the AXI master of the RMAP target: None (DECERR) at an address without a register window."""
+        decoded = self._decoded(address)
+        return None if decoded is None else self._read(decoded)
 
     def _bus_write(self, address: int, value: int) -> bool:
-        if not self._decoded(address):
+        decoded = self._decoded(address)
+        if decoded is None:
             return False
-        self._write(address, value)
+        self._write(decoded, value)
         return True
 
-    def _decoded(self, address: int) -> bool:
-        return any(base <= address < base + self.window_bytes for base in self.windows)
+    def _decoded(self, address: int) -> int | None:
+        """The address in the register window that the decoder selects, None at a port index without a port: the
+        decoder ignores the address bits above its ports, so the map repeats (systest.System.decoded_bytes)."""
+        address %= self.decoded_bytes
+        return address if address - address % self.window_bytes in self.windows else None
 
     def _clear_ecc(self, clear: errorstate.Clear) -> None:
         """A write of ECC_STATUS (or CTRL.CLR_ALL of the ECC monitor): the registers it clears read 0."""

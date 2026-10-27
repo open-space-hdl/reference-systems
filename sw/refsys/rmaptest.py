@@ -10,14 +10,15 @@ of omap_target and register map):
   unchanged (3), both at once (12, TG-AU-08), an invalid command code (2, the write reply), a data CRC error of a
   verified write (4, nothing written) and of a non-verified one (4, the data written, TG-EX-02), an early EOP (5)
   and too much data (6) of a verified write (nothing written), a verified write longer than the verify buffer (9),
-  a read-modify-write of 3 bytes (11), an Extended Address 1 (10) and a write outside the register windows of the
-  system (1, the decoder answers DECERR);
+  a read-modify-write of 3 bytes (11), an Extended Address 1 (10) and, in a system with an address outside its
+  register windows (systest.System.unmapped_address), a write there (1, the decoder answers DECERR);
 - packets that the target discards without a reply and without a change of TGT_LAST: a header CRC error, a header
   that ends early, a reply packet, a command of a reserved packet type (counted with status 2) and, before the
   target, a CPTP packet on the virtual channel of RMAP (PKT_CNT.DISCARDED);
 - commands that execute: a non-verified write, a write without a reply, a single-address write and read of two
-  words, a write and a read of no data, a read-modify-write of edac0 IRQ_ENA and reads with a Reply Address field of
-  8 and 12 bytes;
+  words, a write and a read of no data, a read-modify-write of edac0 IRQ_ENA, reads with a Reply Address field of
+  8 and 12 bytes and, in a system where every address reaches a register window, a read of the identification of
+  the Space Packet node one map further on (systest.System.decoded_bytes: the decoder ignores the bits above);
 - the windows: window 3 opened for the registers of the RMAP target; window 0 restricted to verified writes (a
   non-verified write is refused with 10), then to no writes (a verified write outside window 3 is refused with 10),
   and restored with a write through window 3; window 3 closed again.
@@ -61,7 +62,7 @@ class Expected:
 class RmapErrors:
     """The cases of TC-RS-HW-15 on one system; counts what the target must count."""
 
-    def __init__(self, regs: Registers, ctx: systest.Context, unmapped: int):
+    def __init__(self, regs: Registers, ctx: systest.Context, unmapped: int | None):
         self.regs, self.ctx = regs, ctx
         s = ctx.system
         self.base = s.base(s.rmap)
@@ -198,10 +199,11 @@ class RmapErrors:
         self.replied("Extended Address 1", rmap.read_command(t, scratch, 4, tid, extended_address=1), 10, tid, scratch,
                      extended=1, data=b"")
         self.count("TGT_CNT_ERR5", "NOT_AUTH")
-        tid = self.tid()
-        self.replied(f"write at 0x{self.unmapped:08X}, outside the register windows",
-                     rmap.write_command(t, self.unmapped, word, tid), 1, tid, self.unmapped)
-        self.count("TGT_CNT_ERR1", "GENERAL")
+        if self.unmapped is not None:
+            tid = self.tid()
+            self.replied(f"write at 0x{self.unmapped:08X}, outside the register windows",
+                         rmap.write_command(t, self.unmapped, word, tid), 1, tid, self.unmapped)
+            self.count("TGT_CNT_ERR1", "GENERAL")
         # a non-verified write with a data CRC error writes its data (TG-EX-02)
         tid = self.tid()
         packet = rmap.write_command(t, scratch, word, tid, verify=False)
@@ -286,6 +288,15 @@ class RmapErrors:
         self.count("TGT_CNT_OK2", "RMW")
         self.value(self.irq_ena, 0x3, "the read-modify-write of IRQ_ENA")
         self.write(self.irq_ena, 0x0)
+        if self.unmapped is None:
+            # every address reaches a register window: one map further on, the identification of the node
+            s = self.ctx.system
+            address = s.decoded_bytes() + s.base(s.node) + s.id_offsets()[s.node]
+            tid = self.tid()
+            self.replied(f"read at 0x{address:08X}, the identification of {s.node} one map further on",
+                         rmap.read_command(t, address, 4, tid), 0, tid, address,
+                         data=s.ids[s.node].to_bytes(4, "little"))
+            self.count("TGT_CNT_OK", "READ")
 
     def windows(self) -> None:
         """Window 3 opened for the registers of the target, window 0 restricted and restored through it."""
@@ -320,9 +331,9 @@ class RmapErrors:
         self.count("TGT_CNT_OK", "READ")
 
 
-def tc15_rmap_errors(regs: Registers, ctx: systest.Context, unmapped: int) -> None:
+def tc15_rmap_errors(regs: Registers, ctx: systest.Context, unmapped: int | None) -> None:
     """The steps of TC-RS-HW-15 (module documentation); unmapped: an address outside the register windows of the
-    system."""
+    system, None when every address reaches one."""
     cases = RmapErrors(regs, ctx, unmapped)
     cases.check_last("start")
     cases.statuses()

@@ -104,8 +104,9 @@
   specially, `sw/refsys/rmaptest.py`) and TC-RS-HW-16 (Space Packets that the node discards, sequence counts that
   wrap, round robin, `sw/refsys/spptest.py`). A test case that provokes errors checks that only the registers it
   targets moved. The procedure lists per core what the test cases exercise and what they do not (section 10). The
-  system model follows the RMAP target (`sw/refsys/rmapmodel.py`), the receive checks of the Space Packet node and
-  the register semantics of the cores.
+  system model follows the RMAP target (`sw/refsys/rmapmodel.py`), the AXI4-Lite decoder (above its ports the map
+  repeats, or the decoder answers DECERR at a port index without a port), the receive checks of the Space Packet
+  node and the register semantics of the cores.
 - spfi_compress: an interactive lab tool (`sw/compress_gui.py`, tkinter) compresses one image at a time on channel 0
   or 3 with runtime values of your choice and a test pattern or an image file, compares the chunks with the model,
   decodes the image with the decoder of the reference model when it is there and shows the original, the decoded and
