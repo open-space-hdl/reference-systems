@@ -69,14 +69,15 @@ The register windows follow each other without gaps (`hdl/spfi_compress_address_
 
 One compressed image may need many Space Packets: a Packet Data Field holds at most 65,536 bytes (CCSDS 133.0-B-2
 4.1.2.1), and the upper bounds on the compressed images of the lab configurations (`max_image_bytes` of the model of
-OpenCompact) are larger:
+OpenCompact; on channels 0 and 3 its maximum over the ranges of the runtime parameters, at Umax 32 and gamma\* 4) are
+larger:
 
 | Channel | Upper bound on the compressed image | Space Packets of 4096 bytes at that bound | Space Packets at 65,536 bytes |
 | --- | --- | --- | --- |
-| 0 (c01, sample-adaptive) | 835,496 bytes (34.0 bits per sample) | 204 | 13 |
+| 0 (c01, sample-adaptive) | 1,179,476 bytes (48.0 bits per sample); 835,496 bytes (34.0) with the parameters of the generics | 288 | 18 |
 | 1 (c25, sample-adaptive) | 835,496 bytes (34.0 bits per sample) | 204 | 13 |
 | 2 (c27, block-adaptive) | 399,380 bytes (16.25 bits per sample) | 98 | 7 |
-| 3 (c26, hybrid) | 1,303,256 bytes (53.0 bits per sample) | 319 | 20 |
+| 3 (c26, hybrid) | 1,698,668 bytes (69.1 bits per sample); 1,303,256 bytes (53.0) with the parameters of the generics | 415 | 26 |
 
 The chunks of 4096 bytes leave room for two of them in the send buffer of every port of `spp0` (8192 bytes): one
 chunk enters while the one before it leaves.
@@ -116,16 +117,19 @@ receive buffer of `spp0` holds (8186 bytes of data) 48 times and 288 bytes.
 
 All four use an output word size of 4 bytes and image framing by the end mark. The parameters are generics of the
 compressors, except on channels 0 and 3, whose compressors have the runtime configuration of OpenCompact
-(`RuntimeConfig_g`, OpenCompact user guide, section 4.4). Software sets the image dimensions of every image on both
-channels over RMAP, up to the 64 x 64 x 48 of the table. On channel 3 it also sets the absolute error limit value, 0
-to 1023. It writes NEXT_X, NEXT_Y, NEXT_Z and NEXT_LIMITS and then CONTROL.COMMIT. STATUS shows a refused (CFG_ERROR)
-or pending (CFG_PENDING) configuration, and IMAGE_X to IMAGE_Z, ORDER and LIMITS show the values of the last image
-that started (OpenCompact register map). After a reset both channels compress with the values of the table. Channel 0
-is lossless, so it has no error limit to change; in its BIP order the sub-frame depth follows the number of bands (M =
-min(48, NZ)). Only channel 3, with reduced prediction and column-oriented local sums, takes images one sample wide. A
-compressor with the runtime configuration needs 8 to 10 clock cycles more per image, so the throughput figures below
-also hold for channels 0 and 3. Channels 1 and 2 keep the configuration of their generics: one device image holds both
-kinds.
+(`RuntimeConfig_g`, OpenCompact user guide, section 4.4) and its runtime parameters (`RuntimeParams_g`, section
+4.5). Software sets over RMAP the image dimensions of every image on both channels, up to the 64 x 64 x 48 of the
+table, on channel 3 also the absolute error limit value, 0 to 1023, and the runtime parameters of every image: the
+user-defined data, M, the weight update parameters and the parameters of the entropy coder. It writes NEXT_X, NEXT_Y,
+NEXT_Z and NEXT_LIMITS, then NEXT_SAMPLES to NEXT_BLOCK, and then CONTROL.COMMIT. STATUS shows a refused (CFG_ERROR)
+or pending (CFG_PENDING) configuration, and IMAGE_X to IMAGE_Z, SAMPLES, ORDER, WEIGHTS, ADAPTIVE, BLOCK and LIMITS
+show the values of the last image that started (OpenCompact register map). After a reset both channels compress with
+the values of the table. Channel 0 is lossless, so it has no error limit to change; with the values of the reset the
+sub-frame depth of its BIP order follows the number of bands (M = min(48, NZ)). Only channel 3, with reduced
+prediction and column-oriented local sums, takes images one sample wide. A compressor with the runtime configuration
+needs 8 to 10 clock cycles more per image; the throughput figures below take channels 0 and 3 at the upper bound of
+their compressed images over the ranges of the runtime parameters. Channels 1 and 2 keep the configuration of their
+generics: one device image holds both kinds.
 
 ## Throughput
 
@@ -133,16 +137,17 @@ The receive side and the compressors are those of spfi_compress_encrypt
 ([its README](../spfi_compress_encrypt/README.md#throughput), section Throughput): every compressor takes one sample
 per clock cycle, 2.4 Gbit/s per channel at 150 MHz, and writes at most one word of 4 bytes per cycle, so that it
 keeps this rate as long as its compressed image takes at most 32 bits per sample. At the upper bounds of the table
-above the output limits channels 0, 1 and 3 (29.0 us, 29.0 us and 45.2 us per SDU of 8186 bytes instead of 27.3 us).
+above the output limits channels 0, 1 and 3 (40.9 us, 29.0 us and 58.9 us per SDU of 8186 bytes instead of 27.3 us).
 With the Space Packets spread evenly over the channels, the four channels take 9.6 Gbit/s of samples when every
-compressed image takes at most 32 bits per sample, and 5.8 Gbit/s at the upper bound of channel 3; the FIFOs `rxf<i>`
+compressed image takes at most 32 bits per sample, and 4.4 Gbit/s at the upper bound of channel 3; the FIFOs `rxf<i>`
 keep the shared receive buffer of `spp0` from holding back the channels, as in spfi_compress_encrypt.
 
 The throughput budget of the Composer (section "Throughput" of the brief in the system file) gives every channel the
-rate of its compressor at the upper bound of its compressed images. At input packets of 1024 bytes that is 2.29 Gbit/s
-of samples on channels 0 and 1 and 1.47 Gbit/s on channel 3, limited by the output of the compressor, and
-2.43 Gbit/s on channel 2, limited by its input. The four receive ports together take 5.87 Gbit/s with the packets
-spread evenly over them, as in spfi_compress_encrypt. The chunker and the send side carry more on every path.
+rate of its compressor at the upper bound of its compressed images, on channels 0 and 3 the bound over the ranges of
+the runtime parameters. At input packets of 1024 bytes that is 1.62 Gbit/s of samples on channel 0, 2.29 Gbit/s on
+channel 1 and 1.13 Gbit/s on channel 3, limited by the output of the compressor, and 2.43 Gbit/s on channel 2,
+limited by its input. The four receive ports together take 4.51 Gbit/s with the packets spread evenly over them, as
+in spfi_compress_encrypt. The chunker and the send side carry more on every path.
 
 The budget rates every path on its own. The four send ports of `spp0` share one path to the link, and the channels
 together do not exceed it either:
