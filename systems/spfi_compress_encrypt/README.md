@@ -119,9 +119,8 @@ When the Space Packets are spread evenly over the channels, the slowest channel 
 9.6 Gbit/s for the four channels when every compressed image takes at most 32 bits per sample (at most twice the
 size of its samples), 4.4 Gbit/s (4 x 65.5 kbit in 58.9 us) at the upper bound of channel 3. The receive side does
 not limit it: the four lanes of `ofb0` carry 20 Gbit/s of 8B/10B data (6.25 Gbit/s per lane), the receive path of
-`spp0` 16 bytes per cycle. On the send side the four send ports of `spp0` share one path to the link, which carries
-6.29 Gbit/s in the throughput budget of the Composer: the encrypted chunks of the four channels together stay below
-it when the images compress by a ratio of about 1.5 or more at the full input rate.
+`spp0` 16 bytes per cycle. On the send side the four send ports of `spp0` share one path to the link; the throughput
+budget of the Composer rates every path on its own and gives no rate of the four together.
 
 The receive buffer of `spp0` (8192 bytes) is shared by all receive ports and delivers the Space Packets in the order
 in which they arrived (OpenSPP user guide, generics `RxBufferBytes_g`): a packet leaves the buffer only after the
@@ -129,10 +128,23 @@ packet before it, of any channel, has been taken. Without the FIFOs the channels
 bytes fills the buffer, and the next SDU, of any channel, would wait until the compressor of the previous one had
 taken it (4093 cycles, 27.3 us), so the system would compress at the rate of one channel. `rxf<i>` takes the SDUs of
 its channel at the rate of the receive port and holds two of them, so the buffer of `spp0` empties at the rate of the
-link while the compressors work. The throughput budget of the Composer (section "Throughput" of the brief in the
-system file) rates the four receive ports together: with the FIFOs the delivery in order reaches the rate of
-decoupled ports, 4.51 Gbit/s at packets of 1024 bytes at the upper bounds of the compressed images (5.87 Gbit/s with
-the parameters of the generics on channels 0 and 3; without the FIFOs it would be 2.03 Gbit/s there).
+link while the compressors work.
+
+The throughput budget of the Composer (section "Throughput" of the brief in the system file) rates every path from
+the link through a channel back to the link at the upper bound of its compressed images, on channels 0 and 3 the
+bound over the ranges of the runtime parameters:
+
+| Path | Packets of 64 bytes | Packets of 1024 bytes | Limited by |
+| --- | --- | --- | --- |
+| Channel 0 | 2.05 Gbit/s | 1.62 Gbit/s | `ocp0.Out` |
+| Channel 1 | 2.89 Gbit/s | 2.29 Gbit/s | `ocp1.Out` |
+| Channel 2 | 2.95 Gbit/s | 2.43 Gbit/s | `ocp2.In` |
+| Channel 3 | 1.42 Gbit/s | 1.13 Gbit/s | `ocp3.Out` |
+
+It also rates the four receive ports of `spp0` together, with the packets spread evenly over them: delivered in the
+order of arrival they take 5.69 Gbit/s at packets of 64 bytes and 4.51 Gbit/s at 1024 bytes, four times the slowest
+path, since a packet holds the delivery until its output has taken it. A store of two packets behind every output
+gives the same rates.
 
 What remains: when the FIFO of one channel is full, because its compressor is two SDUs behind, the next Space Packet
 of that channel stays in the buffer of `spp0` and holds back the packets of all channels behind it until the
