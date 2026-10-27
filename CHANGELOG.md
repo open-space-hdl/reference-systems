@@ -160,6 +160,14 @@
 - VCK190 hardware test procedure of spfi_encrypt, section "When the link does not come up": how the lane states of
   the far end show how far the lane initialisation got.
 
+### Known issues
+
+- OpenFibre v0.1.4 in simulation: `VC_BW_OVER` and `VC_BW_UNDER` of the SpaceFibre port hold 'U' until the status of
+  the core has crossed into the management clock domain, after the lane clock of the simulated transceiver starts. A
+  read puts 'U' into the RMAP reply, whose frame is then sent again without end. The `sim` profile of the hardware test
+  of spfi_compress clears both flags in TC-RS-HW-01 before their first read; the `lab` profile reads them as they are.
+  The hardware is not affected: the flags start at 0. Details in the README of the system testbench of spfi_compress.
+
 ### Fixed
 
 - VCK190 targets of every system: `tcl/build.tcl` puts the text of `build_info.txt` together first, writes it with

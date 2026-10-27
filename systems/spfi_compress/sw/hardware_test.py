@@ -98,8 +98,9 @@ class Profile:
     with the runtime configuration and one image of every other channel, or without runtime_full three images of the
     bounds (refsys.ocptest.image_plan). The test cases that check the data path after a provoked event
     (traffic_round) send one image per channel, or with small only one image of at most small samples (NX, NY, NZ)
-    on each channel with the runtime configuration. The hardware test runs the lab profile, the system simulation the
-    sim profile."""
+    on each channel with the runtime configuration. With clear_bw_flags TC-RS-HW-01 clears VC_BW_OVER and VC_BW_UNDER
+    of the SpaceFibre port before their first read (BW_FLAGS). The hardware test runs the lab profile, the system
+    simulation the sim profile."""
 
     name: str
     kinds: tuple[str, ...]
@@ -107,11 +108,18 @@ class Profile:
     split_lost: bool = False
     runtime_full: bool = True
     small: tuple[int, int, int] | None = None
+    clear_bw_flags: bool = False
 
 
 PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
                                 Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
-                                        small=(64, 16, 8)))}
+                                        small=(64, 16, 8), clear_bw_flags=True))}
+
+# Known issue of OpenFibre v0.1.4 in simulation: VC_BW_OVER and VC_BW_UNDER hold 'U' until the status of the core has
+# crossed into the management clock domain, which happens only after the lane clock of the simulated transceiver
+# starts; a read puts 'U' into the reply and its CRC. Writing ones clears both flags (write-one-to-clear). On hardware
+# the flags start at 0, and the lab profile reads them as they are.
+BW_FLAGS = ("VC_BW_OVER", "VC_BW_UNDER")
 
 
 @dataclass
@@ -447,8 +455,13 @@ def check_status(regs: Registers, ctx: Context) -> None:
 def tc01_link(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP, the lanes are recorded
     (sw/refsys/systest.py); then the baseline of the error and memory error registers of every block: recorded,
-    cleared and read again as 0 (refsys.errorstate)."""
+    cleared and read again as 0 (refsys.errorstate). In a profile with clear_bw_flags VC_BW_OVER and VC_BW_UNDER are
+    cleared before the baseline reads them (BW_FLAGS)."""
     systest.tc01_link(regs, ctx)
+    if ctx.profile.clear_bw_flags:
+        base = ctx.system.base(ctx.system.port)
+        for name in BW_FLAGS:
+            regs.write(base + getattr(OFB, name), 0xFFFFFFFF)
     systest.baseline(regs, ctx)
 
 

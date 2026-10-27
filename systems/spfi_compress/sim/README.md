@@ -153,3 +153,17 @@ the image size of the lab run in GHDL (above).
   interoperability (spfi_encrypt, sim/README.md, section "Limits").
 - The compressors are compared with the reference model of OpenCompact, which OpenCompact verifies against the CNES
   reference software; the simulation does not decode the compressed images.
+
+## Known issue: the bandwidth flags of OpenFibre v0.1.4 in simulation
+
+In simulation, `VC_BW_OVER` and `VC_BW_UNDER` of `ofb0` (register map of OpenFibre, 0x048 and 0x04C) hold 'U' after
+the reset. The register map sets these sticky flags from the status of the core, which crosses into the management
+clock domain only after the lane clock of the simulated transceiver has started (at about 65 us). A read of the flags
+before they are cleared puts 'U' into the RMAP reply: the CRCs of the frame at both ends of the link differ, the frame
+is sent again without end and the reply never arrives, while the link stays up.
+
+In the `sim` profile the hardware test therefore writes both registers with ones (write-one-to-clear) in TC-RS-HW-01,
+before the baseline of the error registers reads them (`clear_bw_flags` of the profile, `BW_FLAGS` of
+`sw/hardware_test.py`). The `lab` profile does not write them: on hardware the flags start at 0, and the baseline
+records their values as they are. The hardware is not affected. OpenFibre corrects this in a later version; this
+system keeps v0.1.4.
