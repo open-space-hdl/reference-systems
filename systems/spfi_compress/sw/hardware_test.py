@@ -473,15 +473,21 @@ def tc02_identification(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-02: every register window answers with the identification of its block; the SpaceFibre port, the
     RMAP target and the Space Packet node report the generics of the Composer file, the SpaceFibre port the
     initialised link with all lanes; the status interface of every compressor reports the configuration of its
-    generics."""
+    generics. A compressor with the runtime configuration shows in IMAGE_X to LIMITS the values of the generics or
+    those of an image of an earlier run on the same device, values in range (refsys/ocptest.check_start)."""
     systest.tc02_identification(regs, ctx)
     systest.check_generics(regs, ctx)
     systest.check_link_state(regs, ctx)
+    runtime, _ = ocptest.split_channels(ctx.system)
     for ch in ctx.system.channels:
         base = ctx.system.base(ch.compressor)
         for name, value in ocp.mib_words(OCP, ch.generics).items():
+            if ch in runtime and name in ocp.TAKEN_REGISTERS:
+                continue
             word = regs.read(base + getattr(OCP, name))
             check(word == value, f"{ch.compressor} {name}: 0x{word:08X}, expected 0x{value:08X}")
+        if ch in runtime:
+            ocptest.check_start(regs, ctx, ch)
 
 
 def tc03_rmap(regs: Registers, ctx: Context) -> None:
@@ -522,8 +528,13 @@ def tc04_multi_word(regs: Registers, ctx: Context) -> None:
 
 def tc05_configure(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-05: input APID i goes to receive port i with the continuity check of its Packet Sequence Count; the
+    Packet Sequence Counts of the output APIDs are read (systest.read_start_counts); a compressor with the runtime
+    configuration that holds values of an earlier run gets the values of the generics (refsys/ocptest.restore); the
     counters are cleared."""
     systest.route_inputs(regs, ctx, continuity=True)
+    systest.read_start_counts(regs, ctx)
+    for ch in ocptest.split_channels(ctx.system)[0]:
+        ocptest.restore(regs, ctx, ch)
     clear_status(regs, ctx)
 
 
@@ -827,10 +838,24 @@ def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
     systest.end_of_run(regs, ctx)
 
 
+def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
+    device image, as a second run of the script does (systest.repeat_run): every one passes again. The second run
+    continues the Packet Sequence Counts of the first and starts its compressors with the values of the generics
+    (TC-RS-HW-05); its records and compressed images go into those of the run."""
+    fresh = make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes)
+    try:
+        systest.repeat_run(regs, ctx, fresh)
+    finally:
+        ctx.image_records += fresh.image_records
+        ctx.decoded += fresh.decoded
+        ctx.undecoded += fresh.undecoded
+
+
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
          tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal,
-         tc17_end_of_run]
+         tc17_end_of_run, tc18_repeated_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
@@ -840,7 +865,7 @@ REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
             tc14_memory_errors: [tc01_link, tc05_configure],
             tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
-            tc17_end_of_run: [tc01_link]}
+            tc17_end_of_run: [tc01_link], tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
@@ -878,7 +903,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
     if args.check_environment:
-        return systest.check_environment(gui=(SYSTEM_DIR / "sw" / "compress_gui.py").exists())
+        return systest.check_environment()
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     if args.model:
         # the module as the system model imports it (this script runs as __main__), so that both share its classes

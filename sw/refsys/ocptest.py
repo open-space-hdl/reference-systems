@@ -14,6 +14,11 @@ entropy coder parameters from NEXT_SAMPLES to NEXT_BLOCK, and SAMPLES, ORDER, WE
 values of the last image (user guide 4.5). Without them these registers read zero and ignore writes. The test
 procedure keeps the model of every channel (refsys.ocp.Channel) in step with what it commits, and the model gives
 the expected values and images.
+
+A run need not start from the reset: a run before it on the same device leaves the values of its last COMMIT in
+NEXT_X to NEXT_BLOCK and those of its last image in IMAGE_X to LIMITS. TC-RS-HW-02 accepts there the values of an
+earlier image (check_start), and TC-RS-HW-05 commits the values of the generics when the registers do not hold the
+values of the reset (restore), so that every run compresses its first images with the generics.
 """
 
 import random
@@ -21,7 +26,7 @@ from dataclasses import replace
 
 from refsys import ocp
 from refsys.regs import RegisterMap
-from refsys.systest import CORES, Registers, check, consecutive, hex_words
+from refsys.systest import CORES, Registers, check, consecutive, hex_words, record
 
 OCP = RegisterMap(CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 COMMIT = OCP.field("CONTROL", "COMMIT", 1)
@@ -79,10 +84,55 @@ def write_next(regs: Registers, ctx, ch, values: ocp.ImageConfig) -> dict[str, i
     return words
 
 
+def reset_words(ch, pending: bool = False) -> list[int]:
+    """CONTROL, STATUS, NEXT_X to NEXT_LIMITS and NEXT_SAMPLES to NEXT_BLOCK of a compressor after a reset; with
+    pending STATUS.CFG_PENDING set, as after the COMMIT of these values and before the next image start."""
+    words = ocp.runtime_words(OCP, ch.generics) | ({"STATUS": CFG_PENDING} if pending else {})
+    return [words[n] for n in ocp.CONFIG_REGISTERS]
+
+
+def check_start(regs: Registers, ctx, ch) -> None:
+    """Step of TC-RS-HW-02 for a compressor with the runtime configuration: IMAGE_X to LIMITS show the values of the
+    generics, as after the reset, or those of the last image of a run before this one on the same device. Either
+    way they are values that a COMMIT accepts, shown as the compressor shows the values it took (mib_words); they are
+    recorded."""
+    base = ctx.system.base(ch.compressor)
+    got = {name: regs.read(base + getattr(OCP, name)) for name in ocp.TAKEN_REGISTERS}
+    params = ocp.runtime_params(ch.generics)
+    values = ocp.taken_values(OCP, got, params)
+    check(ocp.commit_accepts(ch.cfg, values),
+          f"{ch.compressor} IMAGE_X to LIMITS show values out of range: {ocp.describe(values)}")
+    words = ocp.mib_words(OCP, ch.generics, ocp.image_config(ch.cfg, values))
+    for name in ocp.TAKEN_REGISTERS:
+        check(got[name] == words[name], f"{ch.compressor} {name}: 0x{got[name]:08X}, expected 0x{words[name]:08X} "
+              f"for the values {ocp.describe(values)}")
+    if values == ocp.build_values(ch.cfg, params):
+        record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics")
+    else:
+        record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of an image of an "
+               f"earlier run: {ocp.describe(values)}")
+
+
+def restore(regs: Registers, ctx, ch) -> None:
+    """Step of TC-RS-HW-05 for a compressor with the runtime configuration: CONTROL to NEXT_BLOCK hold the values of
+    the reset, or a run before this one left other values, and the values of the generics are committed (recorded).
+    The images of the test cases then compress with the generics, and the model of the channel waits for its next
+    image start with them as the compressor does. Without a reset of the data path this is the way back to the
+    configuration of the reset."""
+    got = read_config(regs, ctx, ch)
+    if got == reset_words(ch):
+        return
+    record(ctx, f"{ch.compressor} at the start of the run: CONTROL to NEXT_BLOCK {hex_words(got)} from an earlier "
+           "run, the values of the generics are committed")
+    commit(regs, ctx, ch, ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics)))
+
+
 def check_reset(regs: Registers, ctx, ch) -> None:
-    """CONTROL, STATUS, NEXT_X to NEXT_LIMITS and NEXT_SAMPLES to NEXT_BLOCK hold their values after a reset (also
-    after a complete run of the lab profile, which ends with the values of the generics)."""
-    want = [ocp.runtime_words(OCP, ch.generics)[n] for n in ocp.CONFIG_REGISTERS]
+    """CONTROL, STATUS, NEXT_X to NEXT_LIMITS and NEXT_SAMPLES to NEXT_BLOCK hold their values after a reset, also
+    after a complete run of the lab profile, which ends with the values of the generics, and after the COMMIT of the
+    generics in TC-RS-HW-05 (restore): STATUS.CFG_PENDING then stays set until the next image starts, as the model
+    of the channel says."""
+    want = reset_words(ch, ctx.models[ch.port].pending)
     got = read_config(regs, ctx, ch)
     check(got == want, f"{ch.compressor} CONTROL to NEXT_LIMITS, NEXT_SAMPLES to NEXT_BLOCK: {hex_words(got)}, "
           f"expected {hex_words(want)}")

@@ -367,19 +367,31 @@ def check_status(regs: Registers, ctx: Context) -> None:
 
 def tc02_identification(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-02: every register window answers with the identification of its block; the status interface of
-    every compressor reports the configuration of its generics."""
+    every compressor reports the configuration of its generics. A compressor with the runtime configuration shows in
+    IMAGE_X to LIMITS the values of the generics or those of an image of an earlier run on the same device, values in
+    range (refsys/ocptest.check_start)."""
     systest.tc02_identification(regs, ctx)
+    runtime, _ = ocptest.split_channels(ctx.system)
     for ch in ctx.system.channels:
         base = ctx.system.base(ch.compressor)
         for name, value in ocp.mib_words(OCP, ch.generics).items():
+            if ch in runtime and name in ocp.TAKEN_REGISTERS:
+                continue
             word = regs.read(base + getattr(OCP, name))
             check(word == value, f"{ch.compressor} {name}: 0x{word:08X}, expected 0x{value:08X}")
+        if ch in runtime:
+            ocptest.check_start(regs, ctx, ch)
 
 
 def tc05_configure(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-05: input APID i goes to receive port i with the continuity check of its Packet Sequence Count; the
+    Packet Sequence Counts of the output APIDs are read (systest.read_start_counts); a compressor with the runtime
+    configuration that holds values of an earlier run gets the values of the generics (refsys/ocptest.restore); the
     key slot of every AES-GCM core is loaded with its own key and generated IVs; the counters are cleared."""
     systest.route_inputs(regs, ctx, continuity=True)
+    systest.read_start_counts(regs, ctx)
+    for ch in ocptest.split_channels(ctx.system)[0]:
+        ocptest.restore(regs, ctx, ch)
     systest.load_keys(regs, ctx)
     clear_status(regs, ctx)
 
@@ -494,12 +506,21 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
+    device image, as a second run of the script does (systest.repeat_run): every one passes again. The second run
+    continues the Packet Sequence Counts of the first and starts its compressors with the values of the generics
+    (TC-RS-HW-05); its records go into those of the run."""
+    systest.repeat_run(regs, ctx, make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes))
+
+
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc18_repeated_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
-            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure]}
+            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
+            tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

@@ -172,6 +172,10 @@ Composer file, and the images and counters of every channel after lost SDUs with
 (`sw/refsys/ocp.py`). The test images are deterministic for a seed and depend on every bit of the sample address, so
 that an address fault of a memory of a compressor changes its compressed image.
 
+TC-RS-HW-18 runs the test cases of the run again on the same device without a new device image, as a second run of the
+script does: every run reads the Packet Sequence Counts from which its Space Packets continue and starts its compressors
+with the values of the generics (hardware test procedure, section "Repeated runs").
+
 TC-RS-HW-10 tests the runtime configuration (`sw/refsys/ocptest.py`). Before every image of its plan, channels 0 and 3
 get the values of that image. The first COMMIT is followed by COMMITs with one value out of range, which the
 compressor must refuse with CFG_ERROR while the configuration stays pending. Every compressed image is compared with

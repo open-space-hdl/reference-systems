@@ -302,6 +302,7 @@ class Context:
     baseline: dict[str, int] = field(default_factory=dict, kw_only=True)   # error registers after link-up
     current: str = field(default="", kw_only=True)                        # the test case that runs
     recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
+    selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
 
 
 def record(ctx: Context, text: str) -> None:
@@ -600,6 +601,26 @@ def route_inputs(regs: Registers, ctx: Context, continuity: bool = False) -> Non
           "TABLE_STATUS.RX_OVERRUN")
 
 
+def read_start_counts(regs: Registers, ctx: Context) -> None:
+    """Step of TC-RS-HW-05: the Packet Sequence Count of the next Space Packet of every output APID, from the send
+    APID table of the Space Packet node (TX_TABLE_ENTRY.COUNT, OpenSPP register map), recorded; the packets of the
+    run must continue from it. The table keeps the counts until a reset of the node, so a run before this one on the
+    same device leaves the counts after its last packets (SPP 4.1.3.4.3). The receive side needs no such step:
+    route_inputs writes every entry of an input APID with VALID 0, and the first packet after that sets no loss
+    indicator (OpenSPP RE-DM-03)."""
+    s = ctx.system
+    node = s.base(s.node)
+    regs.wait(node + SPP.TABLE_STATUS, SPP.field("TABLE_STATUS", "TX_BUSY", 1), 0)
+    for ch in s.channels:
+        regs.write(node + SPP.TX_TABLE_APID, ch.output_apid)
+        word = regs.read(node + SPP.TX_TABLE_ENTRY)
+        check(not SPP.get("TX_TABLE_ENTRY", "DED", word),
+              f"send APID table entry of APID {ch.output_apid}: double error, 0x{word:08X}")
+        ctx.output_count[ch.output_apid] = SPP.get("TX_TABLE_ENTRY", "COUNT", word)
+        record(ctx, f"{s.node} sends the next Space Packet of APID {ch.output_apid} with Packet Sequence Count "
+               f"{ctx.output_count[ch.output_apid]}")
+
+
 def load_keys(regs: Registers, ctx: Context) -> None:
     """Step of TC-RS-HW-05: the key slot of the framer of every channel holds the key of the channel with generated
     IVs."""
@@ -657,6 +678,7 @@ def run(transport, ctx: Context, tests: list, registers: type[Registers] = Regis
     """Runs the test cases in order and stops at the first failure; returns the name and the error (None when it
     passed) of every test case that ran."""
     regs = registers(transport, ctx.setup)
+    ctx.selected = list(tests)
     results = []
     for test in tests:
         name = test_name(test)
@@ -673,6 +695,31 @@ def run(transport, ctx: Context, tests: list, registers: type[Registers] = Regis
     passed = sum(error is None for _, error in results)
     print(f"{passed} of {len(tests)} test cases passed")
     return results
+
+
+def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
+    """TC-RS-HW-18: the test cases of the run before this one run again against the same device, without a reset or
+    a new device image, with fresh, the context that a second run of the script starts with: the second run finds
+    what the first one left in the system (the Packet Sequence Counts of the Space Packet node, the configuration of
+    the compressors, the counters) and must pass all the same. The test cases of the second run make no marks of their
+    own; their records go into the records of the run, with the name of this test case and their own."""
+    names = [test_name(t) for t in ctx.selected]
+    check(ctx.current in names and names.index(ctx.current) > 0, f"{ctx.current} has no test case before it to repeat")
+    tests = ctx.selected[:names.index(ctx.current)]
+    fresh.selected = tests
+    second = type(regs)(regs.transport, fresh.setup)
+    try:
+        for test in tests:
+            name = test_name(test)
+            fresh.current = f"{ctx.current} {name}"
+            try:
+                test(second, fresh)
+            except Exception as err:  # noqa: BLE001 - the failure of the second run is the failure of this test case
+                raise TestFailed(f"second run, {name}: {err}") from err
+            print(f"PASS {ctx.current}: second run of {name}")
+    finally:
+        ctx.records += fresh.records
+        ctx.recorded += fresh.recorded
 
 
 def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,
@@ -714,10 +761,9 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
     return parser
 
 
-def check_environment(gui: bool = False) -> int:
-    """--check-environment: Python 3.10 or later, the reference model of OpenCompact, the Python package of the
-    far-end software that the transport uses and, with gui, tkinter. One line per item; exit code 0 when every item
-    is there."""
+def check_environment() -> int:
+    """--check-environment: Python 3.10 or later, the reference model of OpenCompact and the Python package of the
+    far-end software that the transport uses. One line per item; exit code 0 when every item is there."""
     from refsys import transport
 
     def python() -> str:
@@ -729,13 +775,8 @@ def check_environment(gui: bool = False) -> int:
         module = importlib.import_module("ocp_model")
         return f"found, decoder {'included' if hasattr(module, 'decompress') else 'not included'}"
 
-    def tk() -> str:
-        return f"Tk {importlib.import_module('tkinter').TkVersion}"
-
     items = [("Python", python), ("reference model of OpenCompact", model),
              ("Python package of the far-end software", transport.far_end_software)]
-    if gui:
-        items.append(("tkinter (GUI)", tk))
     ok = True
     for name, probe in items:
         try:

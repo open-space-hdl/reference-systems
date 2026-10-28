@@ -116,7 +116,7 @@ SPFI_COMPRESS = [ROOT / "systems" / "spfi_compress" / "sw" / name for name in ("
 
 
 def test_spfi_compress_imports_the_standard_library_only():
-    outside = import_closure(SPFI_COMPRESS + sorted(ROOT.glob("systems/spfi_compress/sw/compress_gui.py")))
+    outside = import_closure(SPFI_COMPRESS)
     assert outside - set(sys.stdlib_module_names) == set()
 
 

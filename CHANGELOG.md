@@ -129,10 +129,6 @@
   system model follows the RMAP target (`sw/refsys/rmapmodel.py`), the AXI4-Lite decoder (above its ports the map
   repeats, or the decoder answers DECERR at a port index without a port), the receive checks of the Space Packet
   node and the register semantics of the cores.
-- spfi_compress: an interactive lab tool (`sw/compress_gui.py`, tkinter) compresses one image at a time on channel 0
-  or 3 with runtime values of your choice and a test pattern or an image file, compares the chunks with the model,
-  decodes the image with the decoder of the reference model when it is there and shows the original, the decoded and
-  the difference image; without the test equipment it works with the model only.
 - Hardware test of spfi_compress: `--model` runs it against the system model, `--check-environment` checks the test
   computer, `--records` writes the records of a run (every compressed image with its hash, the recorded values with
   their test case), which `tools/render_records.py` renders into the tables of a report. Every complete compressed
@@ -193,6 +189,18 @@
 
 ### Fixed
 
+- Hardware test of spfi_compress and spfi_compress_encrypt: a second run on the same device without a new device
+  image failed. The Space Packet node continues the Packet Sequence Count of every output APID from run to run, and
+  the script expected the Space Packets of every run to start at count 0 (TC-RS-HW-06); the compressors with the
+  runtime configuration keep the values of the last COMMIT and of the last image, which the script expected to be
+  those of the reset (TC-RS-HW-02 and 10). TC-RS-HW-05 now reads the counts from the send APID table and commits the
+  values of the generics when the runtime registers hold others, both recorded, and TC-RS-HW-02 accepts the values of
+  an image of an earlier run, values in range. The new TC-RS-HW-18 of every system runs the test cases again on the
+  same device. Consecutive complete runs need no new device image; after a run that stopped early the device is
+  programmed again (section "Repeated runs" of the procedures).
+- `run.py` takes QuestaSim from `VUNIT_MODELSIM_PATH` or from `vsim` on the PATH and stops with a message when
+  neither is there; `build.bat` of the offline package takes Vivado from `VIVADO` or from the PATH. Neither has the
+  installation directory of a particular computer as its default any more.
 - VCK190 targets of every system: `tcl/build.tcl` puts the text of `build_info.txt` together first, writes it with
   one `puts` (UTF-8, LF line ends) and stops when the file does not have the size of the text after it is closed.
   Once, in the step `rtl`, the file stayed empty and its lines reached `vivado.log` instead; `build_info.txt` is a

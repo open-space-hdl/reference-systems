@@ -167,11 +167,19 @@ def tc07_counters(regs: Registers, ctx: Context) -> None:
     systest.ecc_counters(regs, ctx)
 
 
+def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
+    device image, as a second run of the script does (systest.repeat_run): every one passes again; its records go
+    into those of the run."""
+    systest.repeat_run(regs, ctx, make_context(ctx.seed, ctx.packets, ctx.setup, ctx.system))
+
+
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
-         tc07_counters]
+         tc07_counters, tc18_repeated_run]
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
-REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption]}
+REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption],
+            tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
