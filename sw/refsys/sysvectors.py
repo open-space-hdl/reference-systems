@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
-from refsys import systest
+from refsys import steplog, systest
 from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
 
 STIMULUS = "stimulus.txt"
@@ -56,6 +56,8 @@ VECTORS = "vectors.json"
 EVENTS = "events.txt"
 WALL = "wall.txt"
 REPORT = "report.txt"
+STEPS = "steps.jsonl"                  # the step log of the check (refsys/steplog.py), as JSON lines
+STEPS_TEXT = "steps.log"               # the same as text
 
 # Simulated time limits of the far end (ns). The link initialises in about 100 us; a command and its reply take a
 # few microseconds; the Space Packets of an exchange cross the link at several Gbit/s.
@@ -390,16 +392,25 @@ class Replay(Transport):
         return {vc: len(q) for vc, q in self.rx.items() if q}
 
 
-def check(bench: Bench, directory: Path) -> int:
-    """Replays the records of the bench with the procedure of the hardware test, writes report.txt; returns the exit
-    code."""
+def check(bench: Bench, directory: Path, out: Path | None = None) -> int:
+    """Replays the records of the bench in directory with the procedure of the hardware test; writes report.txt and the
+    step log of the check (steps.jsonl, steps.log) into out (default: directory); returns the exit code. With out, the
+    records of an earlier simulation are checked again with the procedure of the current code."""
     ht = bench.ht
+    out = out or directory
+    out.mkdir(parents=True, exist_ok=True)
     vectors = json.loads((directory / VECTORS).read_text(encoding="utf-8"))
     events, received = read_records(directory, vectors["vcs"])
     ctx = bench.restore(vectors)
     selected = ht.select_tests(vectors["tests"])
     replay = Replay(vectors["ops"], events, received, routes(ctx.system, ctx.setup))
-    results = ht.run(replay, ctx, selected, PollingRegisters)
+    sinks = [steplog.JsonLines(out / STEPS), steplog.TextLines(out / STEPS_TEXT)]
+    ctx.log.sinks += sinks
+    try:
+        results = ht.run(replay, ctx, selected, PollingRegisters)
+    finally:
+        for sink in sinks:
+            sink.close()
     problems = []
     kinds = {kind for _, kind, _, _ in events}
     if not events:
@@ -413,7 +424,7 @@ def check(bench: Bench, directory: Path) -> int:
     if passed and replay.leftover():
         problems.append(f"packets that no request awaited: {replay.leftover()} (virtual channel: count)")
     report = make_report(bench, vectors, events, results, problems, read_wall(directory), ctx.records)
-    (directory / REPORT).write_text(report, encoding="utf-8")
+    (out / REPORT).write_text(report, encoding="utf-8")
     print(report, end="")
     return 0 if passed and not problems else 1
 

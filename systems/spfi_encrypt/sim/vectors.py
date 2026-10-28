@@ -47,10 +47,10 @@ def write(directory: Path, profile: str, seed: int, tests: list[str] | None, pac
     sysvectors.write(BENCH, directory, profile, seed, tests, packets)
 
 
-def check(directory: Path) -> int:
-    """Replays the records of the bench with the procedure of the hardware test, writes report.txt; returns the exit
-    code."""
-    return sysvectors.check(BENCH, directory)
+def check(directory: Path, out: Path | None = None) -> int:
+    """Replays the records of the bench with the procedure of the hardware test, writes report.txt and the step log
+    (into out, default directory); returns the exit code."""
+    return sysvectors.check(BENCH, directory, out)
 
 
 if __name__ == "__main__":

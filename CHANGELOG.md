@@ -150,6 +150,9 @@
   no bytecode into the repository. spfi_compress carries the requirements of section 10 of its procedure as markers
   of its test cases. `hardware_test.py --device` and `--model` run the same pytest tests. The logging makes no RMAP
   request of its own: the stimuli of the system simulations are those of the test before it.
+- System simulations: the check writes the step log of the procedure (`steps.jsonl`, `steps.log`) next to
+  `report.txt`, and `run_ghdl.py` and `run_xsim.py` take `--recheck <run directory>`, which checks the records of an
+  earlier simulation again with the procedure of the current code, without a simulation.
 - `sw/refsys/`: the shared parts of the hardware tests and the system model also serve a system without framers and
   AES-GCM cores: the key material of the test context is optional, the identification and the key slots cover the
   channels with an AES-GCM core, and a system gives the Packet Data Fields that a channel sends (`send()` of the
