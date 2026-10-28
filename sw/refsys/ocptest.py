@@ -106,6 +106,8 @@ def check_start(regs: Registers, ctx, ch) -> None:
     for name in ocp.TAKEN_REGISTERS:
         check(got[name] == words[name], f"{ch.compressor} {name}: 0x{got[name]:08X}, expected 0x{words[name]:08X} "
               f"for the values {ocp.describe(values)}")
+    ctx.log.emit("config", f"{ch.compressor}: values of the last image that started: {ocp.describe(values)}",
+                 compressor=ch.compressor, values=vars(values), generics=values == ocp.build_values(ch.cfg, params))
     if values == ocp.build_values(ch.cfg, params):
         record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics")
     else:
@@ -165,6 +167,8 @@ def commit(regs: Registers, ctx, ch, values: ocp.ImageConfig) -> None:
     if ocp.runtime_params(ch.generics) and values.params is None:
         raise ValueError(f"{ch.compressor} has the runtime parameters: commit them with the values of every image")
     base = ctx.system.base(ch.compressor)
+    ctx.log.emit("config", f"{ch.compressor}: COMMIT of {ocp.describe(values)}", compressor=ch.compressor,
+                 values=vars(values))
     written = write_next(regs, ctx, ch, values)
     regs.write(base + OCP.CONTROL, COMMIT)
     check(ctx.models[ch.port].commit(values), f"{ch.compressor}: the values {values} are out of range")
@@ -197,8 +201,9 @@ def refuse(regs: Registers, ctx, ch, valid: ocp.ImageConfig) -> None:
         status = read_status(regs, ctx, ch)
         check(status == (True, True), f"{ch.compressor}: COMMIT with {name} 0x{word:08X} gives STATUS (CFG_ERROR, "
               f"CFG_PENDING) {status}, expected (True, True)")
-        got = regs.read(base + getattr(OCP, name))
-        check(got == word, f"{ch.compressor} {name}: 0x{got:08X}, expected 0x{word:08X}")
+        regs.expect(base + getattr(OCP, name), word, f"{ch.compressor} {name}, value out of range written")
+        ctx.log.emit("config", f"{ch.compressor}: COMMIT with {name} 0x{word:08X} out of range refused (CFG_ERROR), "
+                     "the configuration stays pending", "pass", compressor=ch.compressor, register=name, word=word)
         regs.write(base + OCP.STATUS, CFG_ERROR)
         regs.write(base + getattr(OCP, name), good[name])
     status = read_status(regs, ctx, ch)
@@ -213,8 +218,7 @@ def check_taken(regs: Registers, ctx, ch) -> None:
     model = ctx.models[ch.port]
     words = ocp.mib_words(OCP, ch.generics, model.image_cfg)
     for name in ocp.TAKEN_REGISTERS:
-        got = regs.read(base + getattr(OCP, name))
-        check(got == words[name], f"{ch.compressor} {name}: 0x{got:08X}, expected 0x{words[name]:08X}")
+        regs.expect(base + getattr(OCP, name), words[name], f"{ch.compressor} {name}")
     if model.runtime:
         status = read_status(regs, ctx, ch)
         check(status == (False, False), f"{ch.compressor}: STATUS (CFG_ERROR, CFG_PENDING) {status} after the "

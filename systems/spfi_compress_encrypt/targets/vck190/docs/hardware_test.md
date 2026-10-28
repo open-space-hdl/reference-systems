@@ -23,7 +23,7 @@ test needs and describes what differs.
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902) and Git | Build and programming |
 | The repository with its submodules: a clone from GitHub, or the offline package (Git bundles and `README.txt`) for a computer without network access | Sources of the build and of the test script |
-| Python 3.10 or later on the test computer with `pycryptodome` | Test script and the reference model of OpenCompact |
+| Python 3.10 or later on the test computer with pytest and `pycryptodome`, installed with the Python package openspacehdl | Test script and the reference model of OpenCompact |
 
 ## 3. Repository as Git bundles
 
@@ -95,18 +95,26 @@ size and the buffer sizes from the Composer file of the system, and the register
 
 ## 8. Tests
 
-Run the script on the test computer from the root of the repository:
+The test cases run as pytest tests (`sw/hwtest/test_spfi_compress_encrypt.py`, plugin `sw/refsys/hwplugin.py`), as
+for spfi_compress (its procedure, section 8, lists the options and the console). Run them on the test computer from
+the root of the repository:
 
 ```shell
-python systems/spfi_compress_encrypt/sw/hardware_test.py --device <STAR-Ultra> --profile lab --seed 1
+python systems/spfi_compress_encrypt/sw/hardware_test.py --check-environment
+python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target model --results <directory>
+python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target device --device <STAR-Ultra> --results <directory>
 ```
 
-`<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System. Before the first test case the script reads channels 0
-and 1 until no packet arrives within 0.5 s and prints how many packets of an earlier run it discarded per channel. It
-prints one line per test case and stops at the first failure, since the later test cases build on the earlier ones;
-TC-RS-HW-09 also prints the measured rate. `--seed` sets the keys and the images, `--test TC-RS-HW-nn` runs one test
-case and the test cases it builds on. Before it sends the images of a test case, the script computes their compressed
-images with the reference model of OpenCompact, a few seconds per image.
+- `<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System, and `--results` a directory outside the repository.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how
+  many packets of an earlier run it discarded per channel.
+- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
+  run. TC-RS-HW-09 also records the measured rate.
+- `--seed` (default 1) sets the keys and the images. `--tc TC-RS-HW-nn` runs one test case and the test cases it
+  builds on.
+- Before it sends the images of a test case, the test computes their compressed images with the reference model of
+  OpenCompact, a few seconds per image.
+- `hardware_test.py --device`, the command of earlier releases, runs the same pytest tests.
 
 The expected compressed images come from the reference model of OpenCompact for the generics of the compressor of
 every channel in the Composer file; the expected images and counters after lost Space Packets come from the error
@@ -167,6 +175,7 @@ Keep for every build and every test run, with the date:
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back; LEDs after programming, version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
-| Test run | Command line (profile, seed) and the complete output of the script with the `RECORD` lines of TC-RS-HW-01, the rate of TC-RS-HW-09 included, for example redirected into a file |
+| Test computer | The output of `--check-environment` |
+| Test run | The command line and the directory that the run writes below `--results`: `steps.jsonl`, `run.log`, `junit.xml`, the records file and the report, as for spfi_compress (its procedure, section 9); the records hold the recorded values of TC-RS-HW-01 and the rate of TC-RS-HW-09 |
 
 A failing test case is recorded with its output and the register values it reports.

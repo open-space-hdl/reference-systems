@@ -34,6 +34,7 @@ Exit code 0 when every test case passes.
 """
 
 import copy
+import hashlib
 import itertools
 import random
 import re
@@ -215,14 +216,29 @@ class Sdu:
     lost: bool = False
 
 
-def image_samples(ctx: Context, ch: Channel, kind: str, index: int) -> list[int]:
-    """The samples of test image `index` of a channel in the input order of its compressor."""
-    return ocp.input_order(ch.cfg, ocp.test_image(ch.cfg, kind, f"{ctx.seed} {ch.port} {index}"))
+def image_samples(ctx: Context, ch: Channel, kind: str, index: int, cfg: dict | None = None) -> list[int]:
+    """The samples of test image `index` of a channel in the input order of its compressor, for the configuration of
+    its generics or, with the runtime configuration, cfg; logged."""
+    cfg = cfg or ch.cfg
+    samples = ocp.input_order(cfg, ocp.test_image(cfg, kind, f"{ctx.seed} {ch.port} {index}"))
+    ctx.log.emit("image", f"{ch.compressor}: test image {index}, {kind}, {cfg['large_n_x']} x {cfg['large_n_y']} x "
+                 f"{cfg['large_n_z']} samples of {cfg['large_d']} bits", compressor=ch.compressor, port=ch.port,
+                 index=index, pattern=kind, nx=cfg["large_n_x"], ny=cfg["large_n_y"], nz=cfg["large_n_z"],
+                 samples=len(samples))
+    return samples
+
+
+def sdu_count(ctx: Context, ch: Channel) -> int:
+    """The number of SDUs of an image of the configuration of the generics of a channel."""
+    return len(ocp.split_sdus(ch.cfg, ocp.encode_samples(ch.cfg, [0] * ocp.samples_per_image(ch.cfg)), ctx.sdu_bytes))
 
 
 def image_sdus(ctx: Context, ch: Channel, samples: list[int], lost: tuple[int, ...] = ()) -> list[Sdu]:
-    """The SDUs of an image; the SDUs at the indices `lost` (from 0) are left out."""
+    """The SDUs of an image; the SDUs at the indices `lost` (from 0) are left out; logged."""
     parts = ocp.split_sdus(ch.cfg, ocp.encode_samples(ch.cfg, samples), ctx.sdu_bytes)
+    ctx.log.emit("image", f"{ch.compressor}: {len(parts)} SDUs, {sum(len(p) for p in parts)} bytes"
+                 + (f", SDUs {', '.join(str(k) for k in lost)} left out" if lost else ""), compressor=ch.compressor,
+                 port=ch.port, sdus=len(parts), bytes=sum(len(p) for p in parts), lost=list(lost))
     return [Sdu(ch.port, data, end=k == len(parts) - 1, lost=k in lost) for k, data in enumerate(parts)]
 
 
@@ -310,6 +326,10 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
         if decrypted:
             check(min(c.counter for c in decrypted) == ctx.next_counter[port], f"APID {apid}: first counter")
             ctx.next_counter[port] += len(decrypted)
+        ctx.log.emit("packets", f"APID {apid}: {len(out)} chunks, Packet Sequence Counts {first} to "
+                     f"{(first + len(out) - 1) & 0x3FFF}, every chunk authenticated and decrypted with the key of its "
+                     f"channel", "pass", apid=apid, chunks=len(out), first_count=first,
+                     lengths=[len(p.data) for p in out])
         try:
             back = chunks.reassemble(decrypted)
         except chunks.ChunkError as err:
@@ -324,6 +344,13 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
                     first_byte = next((i for i, (a, b) in enumerate(zip(data, want)) if a != b), min(len(data),
                                                                                                     len(want)))
                     problems = [f"{len(data)} bytes, expected {len(want)}, first difference at byte {first_byte}"]
+            figures = ocp.image_figures(output.cfg, len(data))
+            ctx.log.emit("image", f"{ch.compressor}: compressed image {n} of the exchange, {figures['nx']} x "
+                         f"{figures['ny']} x {figures['nz']}, {len(data)} bytes, {figures['bits_per_sample']} bits per "
+                         f"sample, ratio {figures['ratio']}, {'complete' if want is not None else 'aborted'}, "
+                         + (problems[0] if problems else "equal to the model after decryption"),
+                         "fail" if problems else "pass", compressor=ch.compressor, port=ch.port,
+                         complete=want is not None, sha256=hashlib.sha256(data).hexdigest(), **figures)
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
         result[port] = back
     return result
@@ -348,9 +375,9 @@ def check_status(regs: Registers, ctx: Context) -> None:
     s = ctx.system
     node = s.base(s.node)
     t = ctx.traffic
-    check(regs.read(node + SPP.RX_PACKETS) == t.sdus, f"RX_PACKETS of the Space Packet node, expected {t.sdus}")
-    check(regs.read(node + SPP.TX_PACKETS) == t.chunks, f"TX_PACKETS of the Space Packet node, expected {t.chunks}")
-    check(regs.read(node + SPP.RX_LOSS) == t.losses, f"RX_LOSS of the Space Packet node, expected {t.losses}")
+    regs.expect(node + SPP.RX_PACKETS, t.sdus, "RX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.TX_PACKETS, t.chunks, "TX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.RX_LOSS, t.losses, "RX_LOSS of the Space Packet node")
     encryptions = systest.ocr_counters(regs, ctx)
     check(encryptions == t.chunks, f"{encryptions} encryptions, {t.chunks} chunks")
     for ch in s.channels:
@@ -361,7 +388,7 @@ def check_status(regs: Registers, ctx: Context) -> None:
             got = regs.read(base + getattr(OCP, name))
             check(got == want, f"{ch.compressor} {name} = {got}, expected {want}")
         for name in ocp.ECC_COUNTERS:
-            check(regs.read(base + getattr(OCP, name)) == 0, f"{ch.compressor} {name}")
+            regs.expect(base + getattr(OCP, name), 0, f"{ch.compressor} {name}")
     systest.ecc_counters(regs, ctx)
 
 
@@ -434,7 +461,7 @@ def tc08_lost_data(regs: Registers, ctx: Context) -> None:
     clear_status(regs, ctx)
     streams = {}
     for ch in ctx.system.channels:
-        n = len(image_sdus(ctx, ch, [0] * ocp.samples_per_image(ch.cfg)))
+        n = sdu_count(ctx, ch)
         check(n >= 3, f"{ch.compressor}: an image of {n} SDUs is too short for the lost SDUs of TC-RS-HW-08")
         plan = lost_plan(ctx, ch.port, n)
         sdus = []
@@ -493,7 +520,7 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
                 ocptest.refuse(regs, ctx, ch, plans[ch.port][k])
             cfg = ctx.models[ch.port].next_cfg
             kind = ctx.profile.kinds[k % len(ctx.profile.kinds)]
-            samples = ocp.input_order(cfg, ocp.test_image(cfg, kind, f"{ctx.seed} {ch.port} {ctx.images}"))
+            samples = image_samples(ctx, ch, kind, ctx.images, cfg)
             streams[ch.port] = image_sdus(ctx, ch, samples)
             ctx.images += 1
         if k == 0 and ctx.profile.runtime_full:
@@ -516,6 +543,13 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc18_repeated_run]
+
+# Requirements of the cores that the test cases confirm, as far as the procedure names them: it has no coverage
+# section. spfi_compress, whose path of the images up to the chunks is the same, has the full table.
+REQUIREMENTS = {"TC-RS-HW-05": ("SPP:RE-DM-03",)}
+REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage section: the table holds the requirements "
+                     "that it names, a shorter table than that of spfi_compress, which covers the same cores up to the "
+                     "encryption.")
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
@@ -549,12 +583,18 @@ def run(transport, ctx: Context, tests: list | None = None,
     return systest.run(transport, ctx, tests or TESTS, registers)
 
 
+def records_extra(ctx: Context) -> dict:
+    """What the records of a run hold besides the results and the recorded values: the rate of TC-RS-HW-09."""
+    return {"rate": ctx.rate}
+
+
 def main() -> int:
-    parser = systest.arguments(__doc__.splitlines()[0])
+    parser = systest.arguments(__doc__.splitlines()[0], model=True)
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
-    ctx = make_context(args.seed, PROFILES[args.profile])
-    return systest.run_on_device(args.device, ctx, select_tests(args.test))
+    if args.check_environment:
+        return systest.check_environment()
+    return systest.pytest_main(SYSTEM_DIR, args)
 
 
 if __name__ == "__main__":

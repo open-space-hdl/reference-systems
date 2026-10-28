@@ -1,0 +1,58 @@
+{
+ "_code": "0caa839 (pull request #43), the code of the simulations of the evidence of v0.2.0",
+ "_how": "sw/tests/stimulus_digest.py <system> <directory> <tests>: stimuli of profile sim, seed 1",
+ "sc_01_07": {
+  "system": "spfi_compress",
+  "tests": "TC-RS-HW-01 TC-RS-HW-02 TC-RS-HW-03 TC-RS-HW-04 TC-RS-HW-05 TC-RS-HW-06 TC-RS-HW-07",
+  "stimulus": "54666dfea1e520505662785461cb10b1b5455fa505b0f5a80652d8e297c600f4",
+  "vectors": "5abee77c5137db476c48e27a752fe688984ccc496b4e55d2dec6daf0e88d75cf"
+ },
+ "sc_08": {
+  "system": "spfi_compress",
+  "tests": "TC-RS-HW-08",
+  "stimulus": "bb9f26082c1c765994e498b923376643cb84e4bc15178fab4e67143e926d1965",
+  "vectors": "9bc0c2c8bf245ca0f69f1af9364780e958f6abc28593fa7728adbc94f17772b3"
+ },
+ "sc_09": {
+  "system": "spfi_compress",
+  "tests": "TC-RS-HW-09",
+  "stimulus": "92c292489368ee42c52da5c235aec5df74ff3664e54283d8902062918df3eb29",
+  "vectors": "dc0139f0efb7d074a0c2a44eb1323b693f7d665beb064c04a7f9b66a669c9164"
+ },
+ "sc_10_17": {
+  "system": "spfi_compress",
+  "tests": "TC-RS-HW-10 TC-RS-HW-11 TC-RS-HW-12 TC-RS-HW-13 TC-RS-HW-14 TC-RS-HW-15 TC-RS-HW-16 TC-RS-HW-17",
+  "stimulus": "3d1a04cd12284ca4715def10c332c565c0c4cd730bd80db25e46023771d01aaa",
+  "vectors": "7a4628656a5f8b3a8ae6ef7814049b37cdaf58254fac007e6b77b5adafc23a2f"
+ },
+ "sc_repeat": {
+  "system": "spfi_compress",
+  "tests": "TC-RS-HW-01 TC-RS-HW-02 TC-RS-HW-03 TC-RS-HW-04 TC-RS-HW-05 TC-RS-HW-10 TC-RS-HW-18",
+  "stimulus": "eaab93f0869ee71efb1a1710ed899101f0ec8212453ae3c9b3d99b16543bec71",
+  "vectors": "c7ff92e1c541d60e42999de609de4a5cd5dc6ba92616752aef109033acb36608"
+ },
+ "sce_01_06_10": {
+  "system": "spfi_compress_encrypt",
+  "tests": "TC-RS-HW-01 TC-RS-HW-02 TC-RS-HW-03 TC-RS-HW-04 TC-RS-HW-05 TC-RS-HW-06 TC-RS-HW-10",
+  "stimulus": "249b29751746286f559f67c7e3d3d779772cdb2fa0af4570bce923ef4e2b64bd",
+  "vectors": "0c094efffb3105402e29ddcaa1e52cabe502307ed2824c6d938e1a57d4f88b7b"
+ },
+ "sce_repeat": {
+  "system": "spfi_compress_encrypt",
+  "tests": "TC-RS-HW-01 TC-RS-HW-02 TC-RS-HW-03 TC-RS-HW-04 TC-RS-HW-05 TC-RS-HW-10 TC-RS-HW-18",
+  "stimulus": "148aed7c0983054a4fbc45425b05fd77ff4dc8baf391653f0d51bda31fc7904c",
+  "vectors": "0b714142238a0e8b7a312a1773b960d702309cf9bc9de7808764dbb897dfa8da"
+ },
+ "se_01_07": {
+  "system": "spfi_encrypt",
+  "tests": "TC-RS-HW-01 TC-RS-HW-02 TC-RS-HW-03 TC-RS-HW-04 TC-RS-HW-05 TC-RS-HW-06 TC-RS-HW-07",
+  "stimulus": "2ca6ad069d4741adc13527dafc5b075da80b54840df8683d3e71687c7b588987",
+  "vectors": "97f949607cee8a492f2f1cbb3af5bfc4db4fa08d3263c0dc309b8a03a9d25308"
+ },
+ "se_repeat": {
+  "system": "spfi_encrypt",
+  "tests": "TC-RS-HW-01 TC-RS-HW-02 TC-RS-HW-03 TC-RS-HW-04 TC-RS-HW-05 TC-RS-HW-06 TC-RS-HW-07 TC-RS-HW-18",
+  "stimulus": "2773b359680d7648688e72eea23f1a821638961eb1ba8aaf07ac800e13dc7ade",
+  "vectors": "8234e36867770b6e39b66d34055f5a5314b55e7688cb748d53e00efeeb3370de"
+ }
+}

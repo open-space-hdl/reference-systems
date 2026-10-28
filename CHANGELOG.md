@@ -133,8 +133,23 @@
   computer, `--records` writes the records of a run (every compressed image with its hash, the recorded values with
   their test case), which `tools/render_records.py` renders into the tables of a report. Every complete compressed
   image is decoded with the decoder of the reference model of OpenCompact when the pinned version has it. The test
-  computer needs Python and the far-end software only; `sw/tests/test_lab_software.py` checks that the software of
-  the hardware tests starts no other program.
+  computer needs Python, pytest and the far-end software; `sw/tests/test_lab_software.py` checks that the software
+  of the hardware tests starts no other program than Git, which records the state of the working tree.
+- Hardware tests of the three systems as pytest tests (`systems/<system>/sw/hwtest`, plugin `sw/refsys/hwplugin.py`,
+  pytest 9.0 or later, below 10): one test per test case, in the order of the procedure. A run stops at the first
+  failure and reports the later test cases as not run (`--keep-going` runs those whose dependencies passed, for
+  diagnosis); `--tc` selects test cases with those they build on. Every run writes a new directory below
+  `--results`, outside the repository:
+  - the step log (`steps.jsonl` and `run.log`, `sw/refsys/steplog.py`): every step, register access, checked value
+    with its expected value, configuration of a compressor, image (samples, SDUs, compressed size, bits per sample,
+    ratio, chunks, decoding check with the largest error), exchange of Space Packets and recorded value;
+  - the JUnit XML report of pytest with the requirements of every test case;
+  - the records file and its report (`tools/render_records.py`), with the test cases not run and the requirements.
+  The run records the versions, the commits and the state of the working tree of the repository and its submodules
+  at its start and at its end (`git status --porcelain --ignored`); run it with `python -B`, so that Python writes
+  no bytecode into the repository. spfi_compress carries the requirements of section 10 of its procedure as markers
+  of its test cases. `hardware_test.py --device` and `--model` run the same pytest tests. The logging makes no RMAP
+  request of its own: the stimuli of the system simulations are those of the test before it.
 - `sw/refsys/`: the shared parts of the hardware tests and the system model also serve a system without framers and
   AES-GCM cores: the key material of the test context is optional, the identification and the key slots cover the
   channels with an AES-GCM core, and a system gives the Packet Data Fields that a channel sends (`send()` of the

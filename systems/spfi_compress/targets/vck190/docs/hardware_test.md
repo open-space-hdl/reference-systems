@@ -107,25 +107,39 @@ APIDs and the buffer sizes from the Composer file of the system, and the registe
 
 ## 8. Tests
 
-Run the script on the test computer from the root of the repository:
+The test cases run as pytest tests (`sw/hwtest/test_spfi_compress.py`, plugin `sw/refsys/hwplugin.py`). Run them on
+the test computer from the root of the repository:
 
 ```shell
 python systems/spfi_compress/sw/hardware_test.py --check-environment
-python systems/spfi_compress/sw/hardware_test.py --model --profile lab --seed 1
-python systems/spfi_compress/sw/hardware_test.py --device <STAR-Ultra> --profile lab --seed 1 --records <directory>
+python -B -m pytest systems/spfi_compress/sw/hwtest --target model --results <directory>
+python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <STAR-Ultra> --results <directory>
 ```
 
-`--check-environment` prints one line for Python, the reference model of OpenCompact (with or without its decoder) and
-the Python package of STAR-System, and ends with exit code 1 when one is missing. `--model` runs the test cases against
-the software model of the system (`sw/system_model.py`) instead of the board: a dry run of the script and of the
-reference model on the test computer. `--records` writes the records of the run into a JSON file in the directory
-(section 9). `<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System. Before the first test case the script
-reads channels 0 and 1 until no packet arrives within 0.5 s and prints how many packets of an earlier run it discarded
-per channel. It prints one line per test case and stops at the first failure, since the later test cases build on
-the earlier ones;
-TC-RS-HW-09 also prints the measured rate. `--seed` sets the images and the words that TC-RS-HW-04 writes,
-`--test TC-RS-HW-nn` runs one test case and the test cases it builds on. Before it sends the images of a test case, the
-script computes their compressed images with the reference model of OpenCompact, a few seconds per image.
+- `--check-environment` prints one line each for Python, pytest, the reference model of OpenCompact (with or without
+  its decoder) and the Python package of STAR-System. It ends with exit code 1 when one is missing.
+- `--target model` runs the test cases against the software model of the system (`sw/system_model.py`) instead of
+  the board: a dry run of the test software and of the reference model on the test computer.
+- `--target device` runs them against the board through the STAR-Ultra. `<STAR-Ultra>` is its name in STAR-System.
+  Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how
+  many packets of an earlier run it discarded per channel.
+- `--results` names a directory outside the repository. Every run writes a new directory into it with its records
+  (section 9) and prints that directory at its end.
+- `-B` keeps Python from writing bytecode into the repository. The run records the state of the working tree of the
+  repository and of every submodule (`git status --porcelain --ignored`) at its start and at its end, and warns when
+  it runs without `-B`.
+- The console shows every step, every checked value with its expected value, every image and every recorded value
+  as it happens. At the end it shows one line per test case with its result and duration.
+- The run stops at the first failure, since the later test cases build on the earlier ones; those are reported as
+  not run. `--keep-going` runs a later test case when the test cases it builds on passed. It is for diagnosis, and
+  the report of such a run says so.
+- `--profile` (default `lab`, the image size of the lab) sets the size of the run, `--seed` (default 1) the images
+  and the words that TC-RS-HW-04 writes. `--tc TC-RS-HW-nn` (repeatable) runs one test case and the test cases it
+  builds on. TC-RS-HW-09 also records the measured rate.
+- Before it sends the images of a test case, the test computes their compressed images with the reference model of
+  OpenCompact, a few seconds per image.
+- `hardware_test.py --device` and `--model`, the commands of earlier releases, run the same pytest tests with the
+  same options.
 
 TC-RS-HW-12 asks the operator for one step: reset the link of port 1 in STAR-System (a link reset of that port,
 nothing else) while no traffic is in flight, then press Enter; the script then waits until the RMAP target answers
@@ -211,8 +225,12 @@ Keep for every build and every test run, with the date:
 | Board state | Reference clock: option and the value read back; LEDs after programming, version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
 | Test computer | The output of `--check-environment` |
-| Test run | Command line (profile, seed) and the complete output of the script with its `RECORD` lines, for example redirected into a file |
-| Records file | The JSON file of `--records`: the date and time of the run, the profile and seed, the result of every test case, the `RECORD` lines (the lanes, the baseline and the values of the error registers, the rate of TC-RS-HW-09, the decoding check) and per compressed image its test case, channel, dimensions, length, SHA-256 and the result of the decoding check; the bytes of an image only when it fails. It holds no host name and no path |
+| Test run | The command line and the directory that the run writes below `--results` (one per run, named after its date and time) |
+| `steps.jsonl` | Every event of the run, one JSON object per line: the steps of every test case with the requirements they confirm, every register access, every checked value with its expected value, the configuration of the compressors, every image (samples, SDUs, compressed size, bits per sample, ratio, chunks, the comparison with the model and the decoding check with the largest error), the Space Packets of every exchange, the recorded values and the environment (versions, commits, the state of the working tree at the start and at the end) |
+| `run.log` | The same events as text |
+| `junit.xml` | The JUnit XML report of pytest, with the requirements of every test case and the system, profile, seed and commit of the run |
+| `records_spfi_compress_<date>_<time>.json` | The records of the run: the date and time of the run, the profile and seed, the result of every test case (and those not run, with the reason), the recorded values (the lanes, the baseline and the values of the error registers, the rate of TC-RS-HW-09, the decoding check), the requirements per test case and per compressed image its test case, channel, dimensions, length, SHA-256 and the result of the decoding check; the bytes of an image only when it fails. It holds no host name |
+| `report_spfi_compress.md` | The tables of the report, rendered from the records (`tools/render_records.py`) |
 
 A failing test case is recorded with its output and the register values it reports.
 

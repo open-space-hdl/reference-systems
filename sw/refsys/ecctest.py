@@ -124,7 +124,7 @@ def rmap_double(regs: Registers, ctx) -> None:
     check(reply.status == 1, f"verified write after the double error in the write buffer of {s.rmap}: status "
           f"{reply.status} ({rmap.status_text(reply.status)}), expected 1")
     regs.write(scratch, 0)
-    check(regs.read(scratch) == 0, f"{s.rmap} WIN_BASE of the last window is not restored")
+    regs.expect(scratch, 0, f"{s.rmap} WIN_BASE of the last window, restored")
 
 
 def spp_double(regs: Registers, ctx) -> None:

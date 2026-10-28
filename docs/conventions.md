@@ -109,6 +109,12 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
   the user installs on the test computer.
 - Every module and every system test has unit tests that run without hardware (`python -m pytest`); a system test
   also runs against a software model of the system that names the documents of the cores it follows.
+- The hardware test of a system runs as pytest tests (`systems/<system>/sw/hwtest`, plugin `sw/refsys/hwplugin.py`),
+  one per test case of `hardware_test.py`, collected only with `--target`. A run writes its outputs into a directory
+  below `--results`, outside the repository, and nothing into the repository: the cache provider of pytest is off and
+  the procedures run pytest with `python -B`. The step log (`sw/refsys/steplog.py`) only observes: it makes no request
+  of its own, and `sw/tests/test_stimulus_guard.py` checks that the stimuli of the simulations of the evidence stay
+  those of the code they ran on.
 
 ## Documentation
 

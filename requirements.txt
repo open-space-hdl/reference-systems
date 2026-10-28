@@ -1,4 +1,4 @@
 vunit_hdl==5.0.0.dev7
 vsg==3.27
 pycryptodome
-pytest
+pytest>=9.0,<10

@@ -17,7 +17,7 @@ checks the encrypted chunks that come back with AES-GCM. The script
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902) and Git | Build and programming |
 | The repository with its submodules: a clone from GitHub, or the offline package (Git bundles and `README.txt`) for a computer without network access | Sources of the build and of the test script |
-| Python 3.10 or later on the test computer with `pycryptodome` | Test script |
+| Python 3.10 or later on the test computer with pytest and `pycryptodome`, installed with the Python package openspacehdl | Test script |
 
 ## 3. Repository as Git bundles
 
@@ -178,22 +178,32 @@ file of the system, and the register maps from the headers of the cores:
 
 ## 8. Tests
 
-Run the script on the test computer from the root of the repository (the register maps come from the headers of the
-cores in `cores/`):
+The test cases run as pytest tests (`sw/hwtest/test_spfi_encrypt.py`, plugin `sw/refsys/hwplugin.py`). Run them on the
+test computer from the root of the repository (the register maps come from the headers of the cores in `cores/`):
 
 ```shell
-python systems/spfi_encrypt/sw/hardware_test.py --device <name of the STAR-Ultra in STAR-System> --profile lab --seed 1
+python systems/spfi_encrypt/sw/hardware_test.py --check-environment
+python -B -m pytest systems/spfi_encrypt/sw/hwtest --target model --results <directory>
+python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STAR-Ultra> --results <directory>
 ```
 
-The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with
-`pycryptodome`, and STAR-System with its Python package. Before the first test case the script reads channels 0 and 1
-until no packet arrives within 0.5 s and prints how many packets of an earlier run it discarded per channel: a run
-that stopped early, for example in TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run
-would otherwise take for its own. The script prints one line per test case and stops at the first failure, since the
-later test cases build on the earlier ones. `--packets` sets the number of Space Packets of
-TC-RS-HW-06 (default 40, the profile `lab`), `--seed` the keys and the packets. `--test TC-RS-HW-nn` runs one test
-case and the test cases it builds on. The [system testbench](../../../sim/README.md) runs the same test cases in
-simulation with the profile `sim`.
+- The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with pytest
+and `pycryptodome` (installed with the Python package openspacehdl), Git, and STAR-System with its Python package.
+`--check-environment` prints one line for each and ends with exit code 1 when one is missing. - `--target model` runs
+the test cases against the software model of the system, `--target device` against the board through the STAR-Ultra
+(`<STAR-Ultra>`: its name in STAR-System). - `--results` names a directory outside the repository. Every run writes a
+new directory into it with its records (section 9). `-B` keeps Python from writing bytecode into the repository; the run
+records the state of the working tree at its start and at its end and warns without `-B`. - Before the first test case,
+the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how many packets of an earlier run it
+discarded per channel. A run that stopped early, for example in TC-RS-HW-06, leaves chunks and late replies on the
+channels, which the next run would otherwise take for its own. - The console shows every step, every checked value with
+its expected value and the Space Packets of every exchange as it happens, and one line per test case at the end. - The
+run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not run.
+`--keep-going` runs a later test case when the test cases it builds on passed (for diagnosis; the report says so). -
+`--profile` (default `lab`: 40 Space Packets in TC-RS-HW-06) sets the size of the run, `--seed` (default 1) the keys and
+the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on. - The [system
+testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`. - `hardware_test.py
+--device` and `--model`, the commands of earlier releases, run the same pytest tests.
 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
@@ -266,7 +276,11 @@ Keep for every build and every test run, with the date:
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back (section 5, step 2); LEDs after programming (section 5), version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
-| Test run | Command line (profile, seed, packets) and the complete output of the script with the `RECORD` lines of TC-RS-HW-01, for example redirected into a file |
+| Test computer | The output of `--check-environment` |
+| Test run | The command line and the directory that the run writes below `--results` (one per run, named after its date and time) |
+| `steps.jsonl`, `run.log` | Every event of the run (steps, register accesses, checked values with their expected values, Space Packets, recorded values, environment and the state of the working tree), as JSON lines and as text |
+| `junit.xml` | The JUnit XML report of pytest, with the system, profile, seed and commit of the run |
+| `records_spfi_encrypt_<date>_<time>.json`, `report_spfi_encrypt.md` | The records of the run (results, test cases not run, recorded values) and their tables (`tools/render_records.py`) |
 
 A failing test case is recorded with its output and the register values it reports. These files are what a review of
 the hardware test needs: they are brought back from the build computer and the test computer together, the device
