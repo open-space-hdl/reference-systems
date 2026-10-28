@@ -77,3 +77,17 @@ def test_the_bench_of_the_composer_file_has_the_lab_images():
     assert {c.cfg["large_n_x"] * c.cfg["large_n_y"] * c.cfg["large_n_z"] for c in ctx.system.channels} == {
         64 * 64 * 48}
     assert {c.chunk_bytes for c in ctx.system.channels} == {4096}
+
+
+def test_the_limit_of_an_exchange_includes_the_work_of_the_compressors(tmp_path, monkeypatch):
+    # an image in BI order with a small runtime M takes the predictor several cycles per sample (TC-RS-HW-10 sends
+    # channel 0 such an image): the procedure tells the bench the cycles of the images of an exchange
+    cycles = 10 ** 6
+    monkeypatch.setattr(vectors.ht.ocp, "image_cycles", lambda cfg: cycles)
+    sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-10"])
+    limits = [int(op[3]) for op in operations(tmp_path) if op[0] == "recv" and int(op[2]) > 1]
+    busy = cycles * sysvectors.BUSY_NS_PER_CYCLE * 5 // 4
+    assert limits and all(limit > busy for limit in limits)
+    monkeypatch.undo()
+    sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-10"])
+    assert all(int(op[3]) < busy for op in operations(tmp_path) if op[0] == "recv")

@@ -26,7 +26,11 @@ def session(online: bool = False):
 def test_the_tool_offers_the_channels_with_the_runtime_configuration():
     s = session()
     assert [ch.port for ch in s.channels()] == [0, 3]
-    assert s.fields(0) == ["nx", "ny", "nz"] and s.fields(3) == ["nx", "ny", "nz", "abs_limit"]
+    fields = s.fields(0)
+    assert fields[:3] == ["nx", "ny", "nz"] and "abs_limit" not in fields
+    if ocp.runtime_params(s.channel(0).generics):
+        assert {"tinc", "umax", "k"} <= set(fields)
+    assert s.fields(3)[:4] == ["nx", "ny", "nz", "abs_limit"]
 
 
 def test_offline_the_model_compresses_and_decodes():
@@ -65,6 +69,14 @@ def test_every_value_out_of_range_is_named():
     assert s.problems(3, s.values(3, {"nx": 9, "abs_limit": 1024})) == ["NX 9 is out of range",
                                                                           "absolute error limit 1024 is out of range"]
     assert s.problems(3, s.values(3, {"nx": 8})) == []
+
+
+@pytest.mark.skipif(not ocp.runtime_params(ht.System().channels[0].generics),
+                    reason="ocp0 has no runtime parameters in this system file")
+def test_a_refused_parameter_names_the_value_the_core_would_take():
+    s = session()
+    values = s.values(0, {"tinc": 3})
+    assert s.problems(0, values) == ["log2 t_inc 3 is out of range (the core would take 4)"]
 
 
 def test_restore_commits_the_values_of_the_generics(tmp_path):

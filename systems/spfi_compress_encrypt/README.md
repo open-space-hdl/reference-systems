@@ -84,16 +84,19 @@ bytes of data) 48 times and 288 bytes.
 
 All four use an output word size of 4 bytes and image framing by the end mark. The parameters are generics of the
 compressors, except on channels 0 and 3, whose compressors have the runtime configuration of OpenCompact
-(`RuntimeConfig_g`, OpenCompact user guide, section 4.4). Software sets the image dimensions of every image on both
-channels over RMAP, up to the 64 x 64 x 48 of the table. On channel 3 it also sets the absolute error limit value, 0
-to 1023. It writes NEXT_X, NEXT_Y, NEXT_Z and NEXT_LIMITS and then CONTROL.COMMIT. STATUS shows a refused (CFG_ERROR)
-or pending (CFG_PENDING) configuration, and IMAGE_X to IMAGE_Z, ORDER and LIMITS show the values of the last image
-that started (OpenCompact register map). After a reset both channels compress with the values of the table. Channel 0
-is lossless, so it has no error limit to change; in its BIP order the sub-frame depth follows the number of bands (M =
-min(48, NZ)). Only channel 3, with reduced prediction and column-oriented local sums, takes images one sample wide. A
-compressor with the runtime configuration needs 8 to 10 clock cycles more per image, so the throughput figures below
-also hold for channels 0 and 3. Channels 1 and 2 keep the configuration of their generics: one device image holds both
-kinds.
+(`RuntimeConfig_g`, OpenCompact user guide, section 4.4) and its runtime parameters (`RuntimeParams_g`, section
+4.5). Software sets over RMAP the image dimensions of every image on both channels, up to the 64 x 64 x 48 of the
+table, on channel 3 also the absolute error limit value, 0 to 1023, and the runtime parameters of every image: the
+user-defined data, M, the weight update parameters and the parameters of the entropy coder. It writes NEXT_X, NEXT_Y,
+NEXT_Z and NEXT_LIMITS, then NEXT_SAMPLES to NEXT_BLOCK, and then CONTROL.COMMIT. STATUS shows a refused (CFG_ERROR)
+or pending (CFG_PENDING) configuration, and IMAGE_X to IMAGE_Z, SAMPLES, ORDER, WEIGHTS, ADAPTIVE, BLOCK and LIMITS
+show the values of the last image that started (OpenCompact register map). After a reset both channels compress with
+the values of the table. Channel 0 is lossless, so it has no error limit to change; with the values of the reset the
+sub-frame depth of its BIP order follows the number of bands (M = min(48, NZ)). Only channel 3, with reduced
+prediction and column-oriented local sums, takes images one sample wide. A compressor with the runtime configuration
+needs 8 to 10 clock cycles more per image; the throughput figures below take channels 0 and 3 at the upper bound of
+their compressed images over the ranges of the runtime parameters. Channels 1 and 2 keep the configuration of their
+generics: one device image holds both kinds.
 
 ## Throughput
 
@@ -101,23 +104,23 @@ The four compressors run in parallel. Each takes one sample per clock cycle in t
 `tools/ocp_throughput.py`: 196,608 cycles per image of 64 x 64 x 48 samples), 2 bytes per cycle: an SDU of 8186
 bytes in 27.3 us, 2.4 Gbit/s per channel at 150 MHz. Each writes the compressed image in words of 4 bytes, at most
 one per cycle, so that a compressor keeps this rate as long as its compressed image takes at most 32 bits per sample.
-The upper bounds on the compressed image that OpenCompact publishes (`max_image_bytes` of its model) are higher for
-three of the configurations, and with them the output limits the rate of a channel:
+The upper bounds on the compressed image that OpenCompact publishes (`max_image_bytes` of its model; on channels 0 and
+3 its maximum over the ranges of the runtime parameters, at Umax 32 and gamma\* 4) are higher for three of the
+configurations, and with them the output limits the rate of a channel:
 
 | Channel | Upper bound on the compressed image | Time per SDU of 8186 bytes at that bound |
 | --- | --- | --- |
-| 0 (c01, sample-adaptive) | 34.0 bits per sample | 29.0 us |
+| 0 (c01, sample-adaptive) | 48.0 bits per sample (34.0 with the parameters of the generics) | 40.9 us (29.0 us) |
 | 1 (c25, sample-adaptive) | 34.0 bits per sample | 29.0 us |
 | 2 (c27, block-adaptive) | 16.25 bits per sample | 27.3 us (the input) |
-| 3 (c26, hybrid) | 53.0 bits per sample | 45.2 us |
+| 3 (c26, hybrid) | 69.1 bits per sample (53.0 with the parameters of the generics) | 58.9 us (45.2 us) |
 
 When the Space Packets are spread evenly over the channels, the slowest channel sets the rate of all (see below):
 9.6 Gbit/s for the four channels when every compressed image takes at most 32 bits per sample (at most twice the
-size of its samples), 5.8 Gbit/s (4 x 65.5 kbit in 45.2 us) at the upper bound of channel 3. The receive side does
+size of its samples), 4.4 Gbit/s (4 x 65.5 kbit in 58.9 us) at the upper bound of channel 3. The receive side does
 not limit it: the four lanes of `ofb0` carry 20 Gbit/s of 8B/10B data (6.25 Gbit/s per lane), the receive path of
-`spp0` 16 bytes per cycle. On the send side the four send ports of `spp0` share one path to the link, which carries
-6.29 Gbit/s in the throughput budget of the Composer: the encrypted chunks of the four channels together stay below
-it when the images compress by a ratio of about 1.5 or more at the full input rate.
+`spp0` 16 bytes per cycle. On the send side the four send ports of `spp0` share one path to the link; the throughput
+budget of the Composer rates every path on its own and gives no rate of the four together.
 
 The receive buffer of `spp0` (8192 bytes) is shared by all receive ports and delivers the Space Packets in the order
 in which they arrived (OpenSPP user guide, generics `RxBufferBytes_g`): a packet leaves the buffer only after the
@@ -125,10 +128,23 @@ packet before it, of any channel, has been taken. Without the FIFOs the channels
 bytes fills the buffer, and the next SDU, of any channel, would wait until the compressor of the previous one had
 taken it (4093 cycles, 27.3 us), so the system would compress at the rate of one channel. `rxf<i>` takes the SDUs of
 its channel at the rate of the receive port and holds two of them, so the buffer of `spp0` empties at the rate of the
-link while the compressors work. The throughput budget of the Composer (section "Throughput" of the brief in the
-system file) rates the four receive ports together: with the FIFOs the delivery in order reaches the rate of
-decoupled ports, 5.87 Gbit/s at packets of 1024 bytes at the upper bounds of the compressed images; without them it
-would be 2.03 Gbit/s.
+link while the compressors work.
+
+The throughput budget of the Composer (section "Throughput" of the brief in the system file) rates every path from
+the link through a channel back to the link at the upper bound of its compressed images, on channels 0 and 3 the
+bound over the ranges of the runtime parameters:
+
+| Path | Packets of 64 bytes | Packets of 1024 bytes | Limited by |
+| --- | --- | --- | --- |
+| Channel 0 | 2.05 Gbit/s | 1.62 Gbit/s | `ocp0.Out` |
+| Channel 1 | 2.89 Gbit/s | 2.29 Gbit/s | `ocp1.Out` |
+| Channel 2 | 2.95 Gbit/s | 2.43 Gbit/s | `ocp2.In` |
+| Channel 3 | 1.42 Gbit/s | 1.13 Gbit/s | `ocp3.Out` |
+
+It also rates the four receive ports of `spp0` together, with the packets spread evenly over them: delivered in the
+order of arrival they take 5.69 Gbit/s at packets of 64 bytes and 4.51 Gbit/s at 1024 bytes, four times the slowest
+path, since a packet holds the delivery until its output has taken it. A store of two packets behind every output
+gives the same rates.
 
 What remains: when the FIFO of one channel is full, because its compressor is two SDUs behind, the next Space Packet
 of that channel stays in the buffer of `spp0` and holds back the packets of all channels behind it until the
