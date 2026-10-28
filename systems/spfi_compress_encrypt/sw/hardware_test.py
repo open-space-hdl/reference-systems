@@ -264,6 +264,10 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     aborted = sum(data is None for outs in images.values() for _, data in outs)
     size = sum(len(p) for p in packets) + s.chunk_bytes * (known + aborted)
     transport = regs.transport
+    # the channels work in parallel, each image after the other: a system simulation waits for the slowest channel
+    busy = getattr(transport, "expect_busy", None)
+    if busy is not None:
+        busy(max((sum(ocp.image_cycles(o.cfg) for o, _ in outs) for outs in images.values()), default=0))
     # every chunk of the images that the model gives, and at least one chunk of every other aborted image
     received = transport.exchange(setup.spp_channel, packets, setup.spp_channel, known + aborted,
                                   timeout=10.0 + size / EQUIPMENT_RATE)
