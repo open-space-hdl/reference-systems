@@ -40,8 +40,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REPO = "reference-systems"
 # Defaults of build.bat: the clone, the project directory of Vivado (short, see README.txt) and the installation of
 # Vivado 2025.2 when vivado is not on the PATH; the options --bat-rs-dir and --bat-vivado-out replace the first two
-BAT_DEFAULTS = {"RS_DIR": r"C:\git\reference-systems", "RS_VIVADO_OUT": "C:/git/rs",
-                "VIVADO": r"C:\AMDDesignTools\2025.2\Vivado\bin\vivado.bat"}
+BAT_DEFAULTS = {"RS_DIR": r"C:\git\reference-systems", "RS_VIVADO_OUT": "C:/git/rs"}
 BUILD_COMMAND = re.compile(r"vivado -mode batch -source systems/([^/]+)/targets/([^/]+)/tcl/build\.tcl"
                            r"(?: -tclargs (.+))?")
 NESTED = ("cores/open-logic-ft", "3rdParty/en_cl_fix", "en_cl_fix")   # submodule, its submodule, bundle name
@@ -181,10 +180,10 @@ def build_bat(ref: str, ref_sha: str, links: dict[str, str], defaults: dict[str,
         "rem   RS_DIR         clone of the repository; an existing clone must be at the commit of this package",
         "rem   RS_VIVADO_OUT  project directory of Vivado, at most about 40 characters (write_device_image); the",
         "rem                  project of an earlier build in it is replaced",
-        "rem   VIVADO         vivado.bat of Vivado 2025.2 (default: vivado on the PATH, else the path below)",
+        "rem   VIVADO         vivado.bat of Vivado 2025.2 (default: vivado on the PATH, as settings64.bat sets it)",
         "rem   RS_PYTHON      Python for the check of the pins (default: python, else the launcher py -3)",
         "setlocal EnableExtensions",
-        *[f'if not defined {k} set "{k}={v}"' for k, v in defaults.items() if k != "VIVADO"],
+        *[f'if not defined {k} set "{k}={v}"' for k, v in defaults.items()],
         f'set "REF={ref}"',
         f'set "REF_SHA={ref_sha}"',
         'set "PKG=%~dp0"',
@@ -211,7 +210,6 @@ def build_bat(ref: str, ref_sha: str, links: dict[str, str], defaults: dict[str,
         "if not defined VIVADO (",
         '    where vivado >nul 2>&1 && set "VIVADO=vivado"',
         ")",
-        f'if not defined VIVADO if exist "{BAT_DEFAULTS["VIVADO"]}" set "VIVADO={BAT_DEFAULTS["VIVADO"]}"',
         "if not defined VIVADO (",
         "    echo Vivado not found: set VIVADO to vivado.bat of Vivado 2025.2, or run its settings64.bat first",
         "    exit /b 2",

@@ -198,6 +198,9 @@
   an image of an earlier run, values in range. The new TC-RS-HW-18 of every system runs the test cases again on the
   same device. Consecutive complete runs need no new device image; after a run that stopped early the device is
   programmed again (section "Repeated runs" of the procedures).
+- `run.py` takes QuestaSim from `VUNIT_MODELSIM_PATH` or from `vsim` on the PATH and stops with a message when
+  neither is there; `build.bat` of the offline package takes Vivado from `VIVADO` or from the PATH. Neither has the
+  installation directory of a particular computer as its default any more.
 - VCK190 targets of every system: `tcl/build.tcl` puts the text of `build_info.txt` together first, writes it with
   one `puts` (UTF-8, LF line ends) and stops when the file does not have the size of the text after it is closed.
   Once, in the step `rtl`, the file stayed empty and its lines reached `vivado.log` instead; `build_info.txt` is a

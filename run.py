@@ -9,6 +9,7 @@ GHDL is the default simulator; `--questa` selects QuestaSim. `python run.py --co
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -17,15 +18,16 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 from composer_system import library_files, load, system_files  # noqa: E402
 
-# QuestaSim installation used when --questa is given and VUNIT_MODELSIM_PATH is not set
-QUESTA_DEFAULT_PATH = r"D:\Microchip\Libero_SoC_2025.2\Libero_SoC\QuestaSim_Pro\win64"
-
 # Simulator selection must happen before VUnit parses the command line
 if "--questa" in sys.argv:
     sys.argv.remove("--questa")
     os.environ["VUNIT_SIMULATOR"] = "modelsim"
-    if "VUNIT_MODELSIM_PATH" not in os.environ and Path(QUESTA_DEFAULT_PATH).exists():
-        os.environ["VUNIT_MODELSIM_PATH"] = QUESTA_DEFAULT_PATH
+    # QuestaSim from VUNIT_MODELSIM_PATH (the directory of vsim) or from the PATH
+    if "VUNIT_MODELSIM_PATH" not in os.environ:
+        vsim = shutil.which("vsim")
+        if vsim is None:
+            sys.exit("QuestaSim not found: set VUNIT_MODELSIM_PATH to the directory of vsim or put vsim on the PATH")
+        os.environ["VUNIT_MODELSIM_PATH"] = str(Path(vsim).parent)
 else:
     os.environ.setdefault("VUNIT_SIMULATOR", "ghdl")
 
