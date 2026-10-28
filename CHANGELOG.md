@@ -129,10 +129,6 @@
   system model follows the RMAP target (`sw/refsys/rmapmodel.py`), the AXI4-Lite decoder (above its ports the map
   repeats, or the decoder answers DECERR at a port index without a port), the receive checks of the Space Packet
   node and the register semantics of the cores.
-- spfi_compress: an interactive lab tool (`sw/compress_gui.py`, tkinter) compresses one image at a time on channel 0
-  or 3 with runtime values of your choice and a test pattern or an image file, compares the chunks with the model,
-  decodes the image with the decoder of the reference model when it is there and shows the original, the decoded and
-  the difference image; without the test equipment it works with the model only.
 - Hardware test of spfi_compress: `--model` runs it against the system model, `--check-environment` checks the test
   computer, `--records` writes the records of a run (every compressed image with its hash, the recorded values with
   their test case), which `tools/render_records.py` renders into the tables of a report. Every complete compressed

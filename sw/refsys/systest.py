@@ -714,10 +714,9 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
     return parser
 
 
-def check_environment(gui: bool = False) -> int:
-    """--check-environment: Python 3.10 or later, the reference model of OpenCompact, the Python package of the
-    far-end software that the transport uses and, with gui, tkinter. One line per item; exit code 0 when every item
-    is there."""
+def check_environment() -> int:
+    """--check-environment: Python 3.10 or later, the reference model of OpenCompact and the Python package of the
+    far-end software that the transport uses. One line per item; exit code 0 when every item is there."""
     from refsys import transport
 
     def python() -> str:
@@ -729,13 +728,8 @@ def check_environment(gui: bool = False) -> int:
         module = importlib.import_module("ocp_model")
         return f"found, decoder {'included' if hasattr(module, 'decompress') else 'not included'}"
 
-    def tk() -> str:
-        return f"Tk {importlib.import_module('tkinter').TkVersion}"
-
     items = [("Python", python), ("reference model of OpenCompact", model),
              ("Python package of the far-end software", transport.far_end_software)]
-    if gui:
-        items.append(("tkinter (GUI)", tk))
     ok = True
     for name, probe in items:
         try:

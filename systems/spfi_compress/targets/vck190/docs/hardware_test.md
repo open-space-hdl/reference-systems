@@ -174,17 +174,6 @@ The Space Packets do not mark the end of an image (system [README](../../../READ
 script knows the length of every compressed image from the model, the aborted images included, and checks the cut
 points between the chunks as well as their bytes.
 
-### Interactive tool
-
-Optional, after the scripted run: `python systems/spfi_compress/sw/compress_gui.py --device <STAR-Ultra>` opens a
-lab tool that compresses one image at a time on channel 0 or 3 with runtime values of your choice (the image
-dimensions, on channel 3 the absolute error limit value, and the runtime parameters) and a test pattern or an image
-file, compares the chunks with the model, decodes them with the decoder of the model when it is there and shows the
-compression ratio and the original, decoded and difference images (system
-[README](../../../README.md#interactive-tool)). Its records are no part of the evidence of the test, which is the
-scripted run. Program the device again before another scripted run, or use "Restore reset values" of the tool and
-one image with them.
-
 ### When the link does not come up
 
 As for spfi_encrypt (its procedure, section 8): record the link and lane states of port 1 in STAR-System, the LEDs of

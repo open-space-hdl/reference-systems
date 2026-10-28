@@ -878,7 +878,7 @@ def main() -> int:
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
     if args.check_environment:
-        return systest.check_environment(gui=(SYSTEM_DIR / "sw" / "compress_gui.py").exists())
+        return systest.check_environment()
     started = time.strftime("%Y-%m-%d %H:%M:%S")
     if args.model:
         # the module as the system model imports it (this script runs as __main__), so that both share its classes
