@@ -189,6 +189,15 @@
 
 ### Fixed
 
+- Hardware test of spfi_compress and spfi_compress_encrypt: a second run on the same device without a new device
+  image failed. The Space Packet node continues the Packet Sequence Count of every output APID from run to run, and
+  the script expected the Space Packets of every run to start at count 0 (TC-RS-HW-06); the compressors with the
+  runtime configuration keep the values of the last COMMIT and of the last image, which the script expected to be
+  those of the reset (TC-RS-HW-02 and 10). TC-RS-HW-05 now reads the counts from the send APID table and commits the
+  values of the generics when the runtime registers hold others, both recorded, and TC-RS-HW-02 accepts the values of
+  an image of an earlier run, values in range. The new TC-RS-HW-18 of every system runs the test cases again on the
+  same device. Consecutive complete runs need no new device image; after a run that stopped early the device is
+  programmed again (section "Repeated runs" of the procedures).
 - VCK190 targets of every system: `tcl/build.tcl` puts the text of `build_info.txt` together first, writes it with
   one `puts` (UTF-8, LF line ends) and stops when the file does not have the size of the text after it is closed.
   Once, in the step `rtl`, the file stayed empty and its lines reached `vivado.log` instead; `build_info.txt` is a

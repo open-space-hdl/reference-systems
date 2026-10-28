@@ -194,6 +194,10 @@ the image of the reference model for the values committed before it; the configu
 `runtime_image_cfg` of OpenCompact (`tools/ocp_configs.py`), which builds the expected images of its own runtime
 testbench. Channels 1 and 2 must ignore the writes of the runtime registers.
 
+TC-RS-HW-18 runs the test cases of the run again on the same device without a new device image, as a second run of the
+script does: every run reads the Packet Sequence Counts from which its Space Packets continue and starts its compressors
+with the values of the generics (hardware test procedure, section "Repeated runs").
+
 TC-RS-HW-11 to TC-RS-HW-17 check the error handling of the SpaceFibre port, the RMAP target and the Space Packet node
 and the protection of their memories: registers of the port written and read back, a link reset from the far end, a
 lane that leaves the link and rejoins, memory errors injected through the `ECC_INJECT` registers, RMAP commands and

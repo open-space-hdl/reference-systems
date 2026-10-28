@@ -440,7 +440,10 @@ def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
         generics = ocp.mib_words(ht.OCP, registers3.generics)
         registers3.taken = lambda: taken3() | {n: generics[n] for n in ("SAMPLES", "WEIGHTS", "ADAPTIVE")}
     results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
-    assert message in (results["TC-RS-HW-10"] or ""), results
+    # the first test case that finds the fault: TC-RS-HW-10, or TC-RS-HW-05, which reads the runtime registers
+    # before it (ocptest.restore)
+    failed = [(name, error) for name, error in results.items() if error]
+    assert failed and failed[0][0] in ("TC-RS-HW-05", "TC-RS-HW-10") and message in failed[0][1], results
 
 
 # --- decoding check and the options of the hardware test ------------------------------------------------------------
@@ -688,3 +691,54 @@ def test_the_sim_profile_clears_the_bandwidth_flags_before_their_first_read(prof
         assert m.log[:2] == writes and ("read", "VC_BW_OVER") in m.log[2:]
     else:
         assert not [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] and m.log[0][0] == "read"
+
+
+def second_run_records(ctx) -> list[str]:
+    return [r["text"] for r in ctx.recorded if r["test"].startswith("TC-RS-HW-18 ")]
+
+
+def test_a_second_run_on_the_same_device_passes():
+    """TC-RS-HW-18 after test cases of the sim profile that leave the system away from its reset: the output APIDs
+    continue their Packet Sequence Counts and the compressors with the runtime configuration hold the values of the
+    last image of TC-RS-HW-10. The second run reads the counts, accepts the values of the earlier image in
+    TC-RS-HW-02 and commits the values of the generics in TC-RS-HW-05, all recorded."""
+    m, ctx = model(), context(profile=ht.PROFILES["sim"])
+    tests = ht.select_tests(["TC-RS-HW-01", "TC-RS-HW-02", "TC-RS-HW-05", "TC-RS-HW-10", "TC-RS-HW-18"])
+    results = run(m, ctx, tests)
+    assert list(results)[-1] == "TC-RS-HW-18" and not any(results.values()), results
+    first = [r["text"] for r in ctx.recorded if r["test"] in ("TC-RS-HW-02", "TC-RS-HW-05")]
+    second = second_run_records(ctx)
+    count = re.compile(r"spp0 sends the next Space Packet of APID (\d+) with Packet Sequence Count (\d+)$")
+    assert [int(count.match(t)[2]) for t in first if count.match(t)] == [0, 0, 0, 0]
+    counts = {int(count.match(t)[1]): int(count.match(t)[2]) for t in second if count.match(t)}
+    runtime = [ch.output_apid for ch in ocptest.split_channels(SYSTEM)[0]]
+    assert sorted(counts) == [0, 1, 2, 3] and all(counts[a] > 0 for a in runtime)
+    assert sum("show the values of the generics" in t for t in first) == 2
+    assert sum("show the values of an image of an earlier run: NX " in t for t in second) == 2
+    assert sum("the values of the generics are committed" in t for t in second) == 2
+
+
+def test_tc06_continues_the_packet_sequence_counts_that_tc05_reads():
+    m, ctx = model(), context()
+    preset = {ch.output_apid: 1000 * (ch.port + 1) for ch in SYSTEM.channels}
+    for apid, n in preset.items():
+        m.tx_table[apid] = ht.SPP.field("TX_TABLE_ENTRY", "ENABLE", 1) | ht.SPP.field("TX_TABLE_ENTRY", "COUNT", n)
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-06"]))
+    assert not any(results.values()), results
+    assert all(ctx.output_count[apid] > n for apid, n in preset.items())
+
+
+def test_tc02_refuses_values_taken_that_a_commit_would_refuse():
+    m, ctx = model(), context()
+    ch = ocptest.split_channels(SYSTEM)[0][0]
+    m.regs[SYSTEM.base(ch.compressor) + ht.OCP.IMAGE_X] = ht.OCP.field("IMAGE_X", "SIZE", ch.cfg["large_n_x"] + 1)
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-02"]))
+    assert f"{ch.compressor} IMAGE_X to LIMITS show values out of range: NX {ch.cfg['large_n_x'] + 1}," in \
+        results["TC-RS-HW-02"]
+
+
+def test_tc18_repeats_the_test_cases_it_builds_on_when_selected_alone():
+    m, ctx = model(), context()
+    results = run(m, ctx, ht.select_tests(["TC-RS-HW-18"]))
+    assert list(results) == ["TC-RS-HW-01", "TC-RS-HW-05", "TC-RS-HW-18"] and not any(results.values()), results
+    assert {r["test"] for r in ctx.recorded} >= {"TC-RS-HW-18 TC-RS-HW-01", "TC-RS-HW-18 TC-RS-HW-05"}

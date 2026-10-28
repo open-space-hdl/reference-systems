@@ -1,8 +1,8 @@
 # spfi_encrypt: System Testbench
 
-The system testbench runs the [hardware test](../targets/vck190/docs/hardware_test.md) of spfi_encrypt in
-simulation: the same test cases TC-RS-HW-01 to 07, with the same requests and the same pass criteria, against the
-generated top level of the system instead of the board.
+The system testbench runs the [hardware test](../targets/vck190/docs/hardware_test.md) of spfi_encrypt in simulation:
+the same test cases TC-RS-HW-01 to 07 and 18, with the same requests and the same pass criteria, against the generated
+top level of the system instead of the board.
 
 ## Structure
 

@@ -410,6 +410,14 @@ class ImageConfig:
     params: tuple[int, ...] | None = None
 
 
+def describe(values: ImageConfig) -> str:
+    """The values for a record: NX, NY, NZ, the error limit values and the runtime parameters by name."""
+    text = f"NX {values.nx}, NY {values.ny}, NZ {values.nz}, ABS {values.abs_limit}, REL {values.rel_limit}"
+    if values.params is not None:
+        text += ", " + ", ".join(f"{name} {value}" for name, value in zip(PARAM_NAMES, values.params))
+    return text
+
+
 def runtime_config(generics: dict) -> bool:
     """Whether a channel with these generics has the runtime configuration (RuntimeConfig_g)."""
     return bool(flag(generics.get("RuntimeConfig_g", False)))
@@ -820,6 +828,21 @@ def next_values(regs, words: dict[str, int], params: bool = False) -> ImageConfi
             if n in SIGNED_PARAMS and v[n] & 0x10:
                 v[n] -= 0x20
     return replace(values, params=tuple(v[n] for n in PARAM_NAMES))
+
+
+def taken_values(regs, words: dict[str, int], params: bool = False) -> ImageConfig:
+    """The values that IMAGE_X to IMAGE_Z and LIMITS show, with params also the runtime parameters that SAMPLES to
+    BLOCK show: the values of the last image that started, in the form of next_values."""
+    limits = words["LIMITS"]
+    taken = {"NEXT_X": regs.field("NEXT_X", "SIZE", regs.get("IMAGE_X", "SIZE", words["IMAGE_X"])),
+             "NEXT_Y": regs.field("NEXT_Y", "SIZE", regs.get("IMAGE_Y", "SIZE", words["IMAGE_Y"])),
+             "NEXT_Z": regs.field("NEXT_Z", "SIZE", regs.get("IMAGE_Z", "SIZE", words["IMAGE_Z"])),
+             "NEXT_LIMITS": regs.field("NEXT_LIMITS", "ABS", regs.get("LIMITS", "ABS", limits))
+             | regs.field("NEXT_LIMITS", "REL", regs.get("LIMITS", "REL", limits))}
+    for name, fields in PARAM_FIELDS.items():
+        shown = name.removeprefix("NEXT_")
+        taken[name] = sum(regs.field(name, f, regs.get(shown, f, words[shown])) for f in fields)
+    return next_values(regs, taken, params)
 
 
 def runtime_words(regs, generics: dict) -> dict[str, int]:

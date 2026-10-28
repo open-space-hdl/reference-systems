@@ -344,7 +344,10 @@ def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
         generics = ocp.mib_words(ht.OCP, registers3.generics)
         registers3.taken = lambda: taken3() | {n: generics[n] for n in ("SAMPLES", "WEIGHTS", "ADAPTIVE")}
     results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
-    assert message in (results["TC-RS-HW-10"] or ""), results
+    # the first test case that finds the fault: TC-RS-HW-10, or TC-RS-HW-05, which reads the runtime registers
+    # before it (ocptest.restore)
+    failed = [(name, error) for name, error in results.items() if error]
+    assert failed and failed[0][0] in ("TC-RS-HW-05", "TC-RS-HW-10") and message in failed[0][1], results
 
 
 def test_the_decoder_of_spfi_compress_encrypt_answers_decerr_above_its_ports():
@@ -381,3 +384,17 @@ def test_tc15_gives_the_status_1_at_the_unmapped_address_of_spfi_compress_encryp
     rmaptest.tc15_rmap_errors(regs, ctx, SYSTEM.unmapped_address())
     assert (0xC0000, False) in m.writes
     assert not [a for a in m.reads if a >= SYSTEM.decoded_bytes()]
+
+
+def test_a_second_run_on_the_same_device_passes():
+    """TC-RS-HW-18 after test cases of the sim profile that leave the system away from its reset (the Packet Sequence
+    Counts of the output APIDs, the values of TC-RS-HW-10 in the compressors with the runtime configuration): the
+    second run reads the counts, commits the values of the generics and loads the key slots again."""
+    m, ctx = model(), context(profile=ht.PROFILES["sim"])
+    tests = ht.select_tests(["TC-RS-HW-01", "TC-RS-HW-02", "TC-RS-HW-05", "TC-RS-HW-10", "TC-RS-HW-18"])
+    results = run(m, ctx, tests)
+    assert list(results)[-1] == "TC-RS-HW-18" and not any(results.values()), results
+    second = [r["text"] for r in ctx.recorded if r["test"].startswith("TC-RS-HW-18 ")]
+    assert sum("show the values of an image of an earlier run: NX " in t for t in second) == 2
+    assert sum("the values of the generics are committed" in t for t in second) == 2
+    assert any(t.startswith("spp0 sends the next Space Packet of APID") and not t.endswith(" 0") for t in second)

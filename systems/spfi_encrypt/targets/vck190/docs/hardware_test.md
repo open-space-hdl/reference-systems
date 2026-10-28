@@ -212,6 +212,16 @@ and fields from the headers of the cores (`cores/<core>/sw/<prefix>_regs.h`).
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i); slot 0 of every AES-GCM core loaded as in TC-RS-HW-04 with the key and IV values of its channel and queried; counters cleared | Table entries read back, no table overrun; `STATUS.BUSY` of every core returns to 0; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
 | TC-RS-HW-06 Encryption | Space Packets on the four input APIDs: first 1 byte, one byte less than, equal to and one byte more than a chunk of 4096 bytes, and 8186 bytes (a Space Packet of 8192 bytes, the size of the receive buffer of `spp0`), then random lengths | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
 | TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and the ECC counters of every channel of `edac0` (`SPFI_ENCRYPT_EDAC0_CH_FRM0_ECC_0` to `FRM3_ECC_1`) are 0 |
+| TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without a reset or a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
+
+### Repeated runs
+
+TC-RS-HW-18 runs the test cases of the run again on the same device, without a reset or a new device image, as a
+second run of the script does, and every one must pass again. The second run finds what the first one left: the
+Space Packet node continues the Packet Sequence Counts of its output APIDs, and TC-RS-HW-06 checks only that the
+counts of an APID are consecutive; TC-RS-HW-05 writes the receive table entries again and loads the key slots again.
+The system has no reset of its data path that the script could command: after a run that stopped early, program the
+device again before the next run.
 
 ### When the link does not come up
 

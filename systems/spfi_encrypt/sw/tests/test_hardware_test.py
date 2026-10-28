@@ -42,7 +42,9 @@ PINNED = (True, True) if DEFECT_PINNED else SPECIFIED
 def run_all(model, packets=24):
     ctx = ht.make_context(seed=3, packets=packets)
     regs = ht.Registers(model, ctx.setup)
+    ctx.selected = list(ht.TESTS)
     for test in ht.TESTS:
+        ctx.current = systest.test_name(test)
         test(regs, ctx)
     return ctx
 
