@@ -42,6 +42,17 @@ class RegisterMap:
         """All constants of the header, by their names without the prefix."""
         return dict(self._const)
 
+    def register_name(self, offset: int, window: int = 0x10000) -> str | None:
+        """The name of the register at an offset of its window: a constant that is no field mask or shift and lies
+        in the window, else an element of a register array, NAME(index); None for an address without a name."""
+        for name, value in self._const.items():
+            if value == offset and value < window and not name.endswith(("_MASK", "_SHIFT", "REGMAP_ID")):
+                return name
+        for name, (base, stride) in self._array.items():
+            if stride and offset >= base and (offset - base) % stride == 0 and (offset - base) // stride < 64:
+                return f"{name}({(offset - base) // stride})"
+        return None
+
     def field(self, register: str, field: str, value: int) -> int:
         """A field value at its position in the register."""
         mask = self._const[f"{register}_{field}_MASK"]

@@ -29,6 +29,7 @@ import argparse
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -208,6 +209,31 @@ def ghdl_simulate(sim: Simulation, work: Path, name: str, profile: str, seed: in
     return finish(sim, run_dir, wall, start)
 
 
+# --- check of earlier records ---------------------------------------------------------------------------------------
+# what the replay of the check reports when a request of the procedure is not the recorded one (refsys/sysvectors.py)
+REQUEST_MISMATCH = ("the request differs from the recorded one", "where the recording has",
+                    "the procedure made more requests than were recorded")
+
+
+def recheck(sim: Simulation, run_dir: Path) -> int:
+    """--recheck: checks the records of an earlier simulation in run_dir again with the procedure of this code, into
+    run_dir/recheck_<date>_<time>: report.txt, the step log and recheck.txt (the commit of this code, the time and the
+    result). Exit code 0 when every test case passes, 1 when one fails, 2 when a request of the procedure differs from
+    the recorded one: then the records do not belong to the requests of this code, and the check says nothing."""
+    out = run_dir / time.strftime("recheck_%Y%m%d_%H%M%S")
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True,
+                            check=False).stdout.strip() or "unknown"
+    code = sim.vectors.check(run_dir, out)
+    report = (out / sim.vectors.REPORT).read_text(encoding="utf-8")
+    mismatch = any(text in report for text in REQUEST_MISMATCH)
+    result = ("REQUEST MISMATCH: a request of this code differs from the recorded one; the records do not belong to "
+              "this code and the recheck says nothing" if mismatch else "passed" if code == 0 else "failed")
+    (out / "recheck.txt").write_text(f"records: {run_dir}\ncode: {commit}\ntime: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                     f"result: {result}\n", encoding="utf-8")
+    print(f"recheck of {run_dir} with {commit}: {result}; report and step log in {out}")
+    return 2 if mismatch else code
+
+
 # --- command line ---------------------------------------------------------------------------------------------------
 def main(sim: Simulation, simulator: str, description: str) -> int:
     ht = sim.vectors.ht
@@ -222,7 +248,12 @@ def main(sim: Simulation, simulator: str, description: str) -> int:
                             help="frequency of the transceiver reference clock in MHz")
     parser.add_argument("--sysclk-mhz", choices=(SYSCLK_MHZ, "150"), default=SYSCLK_MHZ,
                         help="frequency of the system clock in MHz (the hardware builds run at 150)")
+    parser.add_argument("--recheck", type=Path, metavar="RUN_DIR",
+                        help="no simulation: check the records of an earlier simulation in RUN_DIR again with the "
+                             "procedure of this code; report and step log go to RUN_DIR/recheck_<date>_<time>")
     args = parser.parse_args()
+    if args.recheck:
+        return recheck(sim, args.recheck)
     suffix = ""
     if simulator == "xsim" and args.refclk_mhz != xsim.REFCLK_MHZ:
         sim.refclk_mhz = args.refclk_mhz

@@ -154,14 +154,21 @@ def tc06_encryption(regs: Registers, ctx: Context) -> None:
         except chunks.ChunkError as err:
             raise TestFailed(f"APID {ch.output_apid}: {err}") from err
         check(packets_back == sent[k], f"APID {ch.output_apid}: decrypted packets differ from the input")
+        ctx.log.emit("packets", f"APID {ch.output_apid}: {len(out)} chunks, Packet Sequence Counts "
+                     f"{counts[0] if counts else '-'} to {counts[-1] if counts else '-'}, every chunk authenticated "
+                     "and "
+                     f"decrypted with the key of its channel, {len(sent[k])} Space Packets of "
+                     f"{sum(len(d) for d in sent[k])} bytes equal to those sent", "pass", apid=ch.output_apid,
+                     chunks=len(out), counts=[counts[0], counts[-1]] if counts else [],
+                     lengths=[len(p.data) for p in out], packets=[len(d) for d in sent[k]])
 
 
 def tc07_counters(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-07: counters match the traffic, no error and no memory error is counted."""
     s = ctx.system
     node = s.base(s.node)
-    check(regs.read(node + SPP.RX_PACKETS) == ctx.packets, "RX_PACKETS of the Space Packet node")
-    check(regs.read(node + SPP.TX_PACKETS) == ctx.chunks, "TX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.RX_PACKETS, ctx.packets, "RX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.TX_PACKETS, ctx.chunks, "TX_PACKETS of the Space Packet node")
     encryptions = systest.ocr_counters(regs, ctx)
     check(encryptions == ctx.chunks, f"{encryptions} encryptions, {ctx.chunks} chunks")
     systest.ecc_counters(regs, ctx)
@@ -176,6 +183,11 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
          tc07_counters, tc18_repeated_run]
+
+# The procedure names no requirement of the cores (it has no coverage section): the test cases carry none.
+REQUIREMENTS: dict = {}
+REQUIREMENTS_NOTE = ("The procedure of spfi_encrypt has no coverage section and names no requirement of the cores: the "
+                     "test cases carry no requirement IDs.")
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption],
@@ -203,12 +215,12 @@ def run(transport, ctx: Context, tests: list | None = None,
 
 
 def main() -> int:
-    parser = systest.arguments(__doc__.splitlines()[0])
+    parser = systest.arguments(__doc__.splitlines()[0], model=True)
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
-    parser.add_argument("--packets", type=int, help="Space Packets sent in TC-RS-HW-06 (default: of the profile)")
     args = parser.parse_args()
-    ctx = make_context(args.seed, args.packets or PROFILES[args.profile].packets)
-    return systest.run_on_device(args.device, ctx, select_tests(args.test))
+    if args.check_environment:
+        return systest.check_environment()
+    return systest.pytest_main(SYSTEM_DIR, args)
 
 
 if __name__ == "__main__":

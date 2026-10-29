@@ -742,3 +742,60 @@ def test_tc18_repeats_the_test_cases_it_builds_on_when_selected_alone():
     results = run(m, ctx, ht.select_tests(["TC-RS-HW-18"]))
     assert list(results) == ["TC-RS-HW-01", "TC-RS-HW-05", "TC-RS-HW-18"] and not any(results.values()), results
     assert {r["test"] for r in ctx.recorded} >= {"TC-RS-HW-18 TC-RS-HW-01", "TC-RS-HW-18 TC-RS-HW-05"}
+
+
+# --- REQUIREMENTS against section 10 of the procedure -----------------------------------------------------------------
+PROCEDURE = HERE.parents[1] / "targets" / "vck190" / "docs" / "hardware_test.md"
+CORE_SECTIONS = {"OFB": "OpenFibre", "ORMAP": "OpenRMAP", "SPP": "OpenSPP", "OCP": "OpenCompact"}
+ID = re.compile(r"(?<![\w-])(?:[A-Z]{2,4}-)?[A-Z]{2,4}-\d\d(?:(?:\.\.|/)\d\d)*")
+
+
+def coverage_rows(core: str) -> list[tuple[list[str], str]]:
+    """The rows of the coverage table of a core in section 10: the groups of the row (every word of the group cell
+    with capitals and hyphens only, for example LN, TG-IF, TG, CH, IA) and the cell of the exercised requirements."""
+    text = PROCEDURE.read_text(encoding="utf-8").split("## 10.", 1)[1]
+    section = text.split(f"### {CORE_SECTIONS[core]} ", 1)[1].split("\n### ", 1)[0]
+    rows = []
+    for line in section.splitlines():
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) != 3 or cells[0] in ("Group", "---"):
+            continue
+        groups = [w for w in re.split(r"[ ,]+", cells[0]) if re.fullmatch(r"[A-Z]{2,4}(?:-[A-Z]{2,4})?", w)]
+        groups += [g.split("-")[0] for g in groups if "-" in g]
+        rows.append((groups, cells[1]))
+    return rows
+
+
+def listed(token: str, rows) -> bool:
+    """Whether a token of REQUIREMENTS (core prefix removed) appears in the exercised cell of a row of its group."""
+    for groups, cell in rows:
+        for group in groups:
+            if token.startswith(group + "-") and re.search(rf"(?<![\w-]){re.escape(token[len(group) + 1:])}(?![\w.])",
+                                                           cell):
+                return True
+        if re.search(rf"(?<![\w-]){re.escape(token)}(?![\w.])", cell):
+            return True
+    return False
+
+
+def test_every_requirement_of_the_table_is_in_section_10_of_the_procedure():
+    missing = [t for ids in ht.REQUIREMENTS.values() for t in ids
+               if not listed(t.split(":", 1)[1], coverage_rows(t.split(":", 1)[0]))]
+    assert missing == []
+
+
+def test_every_requirement_that_section_10_lists_as_exercised_is_in_the_table():
+    tokens = {t for ids in ht.REQUIREMENTS.values() for t in ids}
+    missing, checked = [], 0
+    for core in CORE_SECTIONS:
+        ours = [t.split(":", 1)[1] for t in tokens if t.startswith(core + ":")]
+        for groups, cell in coverage_rows(core):
+            for found in ID.findall(cell):
+                checked += 1
+                if not any(t == found or t.endswith("-" + found) for t in ours):
+                    missing.append(f"{core}: {found} ({'/'.join(groups)})")
+    assert missing == [] and checked > 100
+
+
+def test_the_table_names_only_test_cases_of_the_procedure():
+    assert set(ht.REQUIREMENTS) <= {ht.test_name(t) for t in ht.TESTS}

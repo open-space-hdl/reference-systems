@@ -7,7 +7,10 @@ reference data come from the reference model of OpenCompact and the committed go
 program. These tests check the sources: no module of sw/refsys and of the software of the systems starts an external
 program, and the hardware test of spfi_compress with its system model imports, at module level, only the standard
 library, the modules of the repository and the tools of OpenCompact; the Python package of the far-end software is
-imported only inside sw/refsys/transport.py, and pycryptodome only where a system with OpenCrypto needs it."""
+imported only inside sw/refsys/transport.py, and pycryptodome only where a system with OpenCrypto needs it.
+
+One exception: the pytest plugin of the hardware tests (sw/refsys/hwplugin.py) runs git, and only git, to record the
+commit and the state of the working tree of a run (evidence of the run, not reference data)."""
 
 import ast
 import importlib.abc
@@ -49,9 +52,36 @@ def external_programs(source: str) -> list[str]:
     return found
 
 
+# modules that may start a program, and the only program they may start
+RECORDS_GIT = {REFSYS / "hwplugin.py": "git"}
+
+
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
 def test_no_module_starts_an_external_program(path):
-    assert external_programs(path.read_text(encoding="utf-8")) == []
+    found = external_programs(path.read_text(encoding="utf-8"))
+    if path in RECORDS_GIT:
+        assert found == [f"line {n}: import subprocess" for n in imports_of(path, "subprocess")]
+        assert programs_started(path) == {RECORDS_GIT[path]}
+    else:
+        assert found == []
+
+
+def imports_of(path: Path, module: str) -> list[int]:
+    return [node.lineno for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+            if isinstance(node, ast.Import) and any(a.name == module for a in node.names)]
+
+
+def programs_started(path: Path) -> set[str]:
+    """The first element of every list literal passed to subprocess.run, by the program it names ("*" for a list
+    that does not start with a string literal)."""
+    programs = set()
+    for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "run"
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"):
+            first = node.args[0] if node.args else None
+            head = first.elts[0] if isinstance(first, ast.List) and first.elts else None
+            programs.add(head.value if isinstance(head, ast.Constant) else "*")
+    return programs
 
 
 def test_the_check_finds_an_external_program():

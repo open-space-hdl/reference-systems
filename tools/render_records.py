@@ -30,10 +30,28 @@ def run_table(data: dict) -> list[str]:
 
 
 def results_table(data: dict) -> list[str]:
+    """Every test case that ran, then those that did not run with the reason (pytest runs: the first failure stops
+    the run, the later test cases build on the earlier ones)."""
     out = ["| Test case | Result | Error |", "| --- | --- | --- |"]
     for r in data["results"]:
         error = (r["error"] or "").replace("|", "\\|")
         out.append(f"| {r['test']} | {'Pass' if r['pass'] else 'Fail'} | {error} |")
+    for r in data.get("not_run", []):
+        out.append(f"| {r['test']} | Not run | {r['reason']} |")
+    return out
+
+
+def requirements_table(data: dict) -> list[str]:
+    """The requirements that every test case confirms (the markers of the pytest tests), with its result."""
+    requirements = data.get("requirements") or {}
+    if not requirements:
+        return []
+    result = {r["test"]: "Pass" if r["pass"] else "Fail" for r in data["results"]}
+    result |= {r["test"]: "Not run" for r in data.get("not_run", [])}
+    out = ["| Test case | Result | Requirements |", "| --- | --- | --- |"]
+    for test, ids in requirements.items():
+        if ids:
+            out.append(f"| {test} | {result.get(test, 'Not selected')} | {', '.join(ids)} |")
     return out
 
 
@@ -81,7 +99,14 @@ def digests_table(data: dict) -> list[str]:
 
 
 def render(data: dict, digests: bool = False) -> str:
-    lines = ["### Run", ""] + run_table(data) + ["", "### Results per test case", ""] + results_table(data)
+    lines = ["### Run", ""] + run_table(data)
+    if data.get("keep_going"):
+        lines += ["", "This run continued after a failure (--keep-going): a run for diagnosis, not evidence."]
+    lines += ["", "### Results per test case", ""] + results_table(data)
+    if data.get("requirements_note"):
+        lines += ["", data["requirements_note"]]
+    if requirements_table(data):
+        lines += ["", "### Requirements per test case", ""] + requirements_table(data)
     lines += ["", "### Recorded values", ""] + records_list(data)
     lines += ["", "### Compressed images", ""] + images_table(data)
     if data.get("rate"):

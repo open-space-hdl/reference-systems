@@ -18,6 +18,7 @@ The register maps of the cores come from their headers (cores/<core>/sw/<prefix>
 """
 
 import argparse
+import contextvars
 import importlib
 import json
 import random
@@ -26,7 +27,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from refsys import errorstate, rmap
+from refsys import errorstate, rmap, steplog
 from refsys.composer import SystemFile, instance_of
 from refsys.regs import RegisterMap
 from refsys.transport import TransportError
@@ -37,6 +38,12 @@ SPP = RegisterMap(CORES / "openspp" / "sw" / "spp_regs.h", "SPP")
 OCR = RegisterMap(CORES / "opencrypto" / "sw" / "ocr_regs.h", "OCR")
 OFB = RegisterMap(CORES / "openfibre" / "sw" / "ofb_regs.h", "OFB")
 OMAP = RegisterMap(CORES / "openrmap" / "sw" / "omap_regs.h", "OMAP")
+OCP = RegisterMap(CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
+# the register map of a register window, by the prefix of its instance name
+WINDOW_MAPS = {"spp": SPP, "ocr": OCR, "ofb": OFB, "rmap": OMAP, "ocp": OCP}
+
+# the step log of the run that is going on: checks and records go to it (steplog.NULL outside a run)
+ACTIVE_LOG: contextvars.ContextVar = contextvars.ContextVar("steplog", default=steplog.NULL)
 
 # The receive error codes of the Space Packet node with their counters (OpenSPP register map, LAST_ERROR and
 # ERR_RX1 to ERR_RX6: two 16-bit counters per register, the lower code in bits 15:0)
@@ -219,8 +226,22 @@ class TestFailed(Exception):
 
 
 def check(condition: bool, text: str) -> None:
+    """A pass criterion: logged (a passing check at DEBUG, since its text describes the failure), TestFailed when it
+    does not hold."""
+    ACTIVE_LOG.get().check(bool(condition), text)
     if not condition:
         raise TestFailed(text)
+
+
+def register_names(system: "System") -> dict[int, str]:
+    """The name of every register of the register windows of a system, by address: <instance>.<register>."""
+    names = {}
+    for instance, base in system.windows.items():
+        regs = WINDOW_MAPS.get(instance.rstrip("0123456789"))
+        for name, offset in (regs.constants().items() if regs else ()):
+            if regs.register_name(offset) == name:
+                names[base + offset] = f"{instance}.{name}"
+    return names
 
 
 def hex_words(words: list[int]) -> str:
@@ -238,9 +259,11 @@ def consecutive(regmap: RegisterMap, names: tuple[str, ...]) -> int:
 class Registers:
     """Register access of the system over RMAP."""
 
-    def __init__(self, transport, setup: Setup):
+    def __init__(self, transport, setup: Setup, log: steplog.StepLog = steplog.NULL, names: dict | None = None):
         self.transport = transport
         self.setup = setup
+        self.log = log                                  # every access is logged (read, write, wait)
+        self.names = names or {}                        # register names by address (register_names)
         self.target = rmap.Target(logical_address=setup.system_tla, path=setup.rmap_path,
                                   reply_path=setup.rmap_reply_path)
         self.tid = 0
@@ -262,7 +285,20 @@ class Registers:
         reply = self.command(rmap.read_command(self.target, address, 4 * words, tid), tid, read=True)
         check(reply.ok, f"read of {4 * words} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
         # the first byte of the data is the lowest address: little-endian byte lanes of the AXI4 bus
-        return [int.from_bytes(reply.data[i:i + 4], "little") for i in range(0, 4 * words, 4)]
+        values = [int.from_bytes(reply.data[i:i + 4], "little") for i in range(0, 4 * words, 4)]
+        self.log.access("read", address, values, self.names.get(address, ""))
+        return values
+
+    def expect(self, address: int, expected: int, what: str = "", mask: int = 0xFFFFFFFF, quiet: bool = False) -> int:
+        """Reads a register (one read, as read) and checks it under mask against the value expected; logged with
+        both values. Returns the word read."""
+        word = self.read(address)
+        what = what or self.names.get(address, f"0x{address:08X}")
+        self.log.expect(what, word & mask, expected & mask, quiet=quiet, address=address, mask=mask)
+        if word & mask != expected & mask:
+            raise TestFailed(f"{what}: 0x{word:08X}, expected 0x{expected:08X}"
+                             + (f" under 0x{mask:08X}" if mask != 0xFFFFFFFF else ""))
+        return word
 
     def write(self, address: int, value: int) -> None:
         self.write_block(address, [value])
@@ -273,12 +309,17 @@ class Registers:
         tid = self.next_tid()
         reply = self.command(rmap.write_command(self.target, address, data, tid), tid, read=False)
         check(reply.ok, f"write of {len(data)} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
+        self.log.access("write", address, list(words), self.names.get(address, ""))
 
     def wait(self, address: int, mask: int, value: int, timeout: float = 1.0) -> int:
         end = time.monotonic() + timeout
+        polls = 0
         while True:
             word = self.read(address)
+            polls += 1
             if word & mask == value:
+                self.log.access("wait", address, [word], self.names.get(address, ""), mask=mask, value=value,
+                                polls=polls)
                 return word
             check(time.monotonic() < end, f"0x{address:08X} = 0x{word:08X}, waited for 0x{value:X} under 0x{mask:X}")
 
@@ -303,6 +344,8 @@ class Context:
     current: str = field(default="", kw_only=True)                        # the test case that runs
     recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
     selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
+    log: steplog.StepLog = field(default_factory=steplog.StepLog, kw_only=True)  # the step log of the run
+    requirements: dict = field(default_factory=dict, kw_only=True)        # test case: requirements it confirms
 
 
 def record(ctx: Context, text: str) -> None:
@@ -310,6 +353,7 @@ def record(ctx: Context, text: str) -> None:
     simulation."""
     ctx.records.append(text)
     ctx.recorded.append({"test": ctx.current, "text": text})
+    ctx.log.emit("record", text)
     print(f"RECORD {text}")
 
 
@@ -363,7 +407,7 @@ def tc01_link(regs: Registers, ctx: Context) -> None:
     (OpenFibre user guide, receiver reset of ofb_pa_gty), which show how the lanes came up."""
     port = ctx.system.port
     base = ctx.system.base(port)
-    check(regs.read(base + OFB.ID) == ctx.system.ids[port], "ID of the SpaceFibre port")
+    regs.expect(base + OFB.ID, ctx.system.ids[port], "ID of the SpaceFibre port")
     state = OFB.get("DL_STATUS", "LINK_STATE", regs.read(base + OFB.DL_STATUS))
     check(state == LINK_INITIALISED, f"DL_STATUS.LINK_STATE = {state}")
     for lane, state in enumerate(lane_records(regs, ctx)):
@@ -495,8 +539,7 @@ def tc11_port_registers(regs: Registers, ctx: Context) -> None:
     reset = port_reset_values(ctx)
     for name, mask in PORT_REGISTERS:
         address = base + getattr(OFB, name)
-        check(regs.read(address) == reset[name], f"{s.port} {name} does not read its value of the reset "
-              f"0x{reset[name]:08X}")
+        regs.expect(address, reset[name], f"{s.port} {name}, value of the reset")
         p = rng.getrandbits(32) & mask
         values = [p, ~p & mask, mask]
         if name == "LANE_INIT_TIMEOUT":
@@ -508,13 +551,13 @@ def tc11_port_registers(regs: Registers, ctx: Context) -> None:
     for vc in range(s.num_vcs):
         address = base + OFB.VC_CFG(vc)
         cfg = OFB.field("VC_CFG", "VN", vc) | OFB.field("VC_CFG", "PRIORITY", 3)
-        check(regs.read(address) == cfg, f"{s.port} VC_CFG({vc}) does not read its value of the reset 0x{cfg:08X}")
+        regs.expect(address, cfg, f"{s.port} VC_CFG({vc}), value of the reset")
         vn = rng.randrange(1, 64)
         regs.write(address, OFB.field("VC_CFG", "VN", vn) | OFB.field("VC_CFG", "PRIORITY", 3))
         got = OFB.get("VC_CFG", "VN", regs.read(address))
         check(got == (0 if vc == 0 else vn), f"{s.port} VC_CFG({vc}).VN: wrote {vn}, read {got}")
         regs.write(address, cfg)
-        check(regs.read(address) == cfg, f"{s.port} VC_CFG({vc}) is not restored")
+        regs.expect(address, cfg, f"{s.port} VC_CFG({vc}), restored")
 
 
 def end_of_run(regs: Registers, ctx: Context) -> None:
@@ -545,7 +588,7 @@ def tc03_rmap(regs: Registers, ctx: Context) -> None:
     address = ctx.system.base(ctx.system.ecc) + EDAC_IRQ_ENA
     for value in (0x3, 0x1, 0x0):
         regs.write(address, value)
-        check(regs.read(address) == value, f"IRQ_ENA of the ECC monitor does not read back 0x{value:X}")
+        regs.expect(address, value, "IRQ_ENA of the ECC monitor, read back")
     wrong = rmap.Target(logical_address=regs.target.logical_address, key=regs.target.key ^ 0x5A,
                         path=regs.target.path, reply_path=regs.target.reply_path)
     tid = regs.next_tid()
@@ -644,7 +687,7 @@ def ocr_counters(regs: Registers, ctx: Context) -> int:
         core = ctx.system.base(ch.core)
         encryptions += regs.read(core + OCR.ENCRYPTIONS)
         for name in OCR_ERRORS:
-            check(regs.read(core + getattr(OCR, name)) == 0, f"{ch.core} {name}")
+            regs.expect(core + getattr(OCR, name), 0, f"{ch.core} {name}")
     return encryptions
 
 
@@ -652,8 +695,7 @@ def ecc_counters(regs: Registers, ctx: Context) -> None:
     """Step of TC-RS-HW-07: no channel of the ECC monitor counted a memory error."""
     s = ctx.system
     for channel, name in enumerate(s.ecc_names):
-        check(regs.read(s.base(s.ecc) + EDAC_CNT + 4 * channel) == 0,
-              f"ECC monitor counters of channel {channel} ({name})")
+        regs.expect(s.base(s.ecc) + EDAC_CNT + 4 * channel, 0, f"ECC monitor counters of channel {channel} ({name})")
 
 
 def test_name(test) -> str:
@@ -677,24 +719,42 @@ def select_tests(names: list[str] | None, tests: list, requires: dict) -> list:
 def run(transport, ctx: Context, tests: list, registers: type[Registers] = Registers) -> list[tuple[str, str | None]]:
     """Runs the test cases in order and stops at the first failure; returns the name and the error (None when it
     passed) of every test case that ran."""
-    regs = registers(transport, ctx.setup)
-    ctx.selected = list(tests)
+    regs = prepare(transport, ctx, tests, registers)
+    token = ACTIVE_LOG.set(ctx.log)
     results = []
-    for test in tests:
-        name = test_name(test)
-        transport.begin(name)
-        ctx.current = name
-        try:
-            test(regs, ctx)
-        except Exception as err:  # noqa: BLE001 - the failure is reported, the later test cases depend on it
-            print(f"FAIL {name}: {err}")
-            results.append((name, str(err)))
-            break
-        print(f"PASS {name}")
-        results.append((name, None))
+    try:
+        for test in tests:
+            name = test_name(test)
+            try:
+                run_one(regs, ctx, test)
+            except Exception as err:  # noqa: BLE001 - the failure is reported, the later test cases depend on it
+                print(f"FAIL {name}: {err}")
+                results.append((name, str(err)))
+                break
+            print(f"PASS {name}")
+            results.append((name, None))
+    finally:
+        ACTIVE_LOG.reset(token)
     passed = sum(error is None for _, error in results)
     print(f"{passed} of {len(tests)} test cases passed")
     return results
+
+
+def prepare(transport, ctx: Context, tests: list, registers: type[Registers] = Registers) -> Registers:
+    """The register access of a run of the test cases tests, logging into the step log of the context."""
+    ctx.selected = list(tests)
+    return registers(transport, ctx.setup, ctx.log, register_names(ctx.system))
+
+
+def run_one(regs: Registers, ctx: Context, test) -> None:
+    """Runs one test case: its mark for the transport, its name in the context and in the step log, and a step
+    event with the description of the test case and the requirements it confirms (ctx.requirements)."""
+    name = test_name(test)
+    regs.transport.begin(name)
+    ctx.current = name
+    ctx.log.begin(name)
+    ctx.log.step(" ".join(test.__doc__.split(":", 1)[1].split()), tuple(ctx.requirements.get(name, ())))
+    test(regs, ctx)
 
 
 def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
@@ -707,11 +767,15 @@ def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
     check(ctx.current in names and names.index(ctx.current) > 0, f"{ctx.current} has no test case before it to repeat")
     tests = ctx.selected[:names.index(ctx.current)]
     fresh.selected = tests
+    fresh.log = ctx.log
     second = type(regs)(regs.transport, fresh.setup)
+    second.log, second.names = regs.log, regs.names
     try:
         for test in tests:
             name = test_name(test)
             fresh.current = f"{ctx.current} {name}"
+            ctx.log.begin(fresh.current)
+            ctx.log.step(f"second run: {' '.join(test.__doc__.split(':', 1)[1].split())}")
             try:
                 test(second, fresh)
             except Exception as err:  # noqa: BLE001 - the failure of the second run is the failure of this test case
@@ -761,6 +825,25 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
     return parser
 
 
+def pytest_main(system_dir: Path, args: argparse.Namespace) -> int:
+    """hardware_test.py --device/--model as a run of the pytest tests of the system (systems/<system>/sw/hwtest,
+    sw/refsys/hwplugin.py), with the same options; the outputs go into --records, or into a new temporary directory
+    outside the repository. Returns the exit code of pytest."""
+    import tempfile
+
+    import pytest
+
+    results = args.records or Path(tempfile.mkdtemp(prefix="refsys_"))
+    argv = [str(system_dir / "sw" / "hwtest"), "--target", "model" if args.model else "device",
+            "--profile", args.profile, "--seed", str(args.seed), "--results", str(results)]
+    if not args.model:
+        argv += ["--device", args.device]
+    for name in args.test or ():
+        argv += ["--tc", name]
+    print(f"python -B -m pytest {' '.join(argv)}")
+    return int(pytest.main(argv))
+
+
 def check_environment() -> int:
     """--check-environment: Python 3.10 or later, the reference model of OpenCompact and the Python package of the
     far-end software that the transport uses. One line per item; exit code 0 when every item is there."""
@@ -771,11 +854,14 @@ def check_environment() -> int:
             raise RuntimeError(f"Python {sys.version.split()[0]}, 3.10 or later needed")
         return sys.version.split()[0]
 
+    def pytest_version() -> str:
+        return importlib.import_module("pytest").__version__
+
     def model() -> str:
         module = importlib.import_module("ocp_model")
         return f"found, decoder {'included' if hasattr(module, 'decompress') else 'not included'}"
 
-    items = [("Python", python), ("reference model of OpenCompact", model),
+    items = [("Python", python), ("pytest", pytest_version), ("reference model of OpenCompact", model),
              ("Python package of the far-end software", transport.far_end_software)]
     ok = True
     for name, probe in items:
@@ -811,17 +897,14 @@ def write_records(directory: Path, system: str, target: str, profile: str, ctx: 
     return path
 
 
-def run_on_device(device: str, ctx: Context, tests: list, run_tests=None, results_out: list | None = None) -> int:
-    """Drains both channels of the test equipment, then runs the test cases; returns the exit code of the script
-    (0 when every test case passes). results_out receives the results of the test cases."""
+def open_device(device: str, ctx: Context):
+    """The far end of a run on the device: the test equipment, opened, with both of its channels drained of what an
+    earlier run left on them. The caller closes it (close())."""
     from refsys.transport import StarSystemTransport
 
-    with StarSystemTransport(device) as transport:
-        drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
-        results = (run_tests or run)(transport, ctx, tests)
-    if results_out is not None:
-        results_out.extend(results)
-    return 0 if len(results) == len(tests) and all(error is None for _, error in results) else 1
+    transport = StarSystemTransport(device).__enter__()
+    drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
+    return transport
 
 
 def system_modules(directory: Path, *names: str) -> list:

@@ -281,14 +281,29 @@ class Sdu:
     gap: bool = False
 
 
-def image_samples(ctx: Context, ch: Channel, kind: str, index: int) -> list[int]:
-    """The samples of test image `index` of a channel in the input order of its compressor."""
-    return ocp.input_order(ch.cfg, ocp.test_image(ch.cfg, kind, f"{ctx.seed} {ch.port} {index}"))
+def image_samples(ctx: Context, ch: Channel, kind: str, index: int, cfg: dict | None = None) -> list[int]:
+    """The samples of test image `index` of a channel in the input order of its compressor, for the configuration of
+    its generics or, with the runtime configuration, cfg; logged."""
+    cfg = cfg or ch.cfg
+    samples = ocp.input_order(cfg, ocp.test_image(cfg, kind, f"{ctx.seed} {ch.port} {index}"))
+    ctx.log.emit("image", f"{ch.compressor}: test image {index}, {kind}, {cfg['large_n_x']} x {cfg['large_n_y']} x "
+                 f"{cfg['large_n_z']} samples of {cfg['large_d']} bits", compressor=ch.compressor, port=ch.port,
+                 index=index, pattern=kind, nx=cfg["large_n_x"], ny=cfg["large_n_y"], nz=cfg["large_n_z"],
+                 samples=len(samples))
+    return samples
+
+
+def sdu_count(ctx: Context, ch: Channel) -> int:
+    """The number of SDUs of an image of the configuration of the generics of a channel."""
+    return len(ocp.split_sdus(ch.cfg, ocp.encode_samples(ch.cfg, [0] * ocp.samples_per_image(ch.cfg)), ctx.sdu_bytes))
 
 
 def image_sdus(ctx: Context, ch: Channel, samples: list[int], lost: tuple[int, ...] = ()) -> list[Sdu]:
-    """The SDUs of an image; the SDUs at the indices `lost` (from 0) are left out."""
+    """The SDUs of an image; the SDUs at the indices `lost` (from 0) are left out; logged."""
     parts = ocp.split_sdus(ch.cfg, ocp.encode_samples(ch.cfg, samples), ctx.sdu_bytes)
+    ctx.log.emit("image", f"{ch.compressor}: {len(parts)} SDUs, {sum(len(p) for p in parts)} bytes"
+                 + (f", SDUs {', '.join(str(k) for k in lost)} left out" if lost else ""), compressor=ch.compressor,
+                 port=ch.port, sdus=len(parts), bytes=sum(len(p) for p in parts), lost=list(lost))
     return [Sdu(ch.port, data, end=k == len(parts) - 1, lost=k in lost) for k, data in enumerate(parts)]
 
 
@@ -384,10 +399,11 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
             lengths, want_lengths = [len(p.data) for p in got], [len(p) for p in parts]
             if not problems and lengths != want_lengths:
                 problems = [f"Space Packets of {lengths} bytes, expected {want_lengths}"]
-            decoded = "aborted, not decoded"
+            decoded, decoding = "aborted, not decoded", {}
             if not problems and output.complete:
                 if ocp.decoder_available():
-                    problems = ocp.decode_problems(output.cfg, data, list(output.samples))
+                    decoding = ocp.decode_check(output.cfg, data, list(output.samples))
+                    problems = decoding["problems"]
                     ctx.decoded += 1
                     lossless = output.cfg["quantizer_fidelity_control_method"] == 0
                     decoded = "equal" if lossless else "within the maximum error"
@@ -395,12 +411,30 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
                     ctx.undecoded += 1
                     decoded = "skipped, no decoder"
             ctx.image_records.append(image_record(ctx, ch, output, data, "failed" if problems else decoded))
+            log_received(ctx, ch, n, output, data, lengths, problems, decoded, decoding)
             if problems:
                 ctx.image_records[-1]["data"] = data.hex()
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
             back.append(data)
         result[port] = back
     return result
+
+
+def log_received(ctx: Context, ch: Channel, n: int, output: ocp.Output, data: bytes, lengths: list[int],
+                 problems: list[str], decoded: str, decoding: dict) -> None:
+    """The image event of a compressed image received: its figures, its chunks, the comparison with the model and
+    the decoding check with the largest error found and allowed."""
+    figures = ocp.image_figures(output.cfg, len(data))
+    error = (f", largest error {decoding['error']} (allowed {decoding['allowed']})"
+             if decoding.get("error") is not None else "")
+    ctx.log.emit("image", f"{ch.compressor}: compressed image {n} of the exchange, {figures['nx']} x {figures['ny']} x "
+                 f"{figures['nz']}, {len(data)} bytes, {figures['bits_per_sample']} bits per sample, ratio "
+                 f"{figures['ratio']}, {len(lengths)} chunks (last {lengths[-1] if lengths else 0} bytes), "
+                 f"{'complete' if output.complete else 'aborted'}, "
+                 + (problems[0] if problems else f"equal to the model, decoder: {decoded}{error}"),
+                 "fail" if problems else "pass", compressor=ch.compressor, port=ch.port, complete=output.complete,
+                 chunks=lengths, sha256=hashlib.sha256(data).hexdigest(), decoded=decoded, **figures,
+                 error=decoding.get("error"), allowed=decoding.get("allowed"))
 
 
 def image_record(ctx: Context, ch: Channel, output: ocp.Output, data: bytes, decoded: str) -> dict:
@@ -441,9 +475,9 @@ def check_status(regs: Registers, ctx: Context) -> None:
     s = ctx.system
     node = s.base(s.node)
     t = ctx.traffic
-    check(regs.read(node + SPP.RX_PACKETS) == t.sdus, f"RX_PACKETS of the Space Packet node, expected {t.sdus}")
-    check(regs.read(node + SPP.TX_PACKETS) == t.packets, f"TX_PACKETS of the Space Packet node, expected {t.packets}")
-    check(regs.read(node + SPP.RX_LOSS) == t.losses, f"RX_LOSS of the Space Packet node, expected {t.losses}")
+    regs.expect(node + SPP.RX_PACKETS, t.sdus, "RX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.TX_PACKETS, t.packets, "TX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.RX_LOSS, t.losses, "RX_LOSS of the Space Packet node")
     for ch in s.channels:
         base = s.base(ch.compressor)
         now, before = ctx.models[ch.port].counts, ctx.cleared[ch.port]
@@ -452,7 +486,7 @@ def check_status(regs: Registers, ctx: Context) -> None:
             got = regs.read(base + getattr(OCP, name))
             check(got == want, f"{ch.compressor} {name} = {got}, expected {want}")
         for name in ocp.ECC_COUNTERS:
-            check(regs.read(base + getattr(OCP, name)) == 0, f"{ch.compressor} {name}")
+            regs.expect(base + getattr(OCP, name), 0, f"{ch.compressor} {name}")
     systest.ecc_counters(regs, ctx)
 
 
@@ -578,7 +612,7 @@ def tc08_lost_data(regs: Registers, ctx: Context) -> None:
     clear_status(regs, ctx)
     streams = {}
     for ch in ctx.system.channels:
-        n = len(image_sdus(ctx, ch, [0] * ocp.samples_per_image(ch.cfg)))
+        n = sdu_count(ctx, ch)
         check(n >= 3, f"{ch.compressor}: an image of {n} SDUs is too short for the lost SDUs of TC-RS-HW-08")
         plan = lost_plan(ctx, ch.port, n)
         sdus = []
@@ -638,7 +672,7 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
                 ocptest.refuse(regs, ctx, ch, plans[ch.port][k])
             cfg = ctx.models[ch.port].next_cfg
             kind = ctx.profile.kinds[k % len(ctx.profile.kinds)]
-            samples = ocp.input_order(cfg, ocp.test_image(cfg, kind, f"{ctx.seed} {ch.port} {ctx.images}"))
+            samples = image_samples(ctx, ch, kind, ctx.images, cfg)
             streams[ch.port] = image_sdus(ctx, ch, samples)
             ctx.images += 1
         if k == 0 and ctx.profile.runtime_full:
@@ -730,7 +764,7 @@ def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
     lane = s.lanes - 1
     address = port + OFB.LANE_CTRL(lane)
     ctrl = 0x62 | systest.generic_value(s.file.generic(s.port, "LaneStart_g"))
-    check(regs.read(address) == ctrl, f"{s.port} LANE_CTRL({lane}) does not read its value of the reset 0x{ctrl:02X}")
+    regs.expect(address, ctrl, f"{s.port} LANE_CTRL({lane}), value of the reset")
     enable = OFB.field("LANE_CTRL", "TX_EN", 1) | OFB.field("LANE_CTRL", "RX_EN", 1)
     fields = (OFB.field("ML_STATUS", "DATA_SENDING", OFB.ML_STATUS_DATA_SENDING_MASK)
               | OFB.field("ML_STATUS", "DATA_RECEIVING", OFB.ML_STATUS_DATA_RECEIVING_MASK)
@@ -807,7 +841,7 @@ def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
     regs.write(node + SPP.TX_TABLE_APID, first.output_apid)
     regs.read(node + SPP.TX_TABLE_ENTRY)
     regs.write(node + SPP.TX_TABLE_ENTRY, tx)
-    check(regs.read(node + SPP.TX_TABLE_ENTRY) == tx, f"send APID table entry of APID {first.output_apid}")
+    regs.expect(node + SPP.TX_TABLE_ENTRY, tx, f"send APID table entry of APID {first.output_apid}")
     ctx.output_count[first.output_apid] = 16383
     config = regs.read(node + SPP.CONFIG)
     check(not SPP.get("CONFIG", "ROUND_ROBIN", config), f"{s.node} CONFIG.ROUND_ROBIN is set: 0x{config:08X}")
@@ -857,6 +891,64 @@ TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_config
          tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal,
          tc17_end_of_run, tc18_repeated_run]
 
+# Requirements of the cores that the test cases confirm on the board, as section 10 of the hardware test procedure
+# lists them (coverage of the cores): <core>:<group>-<ids>, the IDs written as the procedure writes them. Requirements
+# that it lists for the traffic are those of TC-RS-HW-06, the first test case whose traffic covers the data path,
+# and for the RMAP target those of TC-RS-HW-03; Open Logic FT is covered by entity, not by requirement, and is not
+# listed. sw/tests checks the table against section 10.
+_OFB_LN = ("OFB:LN-IF-01..06", "OFB:LN-INIT-01..07/10/11", "OFB:LN-TX-01..03", "OFB:LN-RX-01..04/06/07")
+_OFB_MG = ("OFB:MG-IF", "OFB:MG-CF-01..03", "OFB:MG-PA-01..03", "OFB:MG-ST-01/02/04..07", "OFB:MG-VN-01",
+           "OFB:MG-ED-01..03")
+_OFB_PA = ("OFB:PA-IF-01..04", "OFB:PA-SE-01/02", "OFB:PA-SY-01", "OFB:PA-CC-01", "OFB:PA-CK-01", "OFB:PA-RS-01..04",
+           "OFB:PA-ST-01..03")
+_OFB_TRAFFIC = _OFB_LN + _OFB_PA + (
+    "OFB:ML-IF", "OFB:ML-LM-08/11/14..17", "OFB:ML-DS-01..09/11", "OFB:ML-ENC-01..06", "OFB:ML-DEC-01..05",
+    "OFB:ML-AL-01..08/10", "OFB:ML-CO-01..06",
+    "OFB:DL-IF-01/03..05", "OFB:DL-VO-01/03..05", "OFB:DL-CR-01", "OFB:DL-MAC-01", "OFB:DL-TS-01..03/05",
+    "OFB:DL-FA-01/03/04", "OFB:DL-SQ-01/03", "OFB:DL-ER-01/02/05/08/09", "OFB:DL-WI-01/02/04", "OFB:DL-SR",
+    "OFB:DL-RE-01/02", "OFB:DL-VI-01/02/05/06", "OFB:DL-LR-01/02",
+    "OFB:NI-IF-01/03", "OFB:NI-TX-01/02", "OFB:NI-RX-01",
+    "OFB:CORE-IF-01", "OFB:CORE-CK-01/02", "OFB:CORE-RS-01", "OFB:CORE-CC-01", "OFB:CORE-ML-01",
+    "OFB:CORE-PL-02/04..08", "OFB:CORE-SY-01/04")
+_ORMAP_MG = ("ORMAP:MG-IF-01/02", "ORMAP:MG-RF-01/03..05/07")
+_ORMAP_TRAFFIC = ("ORMAP:TG-IF-01..03", "ORMAP:TG-RX-01", "ORMAP:TG-RX-05", "ORMAP:TG-TX-01..04", "ORMAP:TG-EX-01/04",
+                  "ORMAP:CO-IF-01", "ORMAP:CO-DM-01/05", "ORMAP:CO-MX-01", "ORMAP:CO-NO-01")
+_SPP_RE = ("SPP:RE-IF-01..03", "SPP:RE-RC-01", "SPP:RE-DM-01..03", "SPP:RE-EX-01")
+_SPP_MG = ("SPP:MG-TB-01/02", "SPP:MG-CN-01/02", "SPP:MG-CF-01..03", "SPP:MG-EV-01", "SPP:MG-FT-01/02")
+_SPP_TRAFFIC = _SPP_RE + ("SPP:EN-RX-01/02", "SPP:EN-TX-01/02", "SPP:EN-IF-02", "SPP:SE-IF-01/02/04", "SPP:SE-BF-01",
+                          "SPP:SE-AS-01/02/04")
+_OCP_IMAGES = ("OCP:PR-IF-01/03", "OCP:PR-FR-01", "OCP:PR-LS-02/04", "OCP:PR-PD-03", "OCP:PR-QU-01", "OCP:PR-MP-01",
+               "OCP:PR-TP-01/02", "OCP:PR-RC-01..03", "OCP:EC-SA-01..03", "OCP:EC-HY-01..04", "OCP:EC-BA-01..03",
+               "OCP:EC-IF-01", "OCP:EC-RC-01")
+_OCP_CORE = ("OCP:CO-IF-01/02", "OCP:CO-HD-01/02/04..08", "OCP:CO-PK-01..03", "OCP:CO-FR-02..05/08/09",
+             "OCP:CO-RC-01..03/05", "OCP:CO-RP-01/03")
+_OCP_IA = ("OCP:IA-IF", "OCP:IA-FN-01..05", "OCP:IA-ER-01..03")
+_OCP_MB = ("OCP:MB-IF-02", "OCP:MB-ID-01", "OCP:MB-GN-01", "OCP:MB-CN-01/02", "OCP:MB-RC-01..05", "OCP:MB-RP-01..04")
+REQUIREMENTS = {
+    "TC-RS-HW-01": _OFB_LN + _OFB_PA + _OFB_MG,
+    "TC-RS-HW-02": _OFB_MG + _ORMAP_MG + _OCP_MB,
+    "TC-RS-HW-03": _ORMAP_TRAFFIC + ("ORMAP:TG-AU-01..08",) + _ORMAP_MG,
+    "TC-RS-HW-04": _ORMAP_MG,
+    "TC-RS-HW-05": _SPP_MG,
+    "TC-RS-HW-06": _OFB_TRAFFIC + _SPP_TRAFFIC + _OCP_IMAGES + _OCP_CORE + _OCP_IA,
+    "TC-RS-HW-07": _OCP_IMAGES + _OCP_MB,
+    "TC-RS-HW-08": _SPP_RE + _OCP_IMAGES + _OCP_CORE + _OCP_IA,
+    "TC-RS-HW-09": ("OFB:CORE-PF-01",) + _OCP_IMAGES,
+    "TC-RS-HW-10": _OCP_IMAGES + ("OCP:PR-RP-01", "OCP:PR-RP-02", "OCP:EC-RP-01") + _OCP_CORE + (
+        "OCP:CH-IF-01..04", "OCP:CH-FN-01..03", "OCP:CH-RC-01", "OCP:CH-RP-01") + _OCP_MB,
+    "TC-RS-HW-11": _OFB_MG,
+    "TC-RS-HW-12": ("OFB:LN-INIT-03", "OFB:DL-LR-01..05", "OFB:DL-VO-02", "OFB:DL-VI-04", "OFB:DL-ER-06",
+                    "OFB:DL-FA-05", "OFB:PA-RS-04") + _OFB_MG,
+    "TC-RS-HW-13": ("OFB:LN-INIT-03", "OFB:ML-LM-11..14", "OFB:ML-AL-07..09", "OFB:PA-RS-04", "OFB:CORE-SY-02"),
+    "TC-RS-HW-14": ("OFB:DL-RE-03", "OFB:DL-ER-03", "OFB:DL-SQ-02", "OFB:CORE-ED-01/02", "ORMAP:TG-EX-06",
+                    "ORMAP:MG-ED-01/02", "SPP:RE-FT-01", "SPP:SE-AS-05") + _OFB_MG + _SPP_MG,
+    "TC-RS-HW-15": ("ORMAP:TG-RX-02/03/06", "ORMAP:TG-TX-02", "ORMAP:TG-AU-01..08", "ORMAP:TG-EX-02/03/05/07/08",
+                    "ORMAP:CO-DM-04") + _ORMAP_MG,
+    "TC-RS-HW-16": ("SPP:RE-RC-02", "SPP:RE-DM-01", "SPP:RE-DM-02", "SPP:EN-RX-03", "SPP:SE-MX-01",
+                    "SPP:CO-SY-01/02/04/08", "SPP:TB-FN-01") + _SPP_MG,
+    "TC-RS-HW-17": _OFB_MG,
+}
+
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
 REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
@@ -904,27 +996,13 @@ def main() -> int:
     args = parser.parse_args()
     if args.check_environment:
         return systest.check_environment()
-    started = time.strftime("%Y-%m-%d %H:%M:%S")
-    if args.model:
-        # the module as the system model imports it (this script runs as __main__), so that both share its classes
-        import hardware_test as ht
-        import system_model
+    return systest.pytest_main(SYSTEM_DIR, args)
 
-        ctx = ht.make_context(args.seed, ht.PROFILES[args.profile])
-        results = ht.run(system_model.SystemModel(ht.Setup(), system=ctx.system), ctx, ht.select_tests(args.test))
-        code = 0 if all(error is None for _, error in results) and len(results) == len(ht.select_tests(args.test)) \
-            else 1
-        target = "system model"
-    else:
-        ctx = make_context(args.seed, PROFILES[args.profile])
-        results = []
-        code = systest.run_on_device(args.device, ctx, select_tests(args.test), results_out=results)
-        target = "device"
-    if args.records:
-        systest.write_records(args.records, "spfi_compress", target, args.profile, ctx, results, started,
-                              {"images": ctx.image_records, "decoded": ctx.decoded, "undecoded": ctx.undecoded,
-                               "rate": ctx.rate})
-    return code
+
+def records_extra(ctx: Context) -> dict:
+    """What the records of a run hold besides the results and the recorded values: every compressed image, the
+    decoding counts and the rate of TC-RS-HW-09."""
+    return {"images": ctx.image_records, "decoded": ctx.decoded, "undecoded": ctx.undecoded, "rate": ctx.rate}
 
 
 if __name__ == "__main__":
