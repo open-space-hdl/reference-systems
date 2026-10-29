@@ -106,6 +106,19 @@ python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target device --de
 ```
 
 - `<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System, and `--results` a directory outside the repository.
+- `--check-environment` checks the test computer for a run against the board as for spfi_compress, and
+  `pycryptodome` in addition. With everything installed it prints:
+
+  ```text
+  OK   Python: <version>
+  OK   pytest: <version>
+  OK   reference model of OpenCompact: found, decoder included
+  OK   pycryptodome: <version>
+  OK   Python package of the far-end software: found
+  ```
+
+  `--check-environment --target model` checks what a run against the model needs: the same lines without the
+  last one, and `SKIP Python package of the far-end software: not needed for --target model`.
 - Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how
   many packets of an earlier run it discarded per channel.
 - The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not

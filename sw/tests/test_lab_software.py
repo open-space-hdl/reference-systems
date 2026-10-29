@@ -28,8 +28,14 @@ SOURCES = sorted(REFSYS.glob("*.py")) + sorted(ROOT.glob("systems/*/sw/*.py"))
 # modules that start other programs, and the functions of os that do
 PROGRAM_MODULES = {"subprocess", "multiprocessing", "pty", "asyncio"}
 OS_FUNCTIONS = ("system", "popen", "startfile", "exec", "spawn", "posix_spawn", "fork")
-# the far-end software, imported by sw/refsys/transport.py only
-FAR_END = "STAR_system"
+
+
+def far_end_package() -> str:
+    """The Python package of the far-end software: the package that far_end_software() of sw/refsys/transport.py
+    imports. Only the transport imports it."""
+    tree = ast.parse((REFSYS / "transport.py").read_text(encoding="utf-8"))
+    probe = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "far_end_software")
+    return next(a.name for n in ast.walk(probe) if isinstance(n, ast.Import) for a in n.names)
 
 
 def external_programs(source: str) -> list[str]:
@@ -157,7 +163,7 @@ def test_the_closure_check_finds_a_third_party_import(tmp_path):
 
 
 def test_the_far_end_software_is_imported_by_the_transport_only():
-    users = [p for p in SOURCES if FAR_END in {n.split(".")[0] for n, _ in all_imports(p)}]
+    users = [p for p in SOURCES if far_end_package() in {n.split(".")[0] for n, _ in all_imports(p)}]
     assert users == [REFSYS / "transport.py"]
 
 
@@ -229,11 +235,11 @@ def test_check_environment_reports_a_missing_far_end_package(monkeypatch, capsys
         raise ImportError("No module named 'far_end'")
 
     monkeypatch.setattr(transport, "far_end_software", missing)
-    assert systest.check_environment() == 1
+    assert systest.check_environment(compressor=True, cipher=False) == 1
     out = capsys.readouterr().out
     assert "FAIL Python package of the far-end software" in out and "OK   Python" in out
     monkeypatch.setattr(transport, "far_end_software", lambda: "found")
-    assert systest.check_environment() == 0
+    assert systest.check_environment(compressor=True, cipher=False) == 0
 
 
 def test_device_model_and_check_environment_exclude_each_other():

@@ -8,8 +8,6 @@ included, and returns received packets as they arrive, with the path addresses a
 switches removed.
 """
 
-from pathlib import Path
-
 
 class TransportError(Exception):
     """A transfer that did not complete."""
@@ -62,10 +60,14 @@ class Transport:
 
 def far_end_software() -> str:
     """Imports the Python package of the far-end software that StarSystemTransport uses (--check-environment);
-    raises ImportError when it is not installed."""
-    import STAR_system
-
-    return f"found ({Path(STAR_system.__file__).parent.name})"
+    raises ImportError when it is not installed or does not import. The messages do not name the package."""
+    try:
+        import STAR_system  # noqa: F401
+    except ImportError as err:
+        missing = isinstance(err, ModuleNotFoundError) and err.name == "STAR_system"
+        raise ImportError("not installed" if missing else
+                          f"installed, but its import fails ({type(err).__name__})") from None
+    return "found"
 
 
 class StarSystemTransport(Transport):

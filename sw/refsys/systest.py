@@ -821,6 +821,9 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
                             help="run against the software model of the system, without the test equipment")
         target.add_argument("--check-environment", action="store_true",
                             help="check the Python of the test computer and the packages that the test needs")
+        parser.add_argument("--target", choices=("device", "model"),
+                            help="with --check-environment: check for a run against the device (default) or against "
+                                 "the software model of the system, which needs no far-end software")
         parser.add_argument("--records", type=Path,
                             help="directory for the records of the run (a JSON file per run); nothing is written "
                                  "without it")
@@ -850,9 +853,12 @@ def pytest_main(system_dir: Path, args: argparse.Namespace) -> int:
     return int(pytest.main(argv))
 
 
-def check_environment() -> int:
-    """--check-environment: Python 3.10 or later, the reference model of OpenCompact and the Python package of the
-    far-end software that the transport uses. One line per item; exit code 0 when every item is there."""
+def check_environment(target: str = "device", *, compressor: bool, cipher: bool) -> int:
+    """--check-environment: what a run of the hardware test of a system needs on the test computer. Python 3.10 or
+    later and pytest; the reference model of OpenCompact for a system with a compressor, pycryptodome for a system
+    with OpenCrypto; the Python package of the far-end software for a run against the device (target "device"), which
+    a run against the software model (target "model") does not need. One line per item; exit code 0 when every item
+    is there."""
     from refsys import transport
 
     def python() -> str:
@@ -864,11 +870,21 @@ def check_environment() -> int:
         return importlib.import_module("pytest").__version__
 
     def model() -> str:
-        module = importlib.import_module("ocp_model")
+        # refsys.ocp puts the tools of cores/opencompact on the path of the modules
+        module = importlib.import_module("refsys.ocp").ocp_model
         return f"found, decoder {'included' if hasattr(module, 'decompress') else 'not included'}"
 
-    items = [("Python", python), ("pytest", pytest_version), ("reference model of OpenCompact", model),
-             ("Python package of the far-end software", transport.far_end_software)]
+    def aes_gcm() -> str:
+        if not hasattr(importlib.import_module("Crypto.Cipher.AES"), "MODE_GCM"):
+            raise RuntimeError("found, without AES-GCM")
+        return importlib.import_module("Crypto").__version__
+
+    items = [("Python", python), ("pytest", pytest_version)]
+    items += [("reference model of OpenCompact", model)] if compressor else []
+    items += [("pycryptodome", aes_gcm)] if cipher else []
+    far_end = "Python package of the far-end software"
+    if target == "device":
+        items.append((far_end, transport.far_end_software))
     ok = True
     for name, probe in items:
         try:
@@ -876,6 +892,8 @@ def check_environment() -> int:
         except Exception as err:  # noqa: BLE001 - every missing item is reported
             ok = False
             print(f"FAIL {name}: {err}")
+    if target != "device":
+        print(f"SKIP {far_end}: not needed for --target {target}")
     return 0 if ok else 1
 
 
