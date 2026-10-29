@@ -187,23 +187,39 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target model --results <dir
 python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STAR-Ultra> --results <directory>
 ```
 
-- The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with pytest
-and `pycryptodome` (installed with the Python package openspacehdl), Git, and STAR-System with its Python package.
-`--check-environment` prints one line for each and ends with exit code 1 when one is missing. - `--target model` runs
-the test cases against the software model of the system, `--target device` against the board through the STAR-Ultra
-(`<STAR-Ultra>`: its name in STAR-System). - `--results` names a directory outside the repository. Every run writes a
-new directory into it with its records (section 9). `-B` keeps Python from writing bytecode into the repository; the run
-records the state of the working tree at its start and at its end and warns without `-B`. - Before the first test case,
-the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how many packets of an earlier run it
-discarded per channel. A run that stopped early, for example in TC-RS-HW-06, leaves chunks and late replies on the
-channels, which the next run would otherwise take for its own. - The console shows every step, every checked value with
-its expected value and the Space Packets of every exchange as it happens, and one line per test case at the end. - The
-run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not run.
-`--keep-going` runs a later test case when the test cases it builds on passed (for diagnosis; the report says so). -
-`--profile` (default `lab`: 40 Space Packets in TC-RS-HW-06) sets the size of the run, `--seed` (default 1) the keys and
-the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on. - The [system
-testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`. - `hardware_test.py
---device` and `--model`, the commands of earlier releases, run the same pytest tests.
+- The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with
+  pytest and `pycryptodome` (installed with the Python package openspacehdl), Git, and STAR-System with its Python
+  package.
+- `--check-environment` checks the test computer for a run against the board: Python, pytest, `pycryptodome` and the
+  Python package of STAR-System, one line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
+  everything installed it prints:
+
+  ```text
+  OK   Python: <version>
+  OK   pytest: <version>
+  OK   pycryptodome: <version>
+  OK   Python package of the far-end software: found
+  ```
+
+  `--check-environment --target model` checks what a run against the model needs: the same lines without the
+  last one, and `SKIP Python package of the far-end software: not needed for --target model`.
+- `--target model` runs the test cases against the software model of the system, `--target device` against the
+  board through the STAR-Ultra (`<STAR-Ultra>`: its name in STAR-System).
+- `--results` names a directory outside the repository. Every run writes a new directory into it with its records
+  (section 9). `-B` keeps Python from writing bytecode into the repository; the run records the state of the working
+  tree at its start and at its end and warns without `-B`.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how many
+  packets of an earlier run it discarded per channel. A run that stopped early, for example in TC-RS-HW-06, leaves
+  chunks and late replies on the channels, which the next run would otherwise take for its own.
+- The console shows every step, every checked value with its expected value and the Space Packets of every exchange
+  as it happens, and one line per test case at the end.
+- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
+  run. `--keep-going` runs a later test case when the test cases it builds on passed (for diagnosis; the report says
+  so).
+- `--profile` (default `lab`: 40 Space Packets in TC-RS-HW-06) sets the size of the run, `--seed` (default 1) the keys
+  and the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on.
+- The [system testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`.
+- `hardware_test.py --device` and `--model`, the commands of earlier releases, run the same pytest tests.
 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.

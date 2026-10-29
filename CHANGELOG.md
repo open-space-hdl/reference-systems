@@ -208,6 +208,13 @@
 
 ### Fixed
 
+- Hardware tests: `--check-environment` of spfi_encrypt reported the reference model of OpenCompact as missing and
+  ended with exit code 1 on every test computer. The check took the model from the module path, which only the
+  systems with a compressor extend. It now checks the items that a run of the system needs: the reference model of
+  OpenCompact for the systems with a compressor, `pycryptodome` for the systems with OpenCrypto (new item) and the
+  Python package of the far-end software for a run against the device. `--check-environment --target model` checks
+  for a run against the system model, which needs no far-end software. Section 8 of every procedure shows the lines
+  of the check.
 - Hardware test of spfi_compress and spfi_compress_encrypt: a second run on the same device without a new device
   image failed. The Space Packet node continues the Packet Sequence Count of every output APID from run to run, and
   the script expected the Space Packets of every run to start at count 0 (TC-RS-HW-06); the compressors with the

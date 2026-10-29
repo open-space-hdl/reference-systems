@@ -219,7 +219,9 @@ def main() -> int:
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
     if args.check_environment:
-        return systest.check_environment()
+        return systest.check_environment(args.target or "device", compressor=False, cipher=True)
+    if args.target:
+        parser.error("--target goes with --check-environment")
     return systest.pytest_main(SYSTEM_DIR, args)
 
 

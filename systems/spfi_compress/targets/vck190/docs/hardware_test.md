@@ -116,8 +116,19 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target model --results <di
 python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <STAR-Ultra> --results <directory>
 ```
 
-- `--check-environment` prints one line each for Python, pytest, the reference model of OpenCompact (with or without
-  its decoder) and the Python package of STAR-System. It ends with exit code 1 when one is missing.
+- `--check-environment` checks the test computer for a run against the board: Python, pytest, the reference model
+  of OpenCompact (with or without its decoder) and the Python package of STAR-System, one line per item. It ends
+  with exit code 1 when an item is missing (`FAIL`). With everything installed it prints:
+
+  ```text
+  OK   Python: <version>
+  OK   pytest: <version>
+  OK   reference model of OpenCompact: found, decoder included
+  OK   Python package of the far-end software: found
+  ```
+
+  `--check-environment --target model` checks what a run against the model needs: the same lines without the
+  last one, and `SKIP Python package of the far-end software: not needed for --target model`.
 - `--target model` runs the test cases against the software model of the system (`sw/system_model.py`) instead of
   the board: a dry run of the test software and of the reference model on the test computer.
 - `--target device` runs them against the board through the STAR-Ultra. `<STAR-Ultra>` is its name in STAR-System.
