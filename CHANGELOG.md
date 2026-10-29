@@ -140,8 +140,9 @@
   failure and reports the later test cases as not run (`--keep-going` runs those whose dependencies passed, for
   diagnosis); `--tc` selects test cases with those they build on. Every run writes a new directory below
   `--results`, outside the repository:
-  - the step log (`steps.jsonl` and `run.log`, `sw/refsys/steplog.py`): every step, register access, checked value
-    with its expected value, configuration of a compressor, image (samples, SDUs, compressed size, bits per sample,
+  - the step log (`steps.jsonl` and `run.log`, `sw/refsys/steplog.py`): every step, register access (with the name
+    of the register, an element of a register array as `LANE_STATUS(3)`), checked value with its expected value,
+    configuration of a compressor, image (samples, SDUs, compressed size, bits per sample,
     ratio, chunks, decoding check with the largest error), exchange of Space Packets and recorded value;
   - the JUnit XML report of pytest with the requirements of every test case;
   - the records file and its report (`tools/render_records.py`), with the test cases not run and the requirements.

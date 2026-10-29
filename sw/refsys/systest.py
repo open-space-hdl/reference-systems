@@ -234,13 +234,19 @@ def check(condition: bool, text: str) -> None:
 
 
 def register_names(system: "System") -> dict[int, str]:
-    """The name of every register of the register windows of a system, by address: <instance>.<register>."""
+    """The name of every register of the register windows of a system, by address: <instance>.<register>, an
+    element of a register array <instance>.<register>(<index>) (RegisterMap.registers), the registers of the ECC
+    monitor with their channel counters CNT(<channel>)."""
     names = {}
     for instance, base in system.windows.items():
-        regs = WINDOW_MAPS.get(instance.rstrip("0123456789"))
-        for name, offset in (regs.constants().items() if regs else ()):
-            if regs.register_name(offset) == name:
-                names[base + offset] = f"{instance}.{name}"
+        if instance == system.ecc:
+            registers = {EDAC_INFO: "INFO", errorstate.EDAC_CTRL: "CTRL", errorstate.EDAC_IRQ_STATUS: "IRQ_STATUS",
+                         EDAC_IRQ_ENA: "IRQ_ENA"}
+            registers |= {EDAC_CNT + 4 * ch: f"CNT({ch})" for ch in range(system.ecc_channels)}
+        else:
+            regs = WINDOW_MAPS.get(instance.rstrip("0123456789"))
+            registers = regs.registers() if regs else {}
+        names.update({base + offset: f"{instance}.{name}" for offset, name in registers.items()})
     return names
 
 

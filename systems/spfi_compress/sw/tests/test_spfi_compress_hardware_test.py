@@ -177,6 +177,30 @@ def test_register_banks_of_the_exported_header_match_the_system():
     assert s.ecc_channels == f.generic(s.ecc, "Channels_g") == 8
 
 
+def test_the_step_log_names_every_register_that_the_procedure_accesses():
+    names = systest.register_names(LAB_SYSTEM)
+    ofb, ecc = LAB_SYSTEM.base(LAB_SYSTEM.port), LAB_SYSTEM.base(LAB_SYSTEM.ecc)
+    assert names[ofb + systest.OFB.LANE_CTRL(0)] == f"{LAB_SYSTEM.port}.LANE_CTRL(0)"
+    assert names[ofb + systest.OFB.LANE_STATUS(3)] == f"{LAB_SYSTEM.port}.LANE_STATUS(3)"
+    assert names[ecc + systest.EDAC_IRQ_ENA] == f"{LAB_SYSTEM.ecc}.IRQ_ENA"
+    assert names[ecc + systest.EDAC_CNT + 4 * 7] == f"{LAB_SYSTEM.ecc}.CNT(7)"
+    # every address that the procedure reads or writes against the model has a name
+    accesses = set()
+
+    class Recording(ht.Registers):
+        def read_block(self, address, words):
+            accesses.add(address)
+            return super().read_block(address, words)
+
+        def write_block(self, address, words):
+            accesses.add(address)
+            super().write_block(address, words)
+
+    results = dict(ht.run(model(), context(), registers=Recording))
+    assert all(error is None for error in results.values()), results
+    assert sorted(f"0x{a:08X}" for a in accesses if a not in names) == []
+
+
 def test_a_fifo_of_two_space_packets_feeds_every_compressor():
     # the receive buffer of spp0 is shared by all receive ports and delivers in order: without the FIFO, the next
     # Space Packet of any channel waits until the compressor of the previous one has taken it

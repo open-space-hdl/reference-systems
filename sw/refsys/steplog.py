@@ -14,6 +14,8 @@ Kinds:
 - step: a step of a test case, as the table of the procedure names it, with the requirements it confirms;
 - read, write, wait: a register access over RMAP, with the register name when the address map knows it;
 - expect: a value with the value expected (a register, a counter, a quantity), passed or failed;
+- check: a pass criterion of the procedure (systest.check) with the text it fails with; a passing check is shown as
+  "holds (on failure: <text>)";
 - record: a recorded value that is no pass criterion;
 - config: the configuration of a compressor (generics, runtime values, a COMMIT and its result);
 - image: one image through a channel (samples, SDUs, compressed size, ratio, chunks, model and decoder results);
@@ -43,26 +45,34 @@ def now() -> str:
 
 
 def text_of(event: dict) -> str:
-    """The event as one line of text: test case, number, kind, result and text."""
+    """The event as one line of text: test case, number, kind, result and text. The text of a check is the text it
+    fails with, so a passing check reads "holds (on failure: <text>)"."""
     result = f" {event['result'].upper()}" if event.get("result") else ""
-    return f"{event['test'] or '-'} #{event['n']} {event['kind']}{result}: {event['text']}"
+    text = event["text"]
+    if event["kind"] == "check" and event.get("result") == "pass":
+        text = f"holds (on failure: {text})"
+    return f"{event['test'] or '-'} #{event['n']} {event['kind']}{result}: {text}"
 
 
 class StepLog:
-    """The events of a run. begin() starts the numbering of a test case; every helper returns the event it made."""
+    """The events of a run. begin() sets the test case of the next events; the events of a test case (and those of
+    the run outside a test case) are numbered from 1, across every begin() of it. Every helper returns the event it
+    made."""
 
     def __init__(self) -> None:
         self.test = ""
         self.n = 0
+        self.counts: dict[str, int] = {}
         self.sinks: list[Callable[[dict], None]] = []
         self.failed = 0
 
     def begin(self, test: str) -> None:
         self.test = test
-        self.n = 0
+        self.n = self.counts.get(test, 0)
 
     def emit(self, kind: str, text: str, result: str | None = None, level: int | None = None, **data) -> dict:
         self.n += 1
+        self.counts[self.test] = self.n
         event = {"time": now(), "test": self.test, "n": self.n, "kind": kind, "text": text, "result": result,
                  "data": data}
         self.failed += result == "fail"
@@ -87,9 +97,9 @@ class StepLog:
                          **data)
 
     def check(self, ok: bool, message: str) -> dict:
-        """A check of the procedure (systest.check): its message describes the failure, so a passing check goes to the
-        console only at DEBUG."""
-        return self.emit("expect", message, "pass" if ok else "fail", logging.DEBUG if ok else None)
+        """A check of the procedure (systest.check): its message is the text it fails with, so a passing check goes to
+        the console only at DEBUG and reads "holds (on failure: <message>)" (text_of)."""
+        return self.emit("check", message, "pass" if ok else "fail", logging.DEBUG if ok else None)
 
     def access(self, kind: str, address: int, words: list[int] | None = None, name: str = "", **data) -> dict:
         where = name or f"0x{address:08X}"

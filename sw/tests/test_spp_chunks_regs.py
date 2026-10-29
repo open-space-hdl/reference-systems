@@ -101,6 +101,24 @@ def test_register_map_from_header():
     assert ofb.LANE_STATUS(2) == 0x144
 
 
+def test_register_names_of_a_window():
+    ofb = RegisterMap(CORES / "openfibre" / "sw" / "ofb_regs.h", "OFB")
+    names = ofb.registers()
+    assert names[ofb.DL_STATUS] == "DL_STATUS"
+    assert names[ofb.IRQ_MASK] == "IRQ_MASK"                # a register, not the mask of a field
+    assert ofb.DL_CTRL_RESET == ofb.LANE_CTRL(0)           # a reset value is no register
+    assert names[ofb.LANE_CTRL(0)] == "LANE_CTRL(0)"
+    assert names[ofb.LANE_STATUS(3)] == "LANE_STATUS(3)"
+    assert names[ofb.LANE_PRBS_WORDS(23)] == "LANE_PRBS_WORDS(23)"
+    assert names[ofb.VC_CFG(0)] == "VC_CFG(0)"             # the lane registers end at the next register
+    assert all(offset % 4 == 0 for offset in names)
+    assert [name for name in names.values() if name.endswith(("_MASK", "_SHIFT"))] == ["IRQ_MASK"]
+    ocr = RegisterMap(CORES / "opencrypto" / "sw" / "ocr_regs.h", "OCR")
+    names = ocr.registers()
+    assert [names[ocr.KEY(k)] for k in (0, 7)] == ["KEY(0)", "KEY(7)"]
+    assert names[ocr.KEY(7) + 4] == "IV_FIXED"
+
+
 def test_register_map_constants_of_a_system_header(tmp_path):
     header = tmp_path / "sys_regs.h"
     header.write_text('#include "ocr_regs.h"\n'
