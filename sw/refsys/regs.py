@@ -42,16 +42,31 @@ class RegisterMap:
         """All constants of the header, by their names without the prefix."""
         return dict(self._const)
 
-    def register_name(self, offset: int, window: int = 0x10000) -> str | None:
-        """The name of the register at an offset of its window: a constant that is no field mask or shift and lies
-        in the window, else an element of a register array, NAME(index); None for an address without a name."""
+    def registers(self, window: int = 0x10000) -> dict[int, str]:
+        """The name of every register of a window by its offset. A register is a word-aligned constant in the window
+        that is no field (<FIELD>_MASK with <FIELD>_SHIFT) and no reset value (<REG>_RESET), the first of the header
+        where two have the same value, or an element NAME(index) of a register array. Register arrays of the same
+        stride whose first elements lie within one stride of each other interleave (the registers of one lane); their
+        elements end at the next other register of the header, after at most 64 elements."""
+        names: dict[int, str] = {}
+        fields = {f"{n.removesuffix('_MASK')}{s}" for n in self._const if n.endswith("_MASK")
+                  and f"{n.removesuffix('_MASK')}_SHIFT" in self._const for s in ("_MASK", "_SHIFT")}
+        reset_values = {f"{name}_RESET" for name in [*self._const, *self._array]}
         for name, value in self._const.items():
-            if value == offset and value < window and not name.endswith(("_MASK", "_SHIFT", "REGMAP_ID")):
-                return name
+            if (value < window and value % 4 == 0 and name not in fields | reset_values
+                    and not name.endswith("REGMAP_ID")):
+                names.setdefault(value, name)
+        starts = set(names) | {base for base, _ in self._array.values()}
         for name, (base, stride) in self._array.items():
-            if stride and offset >= base and (offset - base) % stride == 0 and (offset - base) // stride < 64:
-                return f"{name}({(offset - base) // stride})"
-        return None
+            if not stride:
+                continue
+            group = {b for b, s in self._array.values() if s == stride and abs(b - base) < stride}
+            end = min([o for o in starts - group if o >= min(group) + stride] + [window])
+            for index in range(64):
+                if base + index * stride >= end:
+                    break
+                names.setdefault(base + index * stride, f"{name}({index})")
+        return names
 
     def field(self, register: str, field: str, value: int) -> int:
         """A field value at its position in the register."""

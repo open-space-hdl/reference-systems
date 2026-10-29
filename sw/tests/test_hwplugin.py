@@ -158,13 +158,24 @@ def test_the_step_log_writes_json_lines_and_text(tmp_path):
     log.step("a step", ("OFB:LN-IF-01",))
     log.expect("a register", 5, 5)
     log.expect("another", 4, 5)
+    log.check(True, "window 3 is not restored")
+    log.check(False, "lane 3 is still Active")
+    log.begin("")
+    log.begin("TC-RS-HW-99")
+    log.emit("result", "TC-RS-HW-99 FAIL")
     for sink in sinks:
         sink.close()
     lines = [json.loads(t) for t in (tmp_path / "s.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [(e["n"], e["kind"], e["result"]) for e in lines] == [(1, "step", None), (2, "expect", "pass"),
-                                                                  (3, "expect", "fail")]
-    assert lines[0]["data"]["requirements"] == ["OFB:LN-IF-01"] and log.failed == 1
-    assert "TC-RS-HW-99 #3 expect FAIL: another: 4, expected 5" in (tmp_path / "s.log").read_text(encoding="utf-8")
+                                                                  (3, "expect", "fail"), (4, "check", "pass"),
+                                                                  (5, "check", "fail"), (6, "result", None)]
+    assert lines[0]["data"]["requirements"] == ["OFB:LN-IF-01"] and log.failed == 2
+    assert lines[3]["text"] == "window 3 is not restored"
+    text = (tmp_path / "s.log").read_text(encoding="utf-8")
+    assert "TC-RS-HW-99 #3 expect FAIL: another: 4, expected 5" in text
+    # the text of a check is the text it fails with
+    assert "TC-RS-HW-99 #4 check PASS: holds (on failure: window 3 is not restored)" in text
+    assert "TC-RS-HW-99 #5 check FAIL: lane 3 is still Active" in text
 
 
 @pytest.mark.parametrize("how", ["git missing", "no git checkout"])
