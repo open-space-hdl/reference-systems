@@ -3,7 +3,9 @@
 # Authors: Julian Schneider
 # ---------------------------------------------------------------------------------------------------
 """Writes the stimuli of one system simulation (profile sim, seed 1) as the bench runner does and prints the SHA-256
-of stimulus.txt and vectors.json, one per line (for sw/tests/test_stimulus_guard.py).
+of stimulus.txt and vectors.json, one per line (for sw/tests/test_stimulus_guard.py). Python writes the two text files
+with the line ends of the platform (CRLF on Windows, LF on Linux), so the digest is taken over the content with LF line
+ends: it is the same on every platform.
 
 Usage: python -B sw/tests/stimulus_digest.py <system> <directory> [TC-RS-HW-nn ...]
 """
@@ -21,7 +23,8 @@ def main() -> int:
     sys.path.insert(0, str(ROOT / "systems" / system / "sim"))
     importlib.import_module("vectors").write(directory, "sim", 1, tests)
     for name in ("stimulus.txt", "vectors.json"):
-        print(f"{name} {hashlib.sha256((directory / name).read_bytes()).hexdigest()}")
+        content = (directory / name).read_bytes().replace(b"\r\n", b"\n")
+        print(f"{name} {hashlib.sha256(content).hexdigest()}")
     return 0
 
 

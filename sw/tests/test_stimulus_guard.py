@@ -5,8 +5,9 @@
 """Guard of the simulation evidence: the hardware tests make exactly the RMAP requests and exchanges of the code on
 which the system simulations of the evidence ran. For every simulation of the evidence, the stimuli that the bench
 runner writes now (stimulus.txt and vectors.json, profile sim, seed 1) have the SHA-256 that data/stimulus_sha256.json
-records for that code. A change of a request changes a digest: the simulation of that group then runs again and the
-file gets its new digests with the code of the new run.
+records for that code, taken over the content with LF line ends (stimulus_digest.py), so that the guard gives the same
+result on Windows and on Linux. A change of a request changes a digest: the simulation of that group then runs again
+and the file gets its new digests with the code of the new run.
 
 The stimuli of the test cases with the images of the lab take minutes; the guard runs with RS_STIMULUS_GUARD=1."""
 
