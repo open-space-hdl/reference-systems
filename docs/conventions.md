@@ -59,11 +59,13 @@ Hand-written VHDL exists only in the board top levels (`targets/`) and in the te
   design script, the constraints, the build script and `docs/hardware_test.md`.
 - The build script creates the project from the sources of the repository; a build needs no file outside the
   repository except the vendor tools. Build outputs (`vivado_out/`, `.Xil/`, logs) are not tracked.
-- A build computer without network access gets the repository as Git bundles: `python tools/make_offline_bundle.py
-  <directory>` checks the pins against the published repositories and writes the repository, the submodules in
-  `cores/` at their pins and the submodule `en_cl_fix` of Open Logic FT, with a `README.txt` of the commits and the
-  commands. It checks them by a clone without network access, with `tools/check_pins.py --offline`.
-  The bundles are written outside the repository and never committed.
+- A release reaches the build and the test computer through the Python package openspacehdl, which carries the
+  repository and its submodules as Git bundles and exports them without network access (section 3 of every hardware
+  test procedure). For another commit, `python tools/make_offline_bundle.py <directory>` checks the pins against the
+  published repositories and writes the repository, the submodules in `cores/` at their pins and the submodule
+  `en_cl_fix` of Open Logic FT, with a `README.txt` of the commits and the commands. It checks them by a clone
+  without network access, with `tools/check_pins.py --offline`. The bundles are written outside the repository and
+  never committed.
 - The build script writes its results (device image, reports, the commits it was built from) to `results/` in the
   project directory; they are what a review of a build and of a hardware test needs.
 - The constraints of a system come from its Composer file (`resolved.constraints`) and from the user guides of the

@@ -14,8 +14,8 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 | --- | --- |
 | Composer file | present, core versions checked by `tools/check_pins.py`; the checks of the Composer report no warning |
 | Generated top level (`hdl/`) | generated with the command line tool of the Composer (`tools/composer_ref.txt`); the CI checks that it is the export of the Composer file |
-| [System testbench](sim/README.md) (`sim/`) | all test cases of the hardware test pass against a far-end SpaceFibre node (profile `sim`), in xsim with the transceiver model and in GHDL with the behavioural model of the adapter |
-| [AMD VCK190 target](targets/vck190/README.md) | board top, constraints and build script; not built yet |
+| [System testbench](sim/README.md) (`sim/`) | all test cases of the hardware test pass against a far-end SpaceFibre node (profile `sim`) in GHDL with the behavioural model of the adapter, TC-RS-HW-01 to 05 also in xsim with the transceiver model at the clocks of the default device image |
+| [AMD VCK190 target](targets/vck190/README.md) | board top, constraints and build script. Not yet built from this release; synthesis, timing and the hardware test follow, with results in a later release |
 | Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 
 ## Blocks

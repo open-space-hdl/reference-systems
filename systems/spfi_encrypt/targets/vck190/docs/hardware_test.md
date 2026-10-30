@@ -15,40 +15,83 @@ checks the encrypted chunks that come back with AES-GCM. The script
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
 | STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
-| Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902) and Git | Build and programming |
-| The repository with its submodules: a clone from GitHub, or the offline package (Git bundles and `README.txt`) for a computer without network access | Sources of the build and of the test script |
-| Python 3.10 or later on the test computer with pytest and `pycryptodome`, installed with the Python package openspacehdl | Test script |
+| Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
+| The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
+| Python 3.10 or later with pytest and `pycryptodome` (installed with openspacehdl), and Git, on the test computer | Export (section 3) and test script |
 
-## 3. Repository as Git bundles
+## 3. Installation from the openspacehdl package
 
-Where the build computer or the test computer has no network access, the repository and the submodules it needs
-travel as Git bundles: `reference-systems.bundle`, one bundle per core in `cores/` (`open-logic-ft`, `openrmap`,
-`openspp`, `openfibre`, `opencrypto`) and `en_cl_fix.bundle`, the submodule of Open Logic FT whose files the compile
-order lists. `python tools/make_offline_bundle.py <directory>` writes them with a `README.txt` that names every commit,
-and checks them by a clone without network access before it reports success. On Windows, `build.bat` of the
-package runs the clone, the checks and the build of one system in one step (`build.bat <system> [<words>]`, see
-`README.txt`). Clone with the commands of
-`README.txt` (`<path>` is the directory of the bundles):
+The release 0.1.0 of the Python package openspacehdl carries this repository at v0.2.0, with every core it pins, as
+Git bundles with their history. On the build computer and on the test computer (Python 3.10 or later, Git on the
+`PATH`), in PowerShell or cmd:
 
 ```shell
-git clone -b main <path>/reference-systems.bundle reference-systems
-cd reference-systems
-git config submodule.cores/open-logic-ft.url <path>/open-logic-ft.bundle
-git config submodule.cores/opencrypto.url <path>/opencrypto.bundle
-git config submodule.cores/openfibre.url <path>/openfibre.bundle
-git config submodule.cores/openrmap.url <path>/openrmap.bundle
-git config submodule.cores/openspp.url <path>/openspp.bundle
-git -c protocol.file.allow=always submodule update --init
-git -C cores/open-logic-ft config submodule.3rdParty/en_cl_fix.url <path>/en_cl_fix.bundle
-git -C cores/open-logic-ft -c protocol.file.allow=always submodule update --init 3rdParty/en_cl_fix
+python -m venv --system-site-packages C:\osh\venv
+C:\osh\venv\Scripts\python -m pip install openspacehdl==0.1.0
+C:\osh\venv\Scripts\openspacehdl export --git C:\osh\src
 ```
 
-`git submodule status` must show the commits of `README.txt` without a leading `-` or `+`, and
-`python tools/check_pins.py --offline` must pass: it checks the pins against the tags that the bundles carry, without
-network access, after the same check against the published repositories passed when the bundles were written. In a
-clone from GitHub, `python tools/check_pins.py` reads the tags from the published repository of Open Logic FT. The
-submodules of the cores themselves (their own `open-logic` and `uvvm`) serve the tests of the cores and are not
-needed.
+pip installs the package with pytest and `pycryptodome`, which the test script needs, and their dependencies. In the
+virtual environment it keeps a version that the Python of the computer already has within the range of the package,
+and installs only what is missing or out of range; a message that it does not uninstall a package of the Python of
+the computer is expected. `C:\osh\venv\Scripts\python -m pip check` then reports no broken requirements.
+
+The export directory must not exist or must be empty. The export itself needs no network: it clones this repository,
+Open Logic FT and every core from the bundles into directories of `C:\osh\src` next to `reference-systems`, fills the
+submodules in `cores/` of `C:\osh\src\reference-systems` from them at the recorded commits and writes
+`C:\osh\src\openspacehdl-lock.json`. The origin of every clone is its published repository, so that `git fetch` works
+later on a computer with network access. Every command of sections 4 and 8 runs from
+`C:\osh\src\reference-systems`, where `git submodule status` shows the commits of the release without a leading `-`
+or `+` and `python tools/check_pins.py --offline` passes against the tags that the bundles carry. Keep the output of
+`openspacehdl --version` and of `openspacehdl lock` (the pins) and the file `openspacehdl-lock.json` with the
+records, outside the exported tree.
+
+A computer without network access takes the package and its dependencies from a computer with network access, the
+same version of Windows and the same version of Python: the set of files depends on the version of Python, and
+`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.1.0 -d <dir>` (with
+the version of Python of the offline computer) writes the wheels to `<dir>`. Compare the SHA-256 of
+`openspacehdl-0.1.0-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
+with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.1.0`. The export is
+the same. The SHA-256 of the file:
+
+```shell
+# PowerShell
+Get-FileHash <dir>\openspacehdl-0.1.0-py3-none-any.whl -Algorithm SHA256
+# cmd
+certutil -hashfile <dir>\openspacehdl-0.1.0-py3-none-any.whl SHA256
+```
+
+With network access, a clone of the release from GitHub serves as well, with pytest and `pycryptodome` installed in
+the Python of the test computer (`python -m pip install "pytest>=9.0,<10" "pycryptodome>=3.23,<5"`):
+
+```shell
+git clone -b v0.2.0 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
+cd C:\osh\src\reference-systems
+git submodule update --init
+git -C cores/open-logic-ft submodule update --init 3rdParty/en_cl_fix
+python tools/check_pins.py
+```
+
+`git submodule status` must then show the commits of the release without a leading `-` or `+`, and
+`tools/check_pins.py` checks the pins against the tags of the published repositories.
+
+In both trees the submodules of the cores themselves (`open-logic` and `uvvm` in `cores/<core>`) stay empty (`git
+submodule status --recursive` shows them with a leading `-`): they serve the tests of the cores, and the system uses
+`cores/open-logic-ft` with its submodule `en_cl_fix`. Do not run `git submodule update --init --recursive`, which
+needs network access for them. The longest path below the export directory has 117 characters in the working tree
+and 141 with the Git metadata: keep the export directory short, as `C:\osh\src`, and set `RS_VIVADO_OUT` for the
+build as in section 4.
+
+The test (section 8) runs from the exported tree with a Python that has pytest, `pycryptodome` and the Python package of
+the far-end software: the virtual environment of the package, created with `--system-site-packages` so that it also
+finds the packages of the Python of the test computer, with every command of section 8 run by
+`C:\osh\venv\Scripts\python`. With openspacehdl installed into the Python of the test computer itself, that Python has
+pytest and `pycryptodome` as dependencies of the package: pip replaces a version of either outside the ranges of the
+package in that Python, which other programs of the computer may notice. With a clone, the Python into which they were
+installed runs the test. `--check-environment` (section 8) shows in every case whether the Python has every item.
+
+`C:\osh\venv\Scripts\openspacehdl serve` serves the website, the Composer and the documentation of every core at the
+pinned versions on `http://127.0.0.1:8765/`, without network access; the test does not need it.
 
 ## 4. Build
 
@@ -67,9 +110,9 @@ vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl -tc
 
 The elaboration alone takes about 6 GB of memory.
 
-The script sets `XILINX_LOCAL_USER_DATA=no` for the runs that `launch_runs` starts at the same time, and `build.bat` of
-the offline package also for Vivado itself (AMD AR 63253): on a fresh installation of Vivado, one of the runs can
-otherwise fail at start-up with Common 17-1257 ("Failed to create directory") and "tclapp::load_apps failed".
+The script sets `XILINX_LOCAL_USER_DATA=no` for the runs that `launch_runs` starts at the same time (AMD AR 63253): on a
+fresh installation of Vivado, one of the runs can otherwise fail at start-up with Common 17-1257 ("Failed to create
+directory") and "tclapp::load_apps failed".
 
 The script creates the project with the sources of the compile order that the Composer exported
 (`systems/spfi_encrypt/hdl/`), the transceiver wizard instance of OpenFibre (`ofb_gtw`), the CIPS block design, the
@@ -102,7 +145,7 @@ The script writes the results to `results/` in the project directory:
 | `utilization.rpt`, `utilization_hierarchical.rpt` | Resources of the device and per block | LUT, register, block RAM and URAM count of the system and of its blocks |
 | `methodology.rpt`, `drc.rpt` | Methodology and design rule checks | No critical item about clock domain crossings or the transceivers, apart from the two TIMING-54 below |
 | `invalid_constraints.xdc` | The constraints that do not apply to the implemented design (`write_xdc -constraints invalid`) | Empty apart from the header |
-| `build_info.txt` | Step, Vivado version, part, the reference clock with its frequency, the period of `gt_refclk` and the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The option confirmed in section 5 (`si570`: AB11, AB10; `8a34001`: AD11, AD10; period 10.000 ns at 100 MHz, 6.400 ns at 156.25 MHz); the commits of the offline package or of the clone |
+| `build_info.txt` | Step, Vivado version, part, the reference clock with its frequency, the period of `gt_refclk` and the pins of `GtRefClk_P` and `GtRefClk_N` in the design, commits of the repository and of its submodules | The option confirmed in section 5 (`si570`: AB11, AB10; `8a34001`: AD11, AD10; period 10.000 ns at 100 MHz, 6.400 ns at 156.25 MHz); the commits of the release, as `git submodule status` shows them in the exported or cloned tree |
 
 The implementation run stops before `opt_design` when a constraint did not apply (`tools/vivado/check_constraints.tcl`):
 an object query of a constraint that matched nothing (Vivado 12-180, 12-507, 12-508, 12-584, 12-1008, 12-4739) or the
@@ -179,7 +222,8 @@ file of the system, and the register maps from the headers of the cores:
 ## 8. Tests
 
 The test cases run as pytest tests (`sw/hwtest/test_spfi_encrypt.py`, plugin `sw/refsys/hwplugin.py`). Run them on the
-test computer from the root of the repository (the register maps come from the headers of the cores in `cores/`):
+test computer from the root of the repository (the register maps come from the headers of the cores in `cores/`),
+with the Python of section 3 (`C:\osh\venv\Scripts\python` in place of `python` for the virtual environment):
 
 ```shell
 python systems/spfi_encrypt/sw/hardware_test.py --check-environment
@@ -277,6 +321,13 @@ initialisation). The registers that show and set the receiver reset (LANE_STATUS
 LANE_TIMEOUT_COUNT, PA_CTRL of `ofb0`) are reachable only over the link: TC-RS-HW-01 records them once the link is
 up. Another receiver reset setting, such as one of the PA_CTRL values in the hardware test of the OpenFibre
 reference design for the VCK190, needs a device image with that setting as its reset value.
+
+These records count from the start of the device image. Until the far end answers, every lane restarts its
+initialisation every 3 ms and resets its receiver: a far end that starts a few seconds after the system leaves
+hundreds of receiver resets and more than a thousand initialisation timeouts per lane, with a link that then carries
+every packet correctly. The counts are records, not pass criteria. The CDR lock bit (LANE_STATUS bit 26) is not a
+usable indication with the transceiver configuration of this design: it can read 0 on every lane while the link is
+up and every packet arrives correctly, so it is recorded without an expected value.
 
 Then correct what the records show (clock, image, cable) and run the script again. After the QSFP cable was unplugged
 or moved, reset the link of port 1 in STAR-System before the next run; if the link still does not come up, program

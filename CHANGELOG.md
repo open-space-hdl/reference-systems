@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 (2026-10-31)
+
+The third system, spfi_compress; OpenCompact v0.3.0 with runtime configuration and parameters on two channels;
+OpenFibre v0.1.4, OpenRMAP v0.1.1 and Open Logic FT 4.7.0-ft.11; the system clock of 150 MHz; the hardware tests as
+pytest tests with a step log, and repeated runs on the same device.
 
 ### Systems
 
@@ -10,11 +14,11 @@
   image starts in a new Space Packet, and the Space Packets carry no mark of the end of an image.
   - Composer file and generated top level, the register windows without gaps.
   - Target: AMD VCK190 at the system clock of 150 MHz, as spfi_compress_encrypt.
-  - Hardware test TC-RS-HW-01 to 09, with the Space Packets of every channel compared one by one with the chunks of
+  - Hardware test TC-RS-HW-01 to 18, with the Space Packets of every channel compared one by one with the chunks of
     the compressed images of the reference model of OpenCompact, the aborted images included.
   - System testbench in GHDL and xsim, with its stimuli and checks verified against the software model of the system:
-    TC-RS-HW-05, 06 and 08 pass in GHDL at the lab image size, TC-RS-HW-01 to 05 in xsim with the AMD transceiver
-    model.
+    TC-RS-HW-01 to 18 pass in GHDL at the system clock of 150 MHz (TC-RS-HW-06, 08 and 09 with images of the size of
+    the lab), TC-RS-HW-01 to 05 in xsim with the AMD transceiver model at the clocks of the default device image.
 
 ### Versions
 
@@ -200,11 +204,24 @@
 
 ### Known issues
 
+- The hardware test of the systems is open; the systems are verified by simulation (TRL 3).
+- No implemented build of spfi_compress or spfi_compress_encrypt at the system clock of 150 MHz with OpenFibre v0.1.4
+  is part of this release; the build of the hardware test shows its timing.
+- spfi_compress_encrypt: the system simulation of TC-RS-HW-08 (lost data) at the image size of the lab is the run of
+  2026-10-18, at the bench clock of 200 MHz with the cores of v0.1.0. spfi_compress, which shares the channel path,
+  ran TC-RS-HW-08 again with the cores of this release at 150 MHz.
+- The systems have no reset of their data path that the hardware test could command. Consecutive complete runs need
+  no new device image; after a run that stopped early, the device is programmed again (section "Repeated runs" of
+  the procedures).
+- The AMD transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`); the xsim runner
+  elaborates and simulates such a run again, at most three times in total, and reports every repetition.
 - OpenFibre v0.1.4 in simulation: `VC_BW_OVER` and `VC_BW_UNDER` of the SpaceFibre port hold 'U' until the status of
   the core has crossed into the management clock domain, after the lane clock of the simulated transceiver starts. A
   read puts 'U' into the RMAP reply, whose frame is then sent again without end. The `sim` profile of the hardware test
   of spfi_compress clears both flags in TC-RS-HW-01 before their first read; the `lab` profile reads them as they are.
   The hardware is not affected: the flags start at 0. Details in the README of the system testbench of spfi_compress.
+- OpenFibre v0.1.4: the CDR lock bit of LANE_STATUS is no usable indication with the GTY configuration of the VCK190
+  designs; the hardware test records it without an expected value.
 
 ### Fixed
 

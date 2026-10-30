@@ -15,8 +15,8 @@ RMAP node, Space Packet node, framers and AES-GCM cores are those of spfi_encryp
 | --- | --- |
 | Composer file ([spfi_compress_encrypt.composer.json](spfi_compress_encrypt.composer.json)) | complete; the Composer reports one warning per channel, see [Aborted images](#aborted-images) |
 | Generated top level (`hdl/`) | exported from the Composer file |
-| System testbench ([sim/](sim/README.md)) | TC-RS-HW-05, 06 and 08 pass in GHDL at the image size of the lab, TC-RS-HW-01 to 06 and 10 at the system clock of 150 MHz; TC-RS-HW-01 to 05 pass in xsim with the AMD transceiver model |
-| AMD VCK190 target ([targets/vck190](targets/vck190/README.md)) | board top level, constraints and build script as in spfi_encrypt; not built yet |
+| System testbench ([sim/](sim/README.md)) | TC-RS-HW-01 to 06, 10 and 18 pass in GHDL at the system clock of 150 MHz, TC-RS-HW-06 with images of the size of the lab; TC-RS-HW-08 at the image size of the lab passed with the cores of v0.1.0; TC-RS-HW-01 to 05 pass in xsim with the AMD transceiver model at the clocks of the default device image |
+| AMD VCK190 target ([targets/vck190](targets/vck190/README.md)) | board top level, constraints and build script as in spfi_encrypt. Not yet built from this release; synthesis, timing and the hardware test follow, with results in a later release |
 | Hardware test ([procedure](targets/vck190/docs/hardware_test.md), [sw/hardware_test.py](sw/hardware_test.py)) | test cases against a STAR-Ultra PCIe as the far end, checked against a software model of the system; not run on hardware yet |
 
 ## Blocks
