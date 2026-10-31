@@ -15,7 +15,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 import hardware_test as ht  # noqa: E402
-from refsys import transport  # noqa: E402
+from refsys import systest, transport  # noqa: E402
 from refsys.transport import Transport, TransportError  # noqa: E402
 from system_model import SPECIFIED, SYSTEM, SYSTEM_FILE, SystemModel  # noqa: E402
 
@@ -39,10 +39,26 @@ DEFECT_PINNED = (ft_version(OLO_TAG) <= ft_version(OLO_FIRST_WORD_DEFECT_UNTIL)
 PINNED = (True, True) if DEFECT_PINNED else SPECIFIED
 
 
+def test_the_script_runs_the_pytest_tests_with_its_options(monkeypatch, tmp_path):
+    """hardware_test.py --device/--model hands its options to pytest (systest.pytest_main)."""
+    seen = []
+    monkeypatch.setattr(pytest, "main", lambda argv: seen.append(argv) or 0)
+    monkeypatch.setattr(sys, "argv", ["hardware_test.py", "--device", "STAR-Ultra", "--seed", "3", "--profile", "sim",
+                                      "--test", "TC-RS-HW-06", "--records", str(tmp_path)])
+    assert ht.main() == 0
+    suite = str(Path(ht.__file__).resolve().parent / "hwtest")
+    assert seen == [[suite, "--target", "device", "--profile", "sim", "--seed", "3", "--results", str(tmp_path),
+                     "--device", "STAR-Ultra", "--tc", "TC-RS-HW-06"]]
+    monkeypatch.setattr(sys, "argv", ["hardware_test.py", "--model", "--records", str(tmp_path)])
+    assert ht.main() == 0 and seen[-1][:3] == [suite, "--target", "model"] and "--device" not in seen[-1]
+
+
 def run_all(model, packets=24):
     ctx = ht.make_context(seed=3, packets=packets)
     regs = ht.Registers(model, ctx.setup)
+    ctx.selected = list(ht.TESTS)
     for test in ht.TESTS:
+        ctx.current = systest.test_name(test)
         test(regs, ctx)
     return ctx
 
@@ -86,7 +102,8 @@ def test_procedure_detects_a_corrupted_chunk():
 def test_procedure_detects_a_target_without_key_check():
     class AnyKey(SystemModel):
         def _rmap(self, packet):
-            self.key = packet[len(self.setup.rmap_path) + 3]
+            # TGT_KEY.KEY_EN 0: the target accepts every key
+            self.regs[self.system.base(self.system.rmap) + systest.OMAP.TGT_KEY] = 0
             return super()._rmap(packet)
     with pytest.raises(ht.TestFailed, match="wrong key"):
         run_all(AnyKey(ht.Setup()))
@@ -219,11 +236,12 @@ def test_the_script_drains_the_channels_before_the_first_test_case(fault, monkey
     left = {channel: len(queue) for channel, queue in channels.waiting.items()}
     capsys.readouterr()
     monkeypatch.setattr(transport, "StarSystemTransport", lambda name: channels)
-    monkeypatch.setattr(sys, "argv", ["hardware_test.py", "--device", "STAR-Ultra", "--seed", "1"])
-    assert ht.main() == 0
+    ctx = ht.make_context(seed=1, packets=ht.PROFILES["lab"].packets)
+    device = systest.open_device("STAR-Ultra", ctx)
+    results = ht.run(device, ctx)
     out = capsys.readouterr().out.splitlines()
     assert out[:2] == [f"channel {channel}: {count} packets of an earlier run discarded"
                        for channel, count in left.items()]
-    assert out[-1] == f"{len(ht.TESTS)} of {len(ht.TESTS)} test cases passed"
+    assert results == [(ht.test_name(t), None) for t in ht.TESTS]
     # every request of the run got its own reply: nothing is left on the channels
     assert not any(channels.waiting.values())

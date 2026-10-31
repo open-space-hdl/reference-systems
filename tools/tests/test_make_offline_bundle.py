@@ -33,14 +33,15 @@ def section_4_commands(text: str) -> list[str]:
     return lines[start + 1:lines.index("```", start + 1)]
 
 
-def test_readme_shows_both_build_commands_after_the_clock_check():
+def test_readme_shows_the_build_commands_of_every_clock_option_after_the_clock_check():
     text = readme()
     lines = text.splitlines()
     assert "    " + BUILD in lines
-    assert "    " + BUILD + " -tclargs all si570" in lines
+    assert "    " + BUILD + " -tclargs all si570 156.25" in lines
+    assert "    " + BUILD + " -tclargs all 8a34001" in lines
     flat = " ".join(text.split())
     assert "Confirm the reference clock on the board first (section 5, step 2)" in flat
-    assert "build the image of that source only" in flat
+    assert "build the image of that option only" in flat
     assert flat.index("Confirm the reference clock") < flat.index(BUILD)
 
 
@@ -68,3 +69,82 @@ def test_the_bundle_of_open_logic_carries_every_tag_that_the_system_files_name()
             for tag in (source.get("tag"), source.get("verifiedWith")):
                 assert tag is None or tag in tags
     assert all(tag.startswith("4.") and "-ft." in tag for tag in tags)
+
+
+def bat(ref: str = "HEAD") -> str:
+    """build.bat of a package of ref."""
+    links = {p: sha for p, sha in mob.gitlinks(ref).items() if p.startswith("cores/")}
+    return mob.build_bat("develop", mob.git("rev-parse", ref), links)
+
+
+def test_build_bat_has_windows_line_ends_and_the_commit_of_the_package():
+    text = bat()
+    assert "\n" not in text.replace("\r\n", "")
+    assert f'set "REF_SHA={mob.git("rev-parse", "HEAD")}"' in text.splitlines()
+
+
+def test_build_bat_clones_every_bundle_as_readme_does():
+    lines = bat().splitlines()
+    assert 'git clone -b %REF% "%PKG%/reference-systems.bundle" "%RS_DIR%" || exit /b 1' in lines
+    for p in (p for p in mob.gitlinks("HEAD") if p.startswith("cores/")):
+        assert f'git config submodule.{p}.url "%PKG%/{Path(p).name}.bundle" || exit /b 1' in lines
+    assert 'git -C cores/open-logic-ft config submodule.3rdParty/en_cl_fix.url "%PKG%/en_cl_fix.bundle" || exit /b 1' \
+        in lines
+
+
+def test_build_bat_knows_every_target_and_shows_the_options_of_section_4():
+    lines = bat().splitlines()
+    targets = mob.build_options("HEAD")
+    for system, board, _ in targets:
+        assert f'if /i "%SYSTEM%"=="{system}" set "BOARD={board}"' in lines
+    first, _, options = targets[0]
+    assert options[0][1] == ""   # the default image comes first, without words
+    for comment, words in options:
+        assert any(line.startswith(f"rem   build.bat {first} {words}".rstrip()) and line.endswith(comment)
+                   for line in lines)
+    assert any("systems/%SYSTEM%/targets/%BOARD%/tcl/build.tcl -tclargs%WORDS%" in line for line in lines)
+
+
+def test_build_bat_starts_vivado_without_the_user_data_of_the_tcl_store():
+    lines = bat().splitlines()
+    calls = [i for i, line in enumerate(lines) if line.lstrip().startswith('call "%VIVADO%"')]
+    assert calls and lines.index('set "XILINX_LOCAL_USER_DATA=no"') < min(calls)
+
+
+def test_build_bat_sets_the_project_directory_and_readme_says_how_to_keep_a_project():
+    assert 'if not defined RS_VIVADO_OUT set "RS_VIVADO_OUT=C:/git/rs"' in bat().splitlines()
+    flat = " ".join(readme().split())
+    assert "create_project -force, so it replaces the project in RS_VIVADO_OUT (default C:/git/rs)" in flat
+    assert "set RS_VIVADO_OUT=C:/git/rs2" in flat
+
+
+def test_the_package_options_set_the_directories_of_build_bat_and_readme():
+    links = {p: sha for p, sha in mob.gitlinks("HEAD").items() if p.startswith("cores/")}
+    own = dict(mob.BAT_DEFAULTS, RS_DIR=r"D:\build\rs", RS_VIVADO_OUT="D:/build/out")
+    text = mob.build_bat("develop", mob.git("rev-parse", "HEAD"), links, own)
+    assert 'if not defined RS_DIR set "RS_DIR=D:\\build\\rs"' in text.splitlines()
+    assert 'if not defined RS_VIVADO_OUT set "RS_VIVADO_OUT=D:/build/out"' in text.splitlines()
+    flat = " ".join(mob.readme("develop", mob.git("rev-parse", "HEAD"), links, {p: "" for p in links}, "0" * 40,
+                               own).split())
+    assert "(default D:\\build\\rs)" in flat and "set RS_VIVADO_OUT=D:/build/out2" in flat
+
+
+def test_readme_gives_both_ways_out_of_a_clone_at_another_commit():
+    links = {p: sha for p, sha in mob.gitlinks("HEAD").items() if p.startswith("cores/")}
+    own = dict(mob.BAT_DEFAULTS, RS_DIR=r"D:\build\rs", RS_VIVADO_OUT="D:/build/out")
+    sha = mob.git("rev-parse", "HEAD")
+    lines = mob.readme("develop", sha, links, {p: "" for p in links}, "0" * 40, own).splitlines()
+    assert "  ren D:\\build\\rs rs-<its commit>" in lines
+    assert f"  set RS_DIR=D:\\build\\rs-{sha[:7]}" in lines
+    assert f"  set RS_VIVADO_OUT=D:/build/out_{sha[:7]}" in lines
+    assert f'  $env:RS_DIR = "D:\\build\\rs-{sha[:7]}"' in lines
+    assert f'  $env:RS_VIVADO_OUT = "D:/build/out_{sha[:7]}"' in lines
+    assert "  .\\build.bat <system>" in lines
+
+
+def test_build_bat_finds_python_or_the_launcher_for_the_check_of_the_pins():
+    lines = bat().splitlines()
+    python = lines.index('    python --version >nul 2>&1 && set "RS_PYTHON=python"')
+    launcher = lines.index('    py -3 --version >nul 2>&1 && set "RS_PYTHON=py -3"')
+    check = next(i for i, line in enumerate(lines) if "%RS_PYTHON% tools/check_pins.py --offline" in line)
+    assert python < launcher < check

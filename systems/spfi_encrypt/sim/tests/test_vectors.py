@@ -43,6 +43,16 @@ def test_records_of_the_model_pass(tmp_path):
     assert "link initialised" in report
 
 
+def test_report_lists_the_receiver_reset_records_of_every_lane(tmp_path):
+    vectors.write(tmp_path, "sim", 1, ["TC-RS-HW-01"])
+    play(tmp_path)
+    assert vectors.check(tmp_path) == 0
+    report = (tmp_path / vectors.REPORT).read_text(encoding="utf-8").splitlines()
+    records = report[report.index("Recorded values (no pass criteria)") + 1:]
+    assert [r.split(":")[0].strip() for r in records] == [f"{SYSTEM.port} lane {n}" for n in range(SYSTEM.lanes)]
+    assert all("RX_RESETS 0, initialisation timeouts 0" in r for r in records)
+
+
 def test_stimulus_waits_for_the_link_and_marks_every_test_case(tmp_path):
     vectors.write(tmp_path, "sim", 1, None)
     ops = [t.split() for t in (tmp_path / vectors.STIMULUS).read_text(encoding="utf-8").splitlines()
@@ -120,3 +130,50 @@ def test_an_unfinished_simulation_fails(tmp_path):
 def test_unknown_test_case_is_refused(tmp_path):
     with pytest.raises(ValueError):
         vectors.write(tmp_path, "sim", 1, ["TC-RS-HW-99"])
+
+
+def test_the_check_writes_the_step_log_and_can_run_again_on_earlier_records(tmp_path):
+    vectors.write(tmp_path, "sim", 1, None)
+    play(tmp_path)
+    assert vectors.check(tmp_path) == 0
+    log = [json.loads(line) for line in (tmp_path / sysvectors.STEPS).read_text(encoding="utf-8").splitlines()]
+    assert {e["kind"] for e in log} >= {"step", "read", "expect", "packets"}
+    assert "TC-RS-HW-06" in (tmp_path / sysvectors.STEPS_TEXT).read_text(encoding="utf-8")
+    # the records of that simulation, checked again into another directory: the report there, the records untouched
+    again = tmp_path / "again"
+    report = (tmp_path / sysvectors.REPORT).read_text(encoding="utf-8")
+    assert vectors.check(tmp_path, again) == 0
+    assert results((again / sysvectors.REPORT).read_text(encoding="utf-8")) == results(report)
+    assert (again / sysvectors.STEPS).exists() and (tmp_path / sysvectors.REPORT).read_text(encoding="utf-8") == report
+
+
+def bench_runner():
+    sys.path.insert(0, str(HERE.parents[3] / "tools"))
+    import sysbench  # noqa: PLC0415 - tools/sysbench.py, the runner of the system simulations
+
+    return sysbench.recheck, sysbench.Simulation("spfi_encrypt", vectors)
+
+
+def test_recheck_records_the_commit_and_the_result(tmp_path):
+    recheck, sim = bench_runner()
+    vectors.write(tmp_path, "sim", 1, None)
+    play(tmp_path)
+    assert recheck(sim, tmp_path) == 0
+    out = next(tmp_path.glob("recheck_*"))
+    lines = (out / "recheck.txt").read_text(encoding="utf-8").splitlines()
+    assert lines[0] == f"records: {tmp_path}" and lines[1].startswith("code: ") and lines[3] == "result: passed"
+    assert (out / sysvectors.REPORT).exists() and (out / sysvectors.STEPS).exists()
+
+
+def test_recheck_fails_loudly_when_a_request_differs_from_the_recorded_one(tmp_path, capsys):
+    recheck, sim = bench_runner()
+    vectors.write(tmp_path, "sim", 1, None)
+    play(tmp_path)
+    # the records of a procedure that sent other words in TC-RS-HW-03: the requests of this code are not the recorded
+    data = json.loads((tmp_path / vectors.VECTORS).read_text(encoding="utf-8"))
+    exchange = next(op for op in data["ops"] if op["kind"] == "exchange" and op["packets"])
+    exchange["packets"][0] = exchange["packets"][0][:-2] + ("00" if exchange["packets"][0][-2:] != "00" else "01")
+    (tmp_path / vectors.VECTORS).write_text(json.dumps(data), encoding="utf-8")
+    assert recheck(sim, tmp_path) == 2
+    assert "REQUEST MISMATCH" in capsys.readouterr().out
+    assert "result: REQUEST MISMATCH" in (next(tmp_path.glob("recheck_*")) / "recheck.txt").read_text(encoding="utf-8")

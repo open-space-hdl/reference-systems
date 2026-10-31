@@ -1,8 +1,8 @@
 # spfi_encrypt: System Testbench
 
-The system testbench runs the [hardware test](../targets/vck190/docs/hardware_test.md) of spfi_encrypt in
-simulation: the same test cases TC-RS-HW-01 to 07, with the same requests and the same pass criteria, against the
-generated top level of the system instead of the board.
+The system testbench runs the [hardware test](../targets/vck190/docs/hardware_test.md) of spfi_encrypt in simulation:
+the same test cases TC-RS-HW-01 to 07 and 18, with the same requests and the same pass criteria, against the generated
+top level of the system instead of the board.
 
 ## Structure
 
@@ -23,6 +23,9 @@ generated top level of the system instead of the board.
 
 - The system is the generated top level `spfi_encrypt` of `hdl/`. The bench drives and observes its top-level ports
   only: the reset, the system clock, the reference clock and the serial lines.
+- The bench runs `Clk_sys` at 200 MHz by default and, with `--sysclk-mhz 150`, at the 150 MHz of the hardware builds
+  (`SysClkKhz_g`). The frequency enters the generated top level only as `ClkFreqHz_g`, the clock of the memory
+  scrubbers, which the system leaves off (`ScrubPeriod_g` 0.0).
 - The far end is the far end of all system testbenches ([sim/](../../../sim/README.md)): a second SpaceFibre port,
   an `ofb_core` with its own physical adapter, joined to the system by the serial lines, lane i to lane i in both
   directions. It has the generics of `ofb0` of the Composer file (`NumLanes_g`, `NumVc_g`, `VcInDepth_g`). It stands
@@ -82,6 +85,8 @@ adapter; the cores carry their own QuestaSim evidence (regressions and code cove
 python systems/spfi_encrypt/sim/run_xsim.py                           # all test cases in one simulation
 python systems/spfi_encrypt/sim/run_xsim.py TC-RS-HW-04               # one test case
 python systems/spfi_encrypt/sim/run_xsim.py --each                    # one simulation per test case
+python systems/spfi_encrypt/sim/run_xsim.py --refclk-mhz 100 TC-RS-HW-01   # reference clock 100 MHz
+python systems/spfi_encrypt/sim/run_xsim.py --refclk-mhz 100 --sysclk-mhz 150   # clocks of the lab image
 ```
 
 The runner needs AMD Vivado 2025.2 (`VIVADO_PATH` or `vivado` on the `PATH`). It creates the transceiver wizard
@@ -90,7 +95,19 @@ and the top level in the order of `hdl/spfi_encrypt_compile_order.txt`, the far 
 bench, runs the simulations and checks them (`tools/sysbench.py`). Results go to
 `vivado_out/xsim/spfi_encrypt/runs/<name>/` (`RS_XSIM_OUT` sets another directory): the stimulus, the records, the
 log, `probes.vcd` and `report.txt`. `probes.vcd` holds the ready states of the transceivers and the lane states of
-both ends, for the analysis of a link that does not initialise; the checks do not use it.
+both ends, for the analysis of a link that does not initialise; the checks do not use it. The tools that the runner
+starts write their temporary files (`TEMP`, `TMP`, `TMPDIR`) to `tmp/` in their working directory below
+`vivado_out/xsim/spfi_encrypt/`, not to the temporary directory of the user.
+
+`--refclk-mhz` sets the frequency of the transceiver reference clock, 156.25 MHz (default) or 100 MHz, the two
+frequencies of the VCK190 targets: the runner creates `ofb_gtw` for it in its own directory (`ip_refclk_100`) and
+the bench drives `RefClk` of both ends at it (`RefClkKhz_g`); the run directory gets the suffix `_refclk_100`.
+The line rate and the lane clock are the same at both frequencies. The behavioural model of GHDL takes only
+156.25 MHz: its lane clock is the reference clock.
+
+`--sysclk-mhz` sets the frequency of the system clock of the bench, 200 MHz (default) or 150 MHz, the frequency of the
+hardware builds (`SysClkKhz_g`), in xsim and in GHDL; the run directory gets the suffix `_sysclk_150`. With
+`--refclk-mhz 100 --sysclk-mhz 150` the simulation has the clocks of the device image of the default build.
 
 The transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`, see the verification
 report of `ofb_pa_gty` in OpenFibre). The runner elaborates and simulates such a run again, at most three times in
@@ -108,7 +125,8 @@ The runner needs GHDL 6.0 (`GHDL_PATH` or `ghdl` on the `PATH`). It analyses Ope
 level in the order of `hdl/spfi_encrypt_compile_order.txt`, with the files of
 `hdl/ofb_pa_gty/compile_order_sim.txt` of OpenFibre in place of the GTY adapter, the far end and the bench, then runs
 the simulations and checks them as `run_xsim.py` does. Results go to `sim_out/ghdl/spfi_encrypt/runs/<name>/`
-(`RS_GHDL_OUT` sets another directory), with the same files.
+(`RS_GHDL_OUT` sets another directory), with the same files; GHDL also writes its temporary files to `tmp/` in its
+working directory.
 
 ### Without a simulator
 
@@ -119,36 +137,47 @@ that did not end.
 
 ## Results
 
-Profile `sim`, seed 1, all test cases in one simulation, runs of 2026-10-18 with the VHDL sources of the core versions
-that the system file pins (OpenFibre, OpenRMAP, OpenSPP and OpenCrypto v0.1.0, Open Logic FT 4.7.0-ft.8): xsim of
-Vivado 2025.2 with the transceiver model at both ends, and GHDL 6.0 with the behavioural model of the adapter at both
-ends.
+Profile `sim`, seed 1, system clock 150 MHz (`--sysclk-mhz 150`), runs of 2026-10-28, 29 and 31 with the versions of
+the cores that the system file of v0.2.0 pins (OpenFibre v0.1.4, OpenRMAP v0.1.1, OpenSPP v0.1.0 and OpenCrypto
+v0.1.0, Open Logic FT 4.7.0-ft.11): xsim of Vivado 2025.2 with the transceiver model at both ends and the reference
+clock of the default device image, 100 MHz (`--refclk-mhz 100`), and GHDL 6.0 with the behavioural model of the
+adapter at both ends, whose lane clock is the reference clock of 156.25 MHz. Each simulation starts with the reset
+and the link initialisation:
+
+| Simulation | Test cases, in their order | Simulated time | Wall-clock time |
+| --- | --- | --- | --- |
+| xsim | TC-RS-HW-01 to 05 | 254.8 us | 25.1 min |
+| GHDL 1 | TC-RS-HW-01 to 07 | 347.8 us | 9.0 min |
+| GHDL 2 | TC-RS-HW-01 to 07, 18 | 603.9 us | 15.8 min |
 
 | Step | xsim, simulated time | GHDL, simulated time | Result |
 | --- | --- | --- | --- |
-| Transmitters of both ends ready | 64.9 us | 64.9 us | |
-| Link initialised (all lanes Active at both ends) | 92.6 us | 92.6 us | |
-| TC-RS-HW-01 Link | 8.6 us | 8.1 us | Pass |
-| TC-RS-HW-02 Identification | 11.4 us | 10.8 us | Pass |
-| TC-RS-HW-03 RMAP | 10.1 us | 9.5 us | Pass |
-| TC-RS-HW-04 Commands of several words | 25.2 us | 23.9 us | Pass |
-| TC-RS-HW-05 Configuration | 83.6 us | 79.4 us | Pass |
-| TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | 30.3 us | 29.4 us | Pass |
-| TC-RS-HW-07 Counters | 65.7 us | 62.2 us | Pass |
-| Total | 327.4 us | 316.0 us | 7 of 7 in both |
+| Transmitters of both ends ready | 66.6 us | 64.9 us | |
+| Link initialised (all lanes Active at both ends) | 92.5 us | 91.8 us | |
+| TC-RS-HW-01 Link | 16.4 us | 15.1 us | Pass |
+| TC-RS-HW-02 Identification | 12.7 us | 12.1 us | Pass |
+| TC-RS-HW-03 RMAP | 11.2 us | 10.7 us | Pass |
+| TC-RS-HW-04 Commands of several words | 28.2 us | 26.8 us | Pass |
+| TC-RS-HW-05 Configuration | 93.9 us | 89.6 us | Pass |
+| TC-RS-HW-06 Encryption (8 Space Packets, 12 chunks) | not run | 32.3 us | Pass |
+| TC-RS-HW-07 Counters | not run | 69.5 us | Pass |
+| TC-RS-HW-18 Repeated run (TC-RS-HW-01 to 07 again, GHDL 2) | not run | 256.0 us | Pass |
 
-An RMAP command and its reply take about 1.4 us with the transceiver model. The xsim simulation of the whole profile
-takes 40 to 50 minutes of wall-clock time on a workstation, after about 17 minutes of compilation and elaboration;
-the GHDL simulation takes about 10 minutes, after a few seconds of analysis. `report.txt` gives the wall-clock time of
-every test case. Both cores hold their link in Near-End Reset until the transmitters of their adapter are ready
-(`Stat_TxReady` to `Phy_TxReady`). The lanes of both ends then reach Wait together; the lanes of `ofb0` go on to
-Started at once (`LaneStart_g`), while the lanes of the far end stay in Wait until they detect the signal of `ofb0`
-(`probes.vcd`): the system starts the link.
+The GHDL times of TC-RS-HW-01 to 07 are those of GHDL 1; in GHDL 2 they are the same. The xsim run of this release
+covers the link, RMAP and the configuration (TC-RS-HW-01 to 05), as for the other systems; TC-RS-HW-06 and 07 passed
+in xsim with the cores of v0.1.0 (release v0.1.0). In TC-RS-HW-18 every test case passes again on the same system,
+without a reset. Recorded values (no pass criteria): after the link-up every lane counts 0 receiver resets and no
+initialisation timeout and has CDR lock, in both simulators.
 
-The two adapters give the same link initialisation: the transmitters are ready at the same time, the lanes of the far
-end leave Wait at the same time within 0.22 us, and all lanes are Active at the same time within 0.1 us. The datapath
-latency of the behavioural model is a little shorter than that of the transceiver model (model description of
-OpenFibre, section "Limits"): the test cases with many RMAP commands take about 5 % less simulated time.
+The xsim simulation takes 25 minutes of wall-clock time on a workstation, after about 16 minutes of compilation and
+elaboration; the GHDL simulation of TC-RS-HW-01 to 07 takes 9 minutes, after a few seconds of analysis. `report.txt`
+gives the wall-clock time of every test case. In both simulations the lanes of both ends leave their reset once the
+transmitters of their adapter are ready, and pass Disabled, Wait and Started at the same times at both ends
+(`probes.vcd`). With the behavioural model all lanes of both ends reach Active together at 91.1 us; with the
+transceiver model lanes 0 and 1 reach Active at 92.37 us and lanes 2 and 3 19 ns later, at both ends. The sequencer of
+the bench, which polls the status of the far end, sees the initialised link at 91.8 and 92.5 us. The test cases
+take about 5 % more simulated time with the transceiver model: the datapath latency of the behavioural model is a
+little shorter than that of the transceiver model (model description of OpenFibre, section "Limits").
 
 ## Limits
 

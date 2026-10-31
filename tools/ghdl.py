@@ -70,7 +70,7 @@ def compile_order(path: Path) -> list[tuple[str, Path]]:
 def run(cmd: list[str], cwd: Path, log: Path) -> None:
     with open(log, "w", encoding="utf-8") as f:
         result = subprocess.run(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                check=False)
+                                env=xsim.tool_env(cwd), check=False)
     if result.returncode != 0:
         text = log.read_text(encoding="utf-8", errors="replace").splitlines()
         print("\n".join(text[-30:]), flush=True)
@@ -118,7 +118,8 @@ def simulate(work: Path, library: str, top: str, generics: dict[str, object], ru
         cmd += [f"--vcd={vcd}", f"--read-wave-opt={options.name}"]
     start = time.time()
     with open(path, "wb") as f:
-        proc = subprocess.Popen(cmd, cwd=run_dir, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL)
+        proc = subprocess.Popen(cmd, cwd=run_dir, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                                env=xsim.tool_env(run_dir))
     seen = 0
     pending = ""
 

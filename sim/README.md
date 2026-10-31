@@ -54,4 +54,11 @@ of packets in advance.
 Both analyse Open Logic FT, the cores and the top level in the order of `hdl/<system>_compile_order.txt`, then the far
 end and the testbench, run the simulations and check them. Every run gets a directory with the stimulus, the records,
 the log, `probes.vcd` (the ready states of the transceivers and the lane states of both ends, for the analysis of a
-link that does not initialise; the checks do not use it) and `report.txt`.
+link that does not initialise; the checks do not use it), `report.txt` and the step log of the check
+(`steps.jsonl` and `steps.log`, the events of the hardware test procedure as in a lab run).
+
+`--recheck <run directory>` simulates nothing: it checks the records of an earlier simulation again with the procedure
+of the current code and writes the report, the step log and `recheck.txt` (the commit of the code, the time and the
+result) into `<run directory>/recheck_<date>_<time>`. The records must come from the stimuli that the current code
+writes (`sw/tests/test_stimulus_guard.py` compares them): when a request differs from the recorded one, the recheck
+ends with exit code 2 and the result "REQUEST MISMATCH", since its check then says nothing about the simulation.

@@ -6,11 +6,12 @@ itself is checked against the configurations of OpenCompact that its channels us
 """
 
 import copy
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
-from refsys import ocp, systest
+from refsys import ocp, ocptest, rmaptest, systest
 from refsys.composer import SystemFile, instance_of
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
@@ -54,7 +55,9 @@ def test_procedure_passes_against_the_model():
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
     per_channel = len(LAB.kinds) + 5 + LAB.stream
-    assert ctx.images == 4 * per_channel and not m.pending
+    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
+    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2
+    assert ctx.images == 4 * per_channel + runtime and not m.pending
     assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
 
 
@@ -221,3 +224,177 @@ def test_the_shared_modules_of_spfi_encrypt_stay_in_place():
     # the modules of this system are not left under the names of those of spfi_encrypt
     import sys
     assert sys.modules.get("hardware_test") is not ht and sys.modules.get("system_model") is not sm
+
+
+# --- TC-RS-HW-10: runtime configuration ------------------------------------------------------------------------------
+def test_ocp0_and_ocp3_have_the_runtime_configuration():
+    runtime, fixed = ocptest.split_channels(LAB_SYSTEM)
+    assert [c.compressor for c in runtime] == ["ocp0", "ocp3"] and [c.compressor for c in fixed] == ["ocp1", "ocp2"]
+    # ocp0 is lossless (dimensions only), ocp3 near-lossless with absolute error limits and images of width 1
+    assert [c.cfg["quantizer_fidelity_control_method"] for c in runtime] == [0, 1]
+    assert [ocp_configs.width_one_allowed(c.cfg) for c in runtime] == [False, True]
+    # both also take the runtime parameters (OpenCompact 0.3.0): ocp0 M, Umax, gamma0, gamma* and K, ocp3 the
+    # parameters of the hybrid coder
+    assert [ocp.runtime_params(c.generics) for c in LAB_SYSTEM.channels] == [True, False, False, True]
+    assert [ocp.used_params(c.cfg) for c in runtime] == [
+        ["user", "tinc", "vmin", "vmax", "m", "umax", "g0", "gstar", "k"],
+        ["user", "tinc", "vmin", "vmax", "m", "umax", "g0", "gstar"]]
+
+
+def test_the_runtime_images_of_the_profiles():
+    ch0, ch3 = (LAB_SYSTEM.channels[k] for k in (0, 3))
+    sim = context(system=LAB_SYSTEM, profile=ht.PROFILES["sim"])
+
+    def dims(plan):
+        return [(v.nx, v.ny, v.nz, v.abs_limit) for v in plan]
+
+    assert dims(ocptest.image_plan(sim, ch0)) == [(2, 1, 1, 0), (64, 1, 48, 0), (2, 64, 1, 0)]
+    assert dims(ocptest.image_plan(sim, ch3)) == [(1, 1, 1, 0), (64, 1, 48, 1023), (1, 64, 1, 0)]
+    for ch in (ch0, ch3):
+        plan = ocptest.image_plan(sim, ch)
+        assert all(v.params is not None and ocp.commit_accepts(ch.cfg, v) for v in plan)
+        # the first image takes every parameter to the high bound of its range, the second to the low bound
+        first, second = (dict(zip(ocp.PARAM_NAMES, v.params)) for v in plan[:2])
+        assert (first["tinc"], first["vmax"], first["umax"], second["tinc"], second["vmin"], second["umax"]) == (
+            11, 9, 32, 4, -6, 8)
+    lab = ocptest.image_plan(context(system=LAB_SYSTEM), ch3)
+    assert len(lab) == ocptest.LAB_IMAGES + 2 and lab[-1] == ocp.build_values(ch3.cfg, params=True)
+    assert lab[-1].abs_limit == 12 and all(ocp.commit_accepts(ch3.cfg, v) for v in lab)
+
+
+def test_tc10_ends_with_the_values_of_the_reset():
+    m = model()
+    results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
+    assert not any(results.values()), results
+    fresh = model()
+    for c in SYSTEM.channels:
+        base = SYSTEM.base(c.compressor)
+        for name in ocp.CONFIG_REGISTERS + ocp.TAKEN_REGISTERS:
+            address = base + getattr(ht.OCP, name)
+            assert m._read(address) == fresh._read(address), (c.compressor, name)
+
+
+class Storing:
+    """Registers that read back what is written: a compressor without the runtime configuration that keeps the
+    writes of NEXT_X to NEXT_LIMITS."""
+
+    def __init__(self):
+        self.words = {}
+
+    def read(self, name):
+        return self.words.get(name, 0)
+
+    def write(self, name, value):
+        self.words[name] = value
+
+
+@pytest.mark.parametrize("mutation, message", [
+    # the channel passes values out of range on, and the core takes the nearest valid ones (CO-RC-07)
+    ("clamp", "ocp0: COMMIT with NEXT_X 0x00000001 gives STATUS (CFG_ERROR, CFG_PENDING) (False, True)"),
+    # the core keeps the configuration of its generics: the first image (the maximum dimensions with the parameters
+    # at their high bounds) gives another compressed image, whose header differs first
+    ("ignore", "compressed image 0: user_defined_data 0, expected 255"),
+    ("pending", "ocp0: COMMIT of"),
+    ("fixed", "ocp1 without the runtime configuration"),
+    # the first image has the dimensions of the generics: the user-defined data of SAMPLES differ first
+    ("taken", "ocp0 SAMPLES"),
+    # ocp3 keeps the error limit value of its generics: the header of the image differs
+    ("limit", "compressed image 0"),
+    # ocp0 keeps the runtime parameters of its generics: the compressed image differs, first in its header
+    ("params", "compressed image 0: user_defined_data 0, expected 255"),
+    # NEXT_SAMPLES to NEXT_BLOCK of ocp0 do not read back what was written
+    ("readback", "NEXT_SAMPLES to NEXT_BLOCK"),
+    # SAMPLES to BLOCK of ocp3 keep the values of the generics
+    ("taken_params", "ocp3 SAMPLES"),
+])
+def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
+    m = model()
+    ch0, ch3 = m.channels[0], m.channels[3]
+    registers0, _ = m.runtime[SYSTEM.base("ocp0") + ht.OCP.CONTROL]
+    commit0, commit3 = ch0.commit, ch3.commit
+
+    def clamp(values):
+        ch0.next_cfg = ocp.image_config(ch0.cfg, ocp.ImageConfig(*ocp_configs.runtime_limit(
+            ch0.cfg, values.nx, values.ny, values.nz, values.abs_limit, values.rel_limit)))
+        return True
+
+    if mutation == "clamp":
+        ch0.commit = clamp
+    elif mutation == "ignore":
+        ch0.commit = lambda values: commit0(values) and (setattr(ch0, "next_cfg", ch0.cfg) or True)
+    elif mutation == "pending":
+        read = registers0.read
+        registers0.read = lambda name: read(name) & ~ocptest.CFG_PENDING
+    elif mutation == "fixed":
+        stored = Storing()
+        for name in ocp.CONFIG_REGISTERS:
+            m.runtime[SYSTEM.base("ocp1") + getattr(ht.OCP, name)] = (stored, name)
+    elif mutation == "taken":
+        registers0.taken = lambda: {}
+    elif mutation == "limit":
+        ch3.commit = lambda values: commit3(values) and commit3(replace(values, abs_limit=12))
+    elif mutation == "params":
+        ch0.commit = lambda values: commit0(values) and commit0(replace(values, params=ocp.build_params(ch0.cfg)))
+    elif mutation == "readback":
+        read0 = registers0.read
+        registers0.read = lambda name: read0(name) ^ (1 << 8) if name == "NEXT_SAMPLES" else read0(name)
+    elif mutation == "taken_params":
+        registers3, _ = m.runtime[SYSTEM.base("ocp3") + ht.OCP.CONTROL]
+        taken3 = registers3.taken
+        generics = ocp.mib_words(ht.OCP, registers3.generics)
+        registers3.taken = lambda: taken3() | {n: generics[n] for n in ("SAMPLES", "WEIGHTS", "ADAPTIVE")}
+    results = run(m, context(), ht.select_tests(["TC-RS-HW-10"]))
+    # the first test case that finds the fault: TC-RS-HW-10, or TC-RS-HW-05, which reads the runtime registers
+    # before it (ocptest.restore)
+    failed = [(name, error) for name, error in results.items() if error]
+    assert failed and failed[0][0] in ("TC-RS-HW-05", "TC-RS-HW-10") and message in failed[0][1], results
+
+
+def test_the_decoder_of_spfi_compress_encrypt_answers_decerr_above_its_ports():
+    """The decoder has 12 ports of 64 KiB: the port indices 12 to 15 have no port and answer DECERR, the map repeats
+    every 0x100000 bytes."""
+    m = model()
+    node = SYSTEM.base("spp0") + systest.SPP.ID
+    assert SYSTEM.decoded_bytes() == 0x100000 and SYSTEM.unmapped_address() == 0xC0000
+    assert m._bus_read(0xC0000) is None and m._bus_read(0xFFFFC) is None and not m._bus_write(0xC0000, 1)
+    assert m._bus_read(0x100000 + node) == SYSTEM.ids["spp0"]
+
+
+def test_tc15_gives_the_status_1_at_the_unmapped_address_of_spfi_compress_encrypt():
+    """The steps of TC-RS-HW-15 (refsys.rmaptest) on a system with an address outside its register windows: the
+    write there gets the status 1 and no read one map further on is made."""
+    class Logged(sm.SystemModel):
+        def _bus_write(self, address, value):
+            done = super()._bus_write(address, value)
+            self.writes.append((address, done))
+            return done
+
+        def _bus_read(self, address):
+            self.reads.append(address)
+            return super()._bus_read(address)
+
+    system = ht.System(dims=DIMS)
+    system.rmap_windows = SYSTEM_FILE.generic(system.rmap, "Windows_g")  # as the hardware test of spfi_compress
+    m = Logged(ht.Setup(), system=system, system_file=SYSTEM_FILE)
+    m.writes, m.reads = [], []
+    ctx = context(system=system)
+    regs = systest.Registers(m, ctx.setup)
+    systest.tc01_link(regs, ctx)
+    systest.baseline(regs, ctx)
+    rmaptest.tc15_rmap_errors(regs, ctx, SYSTEM.unmapped_address())
+    assert (0xC0000, False) in m.writes
+    assert not [a for a in m.reads if a >= SYSTEM.decoded_bytes()]
+
+
+def test_a_second_run_on_the_same_device_passes():
+    """TC-RS-HW-18 after test cases of the sim profile that leave the system away from its reset (the Packet Sequence
+    Counts of the output APIDs, the values of TC-RS-HW-10 in the compressors with the runtime configuration): the
+    second run reads the counts, commits the values of the generics and loads the key slots again."""
+    m, ctx = model(), context(profile=ht.PROFILES["sim"])
+    tests = ht.select_tests(["TC-RS-HW-01", "TC-RS-HW-02", "TC-RS-HW-05", "TC-RS-HW-10", "TC-RS-HW-18"])
+    results = run(m, ctx, tests)
+    assert list(results)[-1] == "TC-RS-HW-18" and not any(results.values()), results
+    second = [r["text"] for r in ctx.recorded if r["test"].startswith("TC-RS-HW-18 ")]
+    assert sum("show the values of an image of an earlier run: NX " in t for t in second) == 2
+    assert sum("the values of the generics are committed" in t for t in second) == 2
+    assert any(t.startswith("spp0 sends the next Space Packet of APID") and not t.endswith(" 0") for t in second)

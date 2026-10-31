@@ -17,24 +17,29 @@ the fabric reset, the buffer of the transceiver reference clock and two LEDs.
 
 | Clock | Frequency | Source | Use |
 | --- | --- | --- | --- |
-| `clk_pl_0` | 200 MHz | PMC clock generator of the CIPS (`pl0_ref_clk`) | `Clk_sys` of the system; free-running clock of the transceivers |
-| `gt_refclk` | 156.25 MHz | Clock generator 8A34001 (U219), output Q1, to MGTREFCLK1 of GTY quad 200 (default), or oscillator Si570 (U205) through the clock buffer SI53340 (U206) to GTY_REFCLK0 of GTY quad 201 | Reference clock of the transceivers (`pa0_RefClk` through IBUFDS_GTE5) |
+| `clk_pl_0` | 150 MHz | PMC clock generator of the CIPS (`pl0_ref_clk`) | `Clk_sys` of the system; free-running clock of the transceivers |
+| `gt_refclk` | 100 MHz (default) or 156.25 MHz | Oscillator Si570 (U205) through the clock buffer SI53340 (U206) to GTY_REFCLK0 of GTY quad 201 (default), or clock generator 8A34001 (U219), output Q1, to MGTREFCLK1 of GTY quad 200 | Reference clock of the transceivers (`pa0_RefClk` through IBUFDS_GTE5) |
 | lane clock | 156.25 MHz | Transmit clock of the transceivers (BUFG_GT in `ofb_pa_gty`) | Core and lane clock of the SpaceFibre port, generated inside the system |
 
 The reference clock has two sources on the board (VCK190 Evaluation Board User Guide UG1366 v1.1), and
-`tcl/build.tcl` builds the image for one of them:
+`tcl/build.tcl` builds the image for one of them and for one frequency, 100 MHz or 156.25 MHz. The frequency
+sets the transceiver wizard instance and the clock constraint; the line rate (6.25 Gbit/s) and the lane clock
+(156.25 MHz) are the same with both.
 
-- `8a34001` (default): output Q1 of the clock generator 8A34001 reaches MGTREFCLK1 of GTY quad 200 (UG1366, section
-  "GTY200: QSFP1"). The 8A34001 is programmed with configuration files; the frequency of Q1 is not documented and
-  must be set to 156.25 MHz with a configuration loaded by the System Controller of the board.
-- `si570`: the programmable oscillator Si570 (U205) drives the clock buffer SI53340 (U206), whose output Q0 reaches
-  GTY_REFCLK0 of GTY quad 201 (UG1366, section "Programmable FMCP MGT SI570 Clock with Buffer"; header J306 off, the
-  default). The Si570 starts at 100.000 MHz after every power-up; the System Controller sets it to 156.25 MHz. The
+- `si570` (default): the programmable oscillator Si570 (U205) drives the clock buffer SI53340 (U206), whose output
+  Q0 reaches GTY_REFCLK0 of GTY quad 201 (UG1366, section "Programmable FMCP MGT SI570 Clock with Buffer"; header
+  J306 off, the default). The Si570 starts at 100.000 MHz after every power-up, and a power cycle sets it back to
+  that frequency. The default image takes this frequency and needs no setting of the clock. An image for
+  156.25 MHz (`si570 156.25`) needs the Si570 set to 156.25 MHz in the System Controller after every power-up. The
   transceivers of quad 200 use this reference clock of the adjacent quad 201.
+- `8a34001`: output Q1 of the clock generator 8A34001 reaches MGTREFCLK1 of GTY quad 200 (UG1366, section
+  "GTY200: QSFP1"). The 8A34001 is programmed with configuration files; the frequency of Q1 is not documented and
+  must be set with a configuration loaded by the System Controller of the board. The image of this source is for
+  156.25 MHz unless the frequency 100 is given.
 
-Set and read back the clock in the System Controller (Board Evaluation and Management Tool or its command line)
-before the device is configured, and program the device again after every change of the clock (hardware test
-procedure, section 5).
+Read the clock back in the System Controller (Board Evaluation and Management Tool or its command line) before
+the device is configured whenever the image is not the default one, and program the device again after every
+change of the clock (hardware test procedure, section 5).
 
 The fabric reset `pl0_resetn` of the CIPS resets the system. An `olo_base_reset_gen` (triplicated synchronisers,
 1000 cycles) releases it synchronously to the system clock. This generator is provisional: the transceiver adapter of
@@ -48,7 +53,7 @@ synchronises its reset itself, the fabric reset drives `Rst` of the system direc
 | `GtRefClk_P`, `GtRefClk_N` | AD11, AD10 (`8a34001`) or AB11, AB10 (`si570`) | MGTREFCLK1 of GTY quad 200 or GTY_REFCLK0 of GTY quad 201 |
 | `Qsfp_TxP(i)`, `Qsfp_TxN(i)` | lane 0: AF7, AF6; 1: AE9, AE8; 2: AD7, AD6; 3: AC9, AC8 | QSFP1 transmit, channel i of quad 200 (GTY_QUAD_X1Y0) |
 | `Qsfp_RxP(i)`, `Qsfp_RxN(i)` | lane 0: AF2, AF1; 1: AE4, AE3; 2: AD2, AD1; 3: AC4, AC3 | QSFP1 receive |
-| `Led(0)` | H34 (GPIO_LED_0) | Toggles every 2^27 cycles of the system clock (about 0.7 s): the device is configured and the clock runs |
+| `Led(0)` | H34 (GPIO_LED_0) | Toggles every 2^27 cycles of the system clock (about 0.9 s): the device is configured and the clock runs |
 | `Led(1)` | J33 (GPIO_LED_1) | On when the reset of the system is released |
 
 Lane i of the system is channel i of the quad and must be connected to lane i of the far end; the SpaceFibre port
@@ -57,12 +62,14 @@ initialisation.
 
 ## Constraints
 
-- `constr/spfi_encrypt_vck190.xdc`: pins, location of the quad, reference clock.
+- `constr/spfi_encrypt_vck190.xdc`: pins, location of the quad.
 - `constr/spfi_encrypt_vck190_refclk_<source>.xdc`: the two pins of the reference clock, for the source that
   `tcl/build.tcl` selects.
+- `spfi_encrypt_vck190_refclk_clock.xdc` in the project directory: the clock `gt_refclk` at the selected
+  frequency, written by `tcl/build.tcl`.
 - `systems/spfi_encrypt/hdl/spfi_encrypt.xdc`, generated by the Composer and scoped to the entity `spfi_encrypt`:
-  the asynchronous reset input and the crossings between the system clock and the lane clock (5 ns, the period of the
-  faster clock).
+  the asynchronous reset input and the crossings between the system clock and the lane clock (6.4 ns, the period of
+  the faster clock, the lane clock at 156.25 MHz).
 - The scoped constraints of the clock crossings of Open Logic, area base (`olo_base_constraints_amd.tcl`). The
   scoped constraints of `olo_intf_sync` are not loaded: they constrain device pins, and the system uses
   `olo_intf_sync` for internal asynchronous signals only, which the clock pair constraints cover.
@@ -70,23 +77,25 @@ initialisation.
 ## Build
 
 The build needs AMD Vivado 2025.2 with device support and a synthesis licence for the XCVC1902, the submodules in
-`cores/` and the generated top level in `systems/spfi_encrypt/hdl/`. A build computer without network access gets the
-repository as Git bundles (`tools/make_offline_bundle.py`, [hardware test procedure](docs/hardware_test.md),
-section 3).
+`cores/` and the generated top level in `systems/spfi_encrypt/hdl/`. The Python package openspacehdl exports the release
+with its submodules, also on a computer without network access, and a clone from GitHub serves as well ([hardware test
+procedure](docs/hardware_test.md), section 3).
 
 ```shell
-vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs [<step>] [<refclk>]]
+vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <words>]
 ```
 
-`<refclk>` is the source of the reference clock, `8a34001` (default) or `si570`; the two words may come in either
-order, for example `-tclargs all si570`. Only the pins of the reference clock differ between the two images.
+The words are optional and may come in any order, for example `-tclargs all si570 156.25`: the step (table below),
+the source of the reference clock, `si570` (default) or `8a34001`, which selects its pins, and its frequency in MHz,
+`100` or `156.25`. Without a frequency the image is for 100 MHz with `si570` (the frequency of the Si570 after
+power-up) and for 156.25 MHz with `8a34001`.
 
 | Step | What the script does |
 | --- | --- |
-| `project` | Creates the project: the sources of the compile order exported by the Composer, the transceiver wizard instance of OpenFibre (`ofb_gtw`, 156.25 MHz reference clock), the CIPS block design (`vck190_cips`, JTAG boot), the board top level and the constraints |
+| `project` | Creates the project: the sources of the compile order exported by the Composer, the transceiver wizard instance of OpenFibre (`ofb_gtw`, at the frequency of the reference clock), the CIPS block design (`vck190_cips`, JTAG boot), the board top level and the constraints |
 | `rtl` | `project` and the RTL elaboration of the design |
 | `synth` | `project` and synthesis |
-| `impl` | Synthesis, implementation and the reports in `results/` |
+| `impl` | Synthesis, implementation and the reports in `results/`; the implementation stops before `opt_design` when a constraint did not apply (`tools/vivado/check_constraints.tcl`) |
 | `all` (default) | Synthesis, implementation, device image and the reports in `results/` |
 
 The project is `vivado_out/spfi_encrypt_vck190` in the repository, or the directory in the environment variable
@@ -95,7 +104,14 @@ compiles the platform loader firmware in a deep directory below the project, and
 `write_device_image` fails; use a short directory inside a working directory, for example
 `RS_VIVADO_OUT=C:/git/rs`.
 
-`results/` in the project directory holds the device image, the timing summary, the utilisation (flat and per
-block), the methodology and DRC reports and `build_info.txt` with the step, the reference clock and its pins in the
-design, the Vivado version and the commits of the repository and of its submodules. Section 4 of the
-[hardware test procedure](docs/hardware_test.md) lists the expected results and messages.
+`results/` in the project directory holds the device image, the timing summary, the utilisation (flat and per block),
+the methodology and DRC reports and `build_info.txt` with the step, the reference clock with its frequency and its pins
+in the design, the Vivado version, the commits of the repository and of its submodules and, after an implementation,
+the timing verdict ("TIMING MET: WNS x ns, WHS y ns" or "TIMING NOT MET: ...", also on the console; it does not stop
+the build). Section 4 of the [hardware test procedure](docs/hardware_test.md) lists the expected results and messages.
+
+## Planned improvement
+
+A later version gives the registers of the system a second access path over JTAG, through the master port M_AXI_FPD
+of the CIPS as in the OpenFibre reference design for the VCK190, so that the registers of the SpaceFibre port, PA_CTRL
+included, can be read and set while the link is down. Now they are reachable only over the link (RMAP).

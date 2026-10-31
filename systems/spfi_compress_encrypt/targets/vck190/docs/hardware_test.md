@@ -21,42 +21,115 @@ test needs and describes what differs.
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
 | STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
-| Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902) and Git | Build and programming |
-| The repository with its submodules: a clone from GitHub, or the offline package (Git bundles and `README.txt`) for a computer without network access | Sources of the build and of the test script |
-| Python 3.10 or later on the test computer with `pycryptodome` | Test script and the reference model of OpenCompact |
+| Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
+| The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
+| Python 3.10 or later with pytest and `pycryptodome` (installed with openspacehdl), and Git, on the test computer | Export (section 3), test script and the reference model of OpenCompact |
 
-## 3. Repository as Git bundles
+## 3. Installation from the openspacehdl package
 
-As for spfi_encrypt (its procedure, section 3), with one more core: `tools/make_offline_bundle.py` writes one bundle
-per core in `cores/`, `opencompact.bundle` included, and `README.txt` lists the commands to clone them. The test
-computer needs `cores/opencompact` also for the test: the reference model of OpenCompact (`tools/ocp_model.py`) and
-the register map of its status interface (`sw/ocp_regs.h`) come from there.
+The release 0.1.0 of the Python package openspacehdl carries this repository at v0.2.0, with every core it pins, as
+Git bundles with their history. On the build computer and on the test computer (Python 3.10 or later, Git on the
+`PATH`), in PowerShell or cmd:
+
+```shell
+python -m venv --system-site-packages C:\osh\venv
+C:\osh\venv\Scripts\python -m pip install openspacehdl==0.1.0
+C:\osh\venv\Scripts\openspacehdl export --git C:\osh\src
+```
+
+pip installs the package with pytest and `pycryptodome`, which the test script needs, and their dependencies. In the
+virtual environment it keeps a version that the Python of the computer already has within the range of the package,
+and installs only what is missing or out of range; a message that it does not uninstall a package of the Python of
+the computer is expected. `C:\osh\venv\Scripts\python -m pip check` then reports no broken requirements.
+
+The export directory must not exist or must be empty. The export itself needs no network: it clones this repository,
+Open Logic FT and every core from the bundles into directories of `C:\osh\src` next to `reference-systems`, fills the
+submodules in `cores/` of `C:\osh\src\reference-systems` from them at the recorded commits and writes
+`C:\osh\src\openspacehdl-lock.json`. The origin of every clone is its published repository, so that `git fetch` works
+later on a computer with network access. Every command of sections 4 and 8 runs from
+`C:\osh\src\reference-systems`, where `git submodule status` shows the commits of the release without a leading `-`
+or `+` and `python tools/check_pins.py --offline` passes against the tags that the bundles carry. Keep the output of
+`openspacehdl --version` and of `openspacehdl lock` (the pins) and the file `openspacehdl-lock.json` with the
+records, outside the exported tree.
+
+A computer without network access takes the package and its dependencies from a computer with network access, the
+same version of Windows and the same version of Python: the set of files depends on the version of Python, and
+`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.1.0 -d <dir>` (with
+the version of Python of the offline computer) writes the wheels to `<dir>`. Compare the SHA-256 of
+`openspacehdl-0.1.0-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
+with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.1.0`. The export is
+the same. The SHA-256 of the file:
+
+```shell
+# PowerShell
+Get-FileHash <dir>\openspacehdl-0.1.0-py3-none-any.whl -Algorithm SHA256
+# cmd
+certutil -hashfile <dir>\openspacehdl-0.1.0-py3-none-any.whl SHA256
+```
+
+With network access, a clone of the release from GitHub serves as well, with pytest and `pycryptodome` installed in
+the Python of the test computer (`python -m pip install "pytest>=9.0,<10" "pycryptodome>=3.23,<5"`):
+
+```shell
+git clone -b v0.2.0 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
+cd C:\osh\src\reference-systems
+git submodule update --init
+git -C cores/open-logic-ft submodule update --init 3rdParty/en_cl_fix
+python tools/check_pins.py
+```
+
+`git submodule status` must then show the commits of the release without a leading `-` or `+`, and
+`tools/check_pins.py` checks the pins against the tags of the published repositories.
+
+In both trees the submodules of the cores themselves (`open-logic` and `uvvm` in `cores/<core>`) stay empty (`git
+submodule status --recursive` shows them with a leading `-`): they serve the tests of the cores, and the system uses
+`cores/open-logic-ft` with its submodule `en_cl_fix`. Do not run `git submodule update --init --recursive`, which
+needs network access for them. The longest path below the export directory has 117 characters in the working tree
+and 141 with the Git metadata: keep the export directory short, as `C:\osh\src`, and set `RS_VIVADO_OUT` for the
+build as in section 4.
+
+The test (section 8) runs from the exported tree with a Python that has pytest, `pycryptodome` and the Python package of
+the far-end software: the virtual environment of the package, created with `--system-site-packages` so that it also
+finds the packages of the Python of the test computer, with every command of section 8 run by
+`C:\osh\venv\Scripts\python`. With openspacehdl installed into the Python of the test computer itself, that Python has
+pytest and `pycryptodome` as dependencies of the package: pip replaces a version of either outside the ranges of the
+package in that Python, which other programs of the computer may notice. With a clone, the Python into which they were
+installed runs the test. `--check-environment` (section 8) shows in every case whether the Python has every item. The
+test takes the reference model of OpenCompact (`cores/opencompact/tools/ocp_model.py`) and the register map of its
+status interface (`cores/opencompact/sw/ocp_regs.h`) from the exported tree.
+
+`C:\osh\venv\Scripts\openspacehdl serve` serves the website, the Composer and the documentation of every core at the
+pinned versions on `http://127.0.0.1:8765/`, without network access; the test does not need it.
 
 ## 4. Build
 
 The transceiver reference clock has two sources on the board, and the device image fixes the pins it takes the clock
-from. Confirm the reference clock on the board first (section 5, step 2), then build the image of that source only,
-from the root of the repository:
+from and its frequency. Confirm the reference clock on the board first (section 5, step 2), then build the image of
+that option only, from the root of the repository:
 
 ```shell
-# Option A: clock generator 8A34001, output Q1 at 156.25 MHz (default)
+# Option A: oscillator Si570 U205 at 100.000 MHz, its frequency after power-up (default)
 vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl
 # Option B: oscillator Si570 U205 set to 156.250 MHz
-vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570
+vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl -tclargs all si570 156.25
+# Option C: clock generator 8A34001, output Q1 at 156.25 MHz
+vivado -mode batch -source systems/spfi_compress_encrypt/targets/vck190/tcl/build.tcl -tclargs all 8a34001
 ```
 
-The script and its steps, the reference clock files, the project path limit on Windows (`RS_VIVADO_OUT`, for example
-`C:/git/rs`) and the files in `results/` are those of spfi_encrypt (its procedure, section 4), with the name
-`spfi_compress_encrypt_vck190` for the project and the device image. The timing summary must show WNS and WHS of at
-least 0 ns for `Clk_sys` at the frequency of the Composer file and for the lane clock at 156.25 MHz; the
-hierarchical utilisation report gives the resources of every OpenCompact channel.
+The script and its steps, the reference clock files and the clock constraint of the selected frequency, the project path
+limit on Windows (`RS_VIVADO_OUT`, for example `C:/git/rs`) and the files in `results/` are those of spfi_encrypt (its
+procedure, section 4), with the name `spfi_compress_encrypt_vck190` for the project and the device image. The timing
+summary must show WNS and WHS of at least 0 ns for `Clk_sys` at the frequency of the Composer file and for the lane
+clock at 156.25 MHz; the hierarchical utilisation report gives the resources of every OpenCompact channel. As in
+spfi_encrypt, the script sets `XILINX_LOCAL_USER_DATA=no` for the runs of `launch_runs` (AMD AR 63253).
 
 ## 5. Board set-up
 
-As for spfi_encrypt (its procedure, section 5): boot mode JTAG, the reference clock confirmed in the System Controller
-before the build (option A: 8A34001 output Q1 at 156.25 MHz; option B: Si570 at 156.250 MHz, set again after every
-power cycle), QSFP1 of the VCK190 to port 1 of the STAR-Ultra, then the device image of the confirmed option
-programmed with the Vivado Hardware Manager. `results/build_info.txt` names the reference clock of the image.
+As for spfi_encrypt (its procedure, section 5): boot mode JTAG, the reference clock of the option (option A: Si570 at
+100.000 MHz, its frequency after power-up, no setting; option B: Si570 set to 156.250 MHz in the System Controller after
+every power cycle; option C: 8A34001 output Q1 at 156.25 MHz), QSFP1 of the VCK190 to port 1 of the STAR-Ultra, then the
+device image of the option programmed with the Vivado Hardware Manager. `results/build_info.txt` names the
+reference clock and the frequency of the image.
 
 ## 6. Far-end configuration
 
@@ -87,21 +160,44 @@ size and the buffer sizes from the Composer file of the system, and the register
 | Keys | One 256-bit key per AES-GCM core in slot 0, the slot its framer uses, with generated IVs; keys and IV values are derived from the seed |
 | Test slot | Slot 1 of `ocr0`, which its framer does not use, holds a further key and IV values for the commands of several words |
 | Output | Space Packets with APID i (channel i) to destination 0 (Target Logical Address 0xFE), CPTP on virtual channel 1; one or more chunks per compressed image |
+| Runtime configuration | `ocp0` and `ocp3` (`RuntimeConfig_g`, `RuntimeParams_g`): the image dimensions of every image, on `ocp3` also its absolute error limit value, from `NEXT_X` to `NEXT_LIMITS`, and its runtime parameters from `NEXT_SAMPLES` to `NEXT_BLOCK`, with `CONTROL.COMMIT` (OpenCompact register map); after a reset the values of the generics. TC-RS-HW-10 writes them and ends with the values of the reset; the other test cases use the values of the reset |
 
 ## 8. Tests
 
-Run the script on the test computer from the root of the repository:
+The test cases run as pytest tests (`sw/hwtest/test_spfi_compress_encrypt.py`, plugin `sw/refsys/hwplugin.py`), as
+for spfi_compress (its procedure, section 8, lists the options and the console). Run them on the test computer from
+the root of the repository, with the Python of section 3 (`C:\osh\venv\Scripts\python` in place of `python` for
+the virtual environment):
 
 ```shell
-python systems/spfi_compress_encrypt/sw/hardware_test.py --device <STAR-Ultra> --profile lab --seed 1
+python systems/spfi_compress_encrypt/sw/hardware_test.py --check-environment
+python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target model --results <directory>
+python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target device --device <STAR-Ultra> --results <directory>
 ```
 
-`<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System. Before the first test case the script reads channels 0
-and 1 until no packet arrives within 0.5 s and prints how many packets of an earlier run it discarded per channel. It
-prints one line per test case and stops at the first failure, since the later test cases build on the earlier ones;
-TC-RS-HW-09 also prints the measured rate. `--seed` sets the keys and the images, `--test TC-RS-HW-nn` runs one test
-case and the test cases it builds on. Before it sends the images of a test case, the script computes their compressed
-images with the reference model of OpenCompact, a few seconds per image.
+- `<STAR-Ultra>` is the name of the STAR-Ultra in STAR-System, and `--results` a directory outside the repository.
+- `--check-environment` checks the test computer for a run against the board as for spfi_compress, and
+  `pycryptodome` in addition. With everything installed it prints:
+
+  ```text
+  OK   Python: <version>
+  OK   pytest: <version>
+  OK   reference model of OpenCompact: found, decoder included
+  OK   pycryptodome: <version>
+  OK   Python package of the far-end software: found
+  ```
+
+  `--check-environment --target model` checks what a run against the model needs: the same lines without the
+  last one, and `SKIP Python package of the far-end software: not needed for --target model`.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how
+  many packets of an earlier run it discarded per channel.
+- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
+  run. TC-RS-HW-09 also records the measured rate.
+- `--seed` (default 1) sets the keys and the images. `--tc TC-RS-HW-nn` runs one test case and the test cases it
+  builds on.
+- Before it sends the images of a test case, the test computes their compressed images with the reference model of
+  OpenCompact, a few seconds per image.
+- `hardware_test.py --device`, the command of earlier releases, runs the same pytest tests.
 
 The expected compressed images come from the reference model of OpenCompact for the generics of the compressor of
 every channel in the Composer file; the expected images and counters after lost Space Packets come from the error
@@ -110,23 +206,48 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
 | TC-RS-HW-01 Link | As spfi_encrypt | Link initialised, all lanes of `ofb0` active |
-| TC-RS-HW-02 Identification | Read the identification register of every register window; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`) | `ID` of every register bank with an identification = its `SPFI_COMPRESS_ENCRYPT_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435001); `INFO` of `edac0` gives its channels and counter width; every configuration register of a compressor gives the generics of that compressor in the Composer file |
+| TC-RS-HW-02 Identification | Read the identification register of every register window; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`) | `ID` of every register bank with an identification = its `SPFI_COMPRESS_ENCRYPT_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435003); `INFO` of `edac0` gives its channels and counter width; every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file; on `ocp0` and `ocp3` `IMAGE_X` to `LIMITS` give either those values or the values of an image of an earlier run on the same device (section "Repeated runs"), values that a COMMIT accepts, shown as for an image of them, and the values are recorded |
 | TC-RS-HW-03 RMAP | As spfi_encrypt | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | As spfi_encrypt | Both reads of 16 bytes give the words of the single reads; the test slot holds the written fixed field and invocation counter |
-| TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i, continuity check on); slot 0 of every AES-GCM core loaded with the key and IV values of its channel and queried; the packet, loss and encryption counters and the image, SDU and memory error counters of every compressor cleared | Table entries read back with the port, the enable and the continuity check; no table overrun; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
+| TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i, continuity check on, `VALID` 0); the send APID table entry of every output APID read (`TX_TABLE_APID`, `TX_TABLE_ENTRY`); `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3` read, and when they do not hold the values of the reset, the values of the generics written and committed; slot 0 of every AES-GCM core loaded with the key and IV values of its channel and queried; the packet, loss and encryption counters and the image, SDU and memory error counters of every compressor cleared | Table entries read back with the port, the enable and the continuity check; no table overrun; no double error in a send table entry, whose `COUNT` is recorded as the Packet Sequence Count from which the Space Packets of the APID continue in this run; a COMMIT of the values of the generics, when one is needed, gives `STATUS.CFG_PENDING` 1 and is recorded; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
 | TC-RS-HW-06 Compression and encryption | Per channel one image of every kind (five images), the four channels interleaved Space Packet by Space Packet | Every compressed image comes back as chunks with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the invocation counters start at the loaded one and have no gap; the chunks of every image, first to last position, give exactly the compressed image of the reference model, its header included |
 | TC-RS-HW-07 Counters | Read the counters of `spp0`, of the AES-GCM cores, of the status interfaces of the compressors and of `edac0` | Received Space Packets, sent chunks and encryptions match TC-RS-HW-06; `IMAGES_DONE` of every compressor is 5; `RX_LOSS`, `IMAGES_ABORTED`, `SDU_ERRORS`, `SDUS_DISCARDED`, the memory error counters of the compressors and of `edac0` and every error counter of the AES-GCM cores are 0 |
 | TC-RS-HW-08 Lost data | Counters cleared, then per channel five images: (a) image 1 without its 25th Space Packet (of 49), image 2 intact; (b) image 3 without its last Space Packet, images 4 and 5 intact. The script leaves the Space Packets out and skips their sequence counts | (a) The Space Packet after the gap carries the Data Loss Indicator; image 1 ends after the samples of Space Packets 1 to 24 and 26 with an error, Space Packets 27 to 49 are discarded; image 2 equals the model. (b) Space Packet 1 of image 4 carries the Data Loss Indicator; its first 144 samples complete image 3, which ends with an error and equals the model of these samples; the rest of image 4 is discarded and gives no output; image 5 equals the model. Per channel `IMAGES_DONE` 2, `IMAGES_ABORTED` 2, `SDU_ERRORS` 2, `SDUS_DISCARDED` 23 + 48 = 71; `RX_LOSS` of `spp0` 8; the aborted image 1 has the complete header and the start of the codewords of its samples, fill bits up to a multiple of 4 bytes |
-| TC-RS-HW-09 Sustained rate | Counters cleared, then eight images per channel, all channels at once, as fast as the test equipment sends | No loss, every compressed image equals the model, the counters match; the rate of the samples, compressed bytes and images is recorded. It is limited by the test equipment and the host as long as they send less than the system takes (12.8 Gbit/s of samples for compressed images of at most 32 bits per sample, [README](../../../README.md#throughput), section Throughput) |
+| TC-RS-HW-09 Sustained rate | Counters cleared, then eight images per channel, all channels at once, as fast as the test equipment sends | No loss, every compressed image equals the model, the counters match; the rate of the samples, compressed bytes and images is recorded. It is limited by the test equipment and the host as long as they send less than the system takes (9.6 Gbit/s of samples for compressed images of at most 32 bits per sample, [README](../../../README.md#throughput), section Throughput) |
+| TC-RS-HW-10 Runtime configuration | `ocp0` and `ocp3` have the runtime configuration and the runtime parameters (`RuntimeConfig_g`, `RuntimeParams_g`), `ocp1` and `ocp2` do not. Counters cleared. Read `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3`; write `NEXT_X` to `NEXT_BLOCK` and `CONTROL.COMMIT` of `ocp1` and `ocp2`. Then 22 images on each of channels 0 and 3, every one after its values in `NEXT_X` to `NEXT_LIMITS` (one command), `NEXT_SAMPLES` to `NEXT_BLOCK` (one command) and `CONTROL.COMMIT`: the seeded sequence of the runtime parameter testbench of OpenCompact (first the bounds of every dimension, 1 or 2 to 64 and 48, of the error limit value of channel 3, 0 to 1023, and of every parameter in use, then images at random, then an image of the maximum dimensions with log2 t_inc 4 and vmin = vmax = -6), then the values of the README. After the first COMMIT, COMMITs with one value out of range: NX 1 (channel 0 only), NX 65, NY 0, NZ 49, the absolute error limit value 1024 (channel 3 only), log2 t_inc 3, vmax below vmin, gamma* equal to gamma0, Umax 33, K 15 (channel 0 only) and M above NZ (channel 0, when NZ is below 48), each followed by a write of 1 to `STATUS.CFG_ERROR`. With the first image, one image of the generics on each of channels 1 and 2 | `ocp0` and `ocp3` read the values of the reset (`CONTROL` and `STATUS` 0, `NEXT_X` to `NEXT_Z` 64, 64 and 48, `NEXT_LIMITS` 0 and 12, `NEXT_SAMPLES` to `NEXT_BLOCK` the parameters of the generics; `STATUS.CFG_PENDING` 1 when TC-RS-HW-05 committed the values of the generics and no image has started since); `ocp1` and `ocp2` read 0 in the eleven registers and keep `IMAGE_X` to `LIMITS`. Every valid COMMIT gives `STATUS.CFG_PENDING` 1; every COMMIT with a value out of range gives `STATUS.CFG_ERROR` 1 with `CFG_PENDING` still 1, and the register reads back the value written; every chunk authenticates and decrypts with the key of its channel, and every compressed image equals the image of the model for its values, header included; after every image `IMAGE_X` to `IMAGE_Z`, `SAMPLES`, `ORDER`, `WEIGHTS`, `ADAPTIVE`, `BLOCK` and `LIMITS` show its values and `STATUS` is 0. The counters match: `IMAGES_DONE` 22 on channels 0 and 3 and 1 on channels 1 and 2, no error |
 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
+
+### Repeated runs
+
+A run need not start from the reset. TC-RS-HW-18 runs the test cases of the run again on the same device, without a
+reset or a new device image, as a second run of the script does, and every one must pass again: the second run finds
+what the first one left in the system.
+
+- Send side: the Space Packet node keeps the Packet Sequence Count of every APID in its send APID table until its
+  reset. TC-RS-HW-05 reads the count of every output APID, records it, and the Space Packets of the run must continue
+  from it (SPP 4.1.3.4.3).
+- Receive side: TC-RS-HW-05 writes the entry of every input APID with `VALID` 0. The first Space Packet of the run
+  then sets no loss indicator, whatever count it carries (OpenSPP, RE-DM-03), so the script numbers the Space Packets
+  of every run from 0.
+- Compressors with the runtime configuration: when `CONTROL` to `NEXT_BLOCK` of `ocp0` or `ocp3` do not hold the
+  values of the reset, TC-RS-HW-05 commits the values of the generics, so that the images of the run compress with
+  them, and records it. `IMAGE_X` to `LIMITS` show the values of the last image until the next image starts:
+  TC-RS-HW-02 accepts there the values of an image of the earlier run, values in range, and records them.
+
+The system has no reset of its data path that the script could command. After a run that stopped early, program the
+device again before the next run: the stop may leave an image half sent in a compressor, chunks in the buffers of the
+Space Packet node.
 
 ### When the link does not come up
 
 As for spfi_encrypt (its procedure, section 8): record the link and lane states of port 1 in STAR-System, the LEDs of
 the VCK190 and the reference clock (option, value read back, `results/build_info.txt`), correct what the records
 show and run the script again; after the QSFP cable was unplugged or moved, reset the link of port 1 in STAR-System.
+A lane of the system stays in Started for up to 3 ms per initialisation attempt, and its receiver resets at every
+restart; TC-RS-HW-01 records the receiver resets once the link is up. The counts include every attempt before the
+far end was up, and the CDR lock bit is not a usable indication (spfi_encrypt, section 8).
 
 ## 9. Records
 
@@ -138,6 +259,7 @@ Keep for every build and every test run, with the date:
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back; LEDs after programming, version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
-| Test run | Command line (profile, seed) and the complete output of the script, the rate of TC-RS-HW-09 included, for example redirected into a file |
+| Test computer | The output of `--check-environment` |
+| Test run | The command line and the directory that the run writes below `--results`: `steps.jsonl`, `run.log`, `junit.xml`, the records file and the report, as for spfi_compress (its procedure, section 9); the records hold the recorded values of TC-RS-HW-01 and the rate of TC-RS-HW-09 |
 
 A failing test case is recorded with its output and the register values it reports.

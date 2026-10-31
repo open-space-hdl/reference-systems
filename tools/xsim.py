@@ -48,24 +48,34 @@ def tool(name: str) -> str:
     return str(exe)
 
 
+def tool_env(cwd: Path) -> dict[str, str]:
+    """The environment of a tool that runs in cwd, with the temporary directory cwd/tmp: the temporary files that the
+    tools write to TEMP (xelab compiles the C code of a snapshot, xsim writes wave data) stay with the outputs of the
+    run, on the drive of the output directory, and do not fill the temporary directory of the user."""
+    temp = cwd / "tmp"
+    temp.mkdir(parents=True, exist_ok=True)
+    return dict(os.environ, TEMP=str(temp), TMP=str(temp), TMPDIR=str(temp))
+
+
 def run(cmd: list[str], cwd: Path, log: str) -> None:
     with open(cwd / log, "w", encoding="utf-8") as f:
         # stdin closed: with an inherited stdin, export_simulation writes vlog.prj to stdout
         result = subprocess.run(cmd, cwd=cwd, stdout=f, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                                check=False)
+                                env=tool_env(cwd), check=False)
     if result.returncode != 0:
         text = (cwd / log).read_text(encoding="utf-8", errors="replace").splitlines()
         print("\n".join(text[-30:]), flush=True)
         raise SystemExit(f"{Path(cmd[0]).stem} failed, see {cwd / log}")
 
 
-def generate_gtw(out: Path) -> Path:
-    """Creates ofb_gtw and exports its simulation sources once per version of the wizard script; returns the export
-    directory, in which the libraries are compiled and the simulations run."""
+def generate_gtw(out: Path, refclk_mhz: str = REFCLK_MHZ) -> Path:
+    """Creates ofb_gtw for the reference clock refclk_mhz and exports its simulation sources once per version of the
+    wizard script and frequency; returns the export directory, in which the libraries are compiled and the simulations
+    run."""
     export = out / "export" / "ofb_gtw" / "xsim"
     prj = export / "vlog.prj"
     stamp = out / ".gtw_generated"
-    digest = hashlib.sha1(GTW_TCL.read_bytes()).hexdigest()
+    digest = hashlib.sha1(GTW_TCL.read_bytes() + (b"" if refclk_mhz == REFCLK_MHZ else refclk_mhz.encode())).hexdigest()
     if prj.exists() and prj.stat().st_size > 0 and stamp.exists() and stamp.read_text() == digest:
         return export
     if export.exists():
@@ -77,7 +87,7 @@ def generate_gtw(out: Path) -> Path:
     script.write_text(
         f"create_project -force ip {out.as_posix()}/project -part {PART}\n"
         f"source {GTW_TCL.as_posix()}\n"
-        f"ofb_gtw_create ofb_gtw {REFCLK_MHZ}\n"
+        f"ofb_gtw_create ofb_gtw {refclk_mhz}\n"
         "generate_target all [get_ips ofb_gtw]\n"
         "export_simulation -of_objects [get_files ofb_gtw.xci] -simulator xsim "
         f"-directory {(out / 'export').as_posix()} -force\n",
@@ -180,7 +190,7 @@ def simulate(export: Path, snapshot: str, log: str, on_line: Callable[[str, floa
         cmd += ["-R"]
     start = time.time()
     proc = subprocess.Popen(cmd, cwd=export, stdout=subprocess.DEVNULL, stderr=subprocess.STDOUT,
-                            stdin=subprocess.DEVNULL)
+                            stdin=subprocess.DEVNULL, env=tool_env(export))
     seen = 0
     pending = ""
 

@@ -7,21 +7,29 @@ far end of sim/tb/, the stimuli and the checks of its sim/vectors.py, in xsim wi
 (tools/xsim.py) or in GHDL with the behavioural model of the adapter (tools/ghdl.py).
 
 Usage of the runner of a system:
-  python systems/<system>/sim/run_xsim.py [--profile sim] [--seed N] [--each] [--hdl DIR] [TC-RS-HW-nn ...]
-  python systems/<system>/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR] [TC-RS-HW-nn ...]
+  python systems/<system>/sim/run_xsim.py [--profile sim] [--seed N] [--each] [--hdl DIR] [--refclk-mhz F]
+         [--sysclk-mhz F] [TC-RS-HW-nn ...]
+  python systems/<system>/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR] [--sysclk-mhz F]
+         [TC-RS-HW-nn ...]
 
 Without test cases, one simulation runs all test cases; with test cases, the simulation runs them and the test
 cases they build on; --each runs one simulation per test case. Every simulation starts with the reset and the link
 initialisation. Each simulation gets a directory in <out>/runs/ with the stimulus, the records of the bench and
 report.txt (result, simulated and wall-clock time per test case). <out> is vivado_out/xsim/<system> or RS_XSIM_OUT
 (xsim), sim_out/ghdl/<system> or RS_GHDL_OUT (GHDL). --hdl takes the top level from another directory than
-systems/<system>/hdl. Exit code 0 when every simulation passes.
+systems/<system>/hdl. --refclk-mhz (xsim) sets the frequency of the transceiver reference clock, 156.25 (default) or
+100 MHz, for the wizard instance and the bench; the behavioural model of GHDL takes only 156.25 MHz, its lane clock
+is the reference clock. A run at another frequency than 156.25 MHz has its own wizard instance (<out>/ip_refclk_<F>)
+and its own directory (<out>/runs/<name>_refclk_<F>). --sysclk-mhz sets the frequency of the system clock of the
+bench, 200 (default) or 150 MHz, the frequency of the hardware builds; a run at 150 MHz has its own directory
+(<out>/runs/<name>[_refclk_<F>]_sysclk_150). Exit code 0 when every simulation passes.
 """
 
 import argparse
 import os
 import re
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
@@ -41,6 +49,8 @@ FAR_END_LIBRARY = "refsys_tb"
 FAR_END_FILES = [ROOT / "sim" / "tb" / "rs_tb_pkg.vhd", ROOT / "sim" / "tb" / "rs_far_end.vhd"]
 EVENT = re.compile(r"event (\d+) (\w+) (-?\d+)")
 VCD = "probes.vcd"
+# System clock of the testbenches in MHz (SysClkKhz_g); the hardware builds run at 150 MHz
+SYSCLK_MHZ = "200"
 
 
 @dataclass
@@ -49,6 +59,8 @@ class Simulation:
 
     name: str
     vectors: ModuleType
+    refclk_mhz: str = xsim.REFCLK_MHZ   # reference clock of the transceivers (xsim)
+    sysclk_mhz: str = SYSCLK_MHZ        # system clock
 
     @property
     def directory(self) -> Path:
@@ -70,6 +82,13 @@ class Simulation:
         f = self.system_file()
         port = f.instance_of_block("openfibre/ofb_core")
         return {name: f.generic(port, name) for name in ("NumLanes_g", "NumVc_g", "VcInDepth_g")}
+
+    def bench_generics(self) -> dict[str, object]:
+        """The generics of the bench: those of the far end, and the system clock when it is not the default."""
+        generics: dict[str, object] = dict(self.far_end_generics())
+        if self.sysclk_mhz != SYSCLK_MHZ:
+            generics["SysClkKhz_g"] = round(float(self.sysclk_mhz) * 1000)
+        return generics
 
     def probes(self) -> list[str]:
         """Signals written to probes.vcd for the analysis of a failed link initialisation: the reset and the ready
@@ -118,7 +137,8 @@ def xsim_out(sim: Simulation) -> Path:
 def xsim_build(sim: Simulation, hdl: Path) -> tuple[Path, list[str]]:
     """Generates the wizard instance, compiles everything and elaborates the bench; returns the directory of the
     simulation and the libraries."""
-    export = xsim.generate_gtw(xsim_out(sim) / "ip")
+    ip = "ip" if sim.refclk_mhz == xsim.REFCLK_MHZ else f"ip_refclk_{sim.refclk_mhz}"
+    export = xsim.generate_gtw(xsim_out(sim) / ip, sim.refclk_mhz)
     files = sim.files(xsim.compile_order(hdl / f"{sim.name}_compile_order.txt"))
     xsim.compile_all(export, files)
     libraries = list(dict.fromkeys(library for library, _ in files))
@@ -127,8 +147,10 @@ def xsim_build(sim: Simulation, hdl: Path) -> tuple[Path, list[str]]:
 
 
 def xsim_elaborate(sim: Simulation, export: Path, libraries: list[str], again: bool = False) -> None:
-    xsim.elaborate(export, f"{sim.library}.{sim.top}", libraries, sim.far_end_generics(), sim.top, trace=True,
-                   again=again)
+    generics = sim.bench_generics()
+    if sim.refclk_mhz != xsim.REFCLK_MHZ:
+        generics["RefClkKhz_g"] = round(float(sim.refclk_mhz) * 1000)
+    xsim.elaborate(export, f"{sim.library}.{sim.top}", libraries, generics, sim.top, trace=True, again=again)
 
 
 def xsim_simulate(sim: Simulation, export: Path, libraries: list[str], name: str, profile: str, seed: int,
@@ -180,11 +202,36 @@ def ghdl_simulate(sim: Simulation, work: Path, name: str, profile: str, seed: in
     wall: dict[int, float] = {}
     start = time.time()
     log_name = f"simulate_{sim.top}.log"
-    log, code = ghdl.simulate(work, sim.library, sim.top, sim.far_end_generics(), run_dir, log_name, follower(wall),
+    log, code = ghdl.simulate(work, sim.library, sim.top, sim.bench_generics(), run_dir, log_name, follower(wall),
                               sim.probes(), VCD)
     if code != 0 or re.search(r"\((assertion|report) (error|failure)\)", log):
         print(f"{name}: the simulator stopped with an error (exit code {code}), see {run_dir / log_name}")
     return finish(sim, run_dir, wall, start)
+
+
+# --- check of earlier records ---------------------------------------------------------------------------------------
+# what the replay of the check reports when a request of the procedure is not the recorded one (refsys/sysvectors.py)
+REQUEST_MISMATCH = ("the request differs from the recorded one", "where the recording has",
+                    "the procedure made more requests than were recorded")
+
+
+def recheck(sim: Simulation, run_dir: Path) -> int:
+    """--recheck: checks the records of an earlier simulation in run_dir again with the procedure of this code, into
+    run_dir/recheck_<date>_<time>: report.txt, the step log and recheck.txt (the commit of this code, the time and the
+    result). Exit code 0 when every test case passes, 1 when one fails, 2 when a request of the procedure differs from
+    the recorded one: then the records do not belong to the requests of this code, and the check says nothing."""
+    out = run_dir / time.strftime("recheck_%Y%m%d_%H%M%S")
+    commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True,
+                            check=False).stdout.strip() or "unknown"
+    code = sim.vectors.check(run_dir, out)
+    report = (out / sim.vectors.REPORT).read_text(encoding="utf-8")
+    mismatch = any(text in report for text in REQUEST_MISMATCH)
+    result = ("REQUEST MISMATCH: a request of this code differs from the recorded one; the records do not belong to "
+              "this code and the recheck says nothing" if mismatch else "passed" if code == 0 else "failed")
+    (out / "recheck.txt").write_text(f"records: {run_dir}\ncode: {commit}\ntime: {time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                                     f"result: {result}\n", encoding="utf-8")
+    print(f"recheck of {run_dir} with {commit}: {result}; report and step log in {out}")
+    return 2 if mismatch else code
 
 
 # --- command line ---------------------------------------------------------------------------------------------------
@@ -196,14 +243,31 @@ def main(sim: Simulation, simulator: str, description: str) -> int:
     parser.add_argument("--seed", type=int, default=1)
     parser.add_argument("--each", action="store_true", help="one simulation per test case")
     parser.add_argument("--hdl", type=Path, default=sim.directory / "hdl", help="directory of the generated top level")
+    if simulator == "xsim":
+        parser.add_argument("--refclk-mhz", choices=(xsim.REFCLK_MHZ, "100"), default=xsim.REFCLK_MHZ,
+                            help="frequency of the transceiver reference clock in MHz")
+    parser.add_argument("--sysclk-mhz", choices=(SYSCLK_MHZ, "150"), default=SYSCLK_MHZ,
+                        help="frequency of the system clock in MHz (the hardware builds run at 150)")
+    parser.add_argument("--recheck", type=Path, metavar="RUN_DIR",
+                        help="no simulation: check the records of an earlier simulation in RUN_DIR again with the "
+                             "procedure of this code; report and step log go to RUN_DIR/recheck_<date>_<time>")
     args = parser.parse_args()
+    if args.recheck:
+        return recheck(sim, args.recheck)
+    suffix = ""
+    if simulator == "xsim" and args.refclk_mhz != xsim.REFCLK_MHZ:
+        sim.refclk_mhz = args.refclk_mhz
+        suffix = f"_refclk_{args.refclk_mhz}"
+    if args.sysclk_mhz != SYSCLK_MHZ:
+        sim.sysclk_mhz = args.sysclk_mhz
+        suffix += f"_sysclk_{args.sysclk_mhz}"
 
     names = args.tests or None
     ht.select_tests(names)                  # unknown names stop here, before the build
     if args.each:
-        runs = [(t, [t]) for t in (names or [ht.test_name(t) for t in ht.TESTS])]
+        runs = [(t + suffix, [t]) for t in (names or [ht.test_name(t) for t in ht.TESTS])]
     else:
-        runs = [("_".join(names) if names else "all", names)]
+        runs = [(("_".join(names) if names else "all") + suffix, names)]
     if simulator == "xsim":
         export, libraries = xsim_build(sim, args.hdl)
         failed = [name for name, tests in runs

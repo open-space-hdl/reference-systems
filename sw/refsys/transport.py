@@ -13,6 +13,12 @@ class TransportError(Exception):
     """A transfer that did not complete."""
 
 
+# Steps of the operator at the far end that a test case asks for, with the text shown to the operator
+FAR_END_LINK_RESET = "far-end link reset"
+OPERATOR_STEPS = {FAR_END_LINK_RESET: "Reset the SpaceFibre link at the port of the test equipment (a link reset of "
+                                      "that port, nothing else), then press Enter."}
+
+
 class Transport:
     """Interface of a transport."""
 
@@ -30,8 +36,17 @@ class Transport:
         """Returns the next packet received on a channel, or None when none arrives within timeout."""
         raise NotImplementedError
 
+    def transmit(self, channel: int, packets: list[bytes], timeout: float = 5.0) -> None:
+        """Sends packets on a channel without waiting for a packet in return (a packet that the system discards)."""
+        self.exchange(channel, packets, channel, 0, timeout)
+
     def begin(self, name: str) -> None:
         """Marks the start of a test case; a simulation records the time at which it starts."""
+
+    def operator(self, step: str) -> None:
+        """A step of the operator at the far end (OPERATOR_STEPS): shown, and the test waits for Enter. A simulation
+        does what the operator does with the far end of its bench."""
+        input(f"OPERATOR: {OPERATOR_STEPS[step]} ")
 
     def close(self) -> None:
         pass
@@ -41,6 +56,18 @@ class Transport:
 
     def __exit__(self, *exc):
         self.close()
+
+
+def far_end_software() -> str:
+    """Imports the Python package of the far-end software that StarSystemTransport uses (--check-environment);
+    raises ImportError when it is not installed or does not import. The messages do not name the package."""
+    try:
+        import STAR_system  # noqa: F401
+    except ImportError as err:
+        missing = isinstance(err, ModuleNotFoundError) and err.name == "STAR_system"
+        raise ImportError("not installed" if missing else
+                          f"installed, but its import fails ({type(err).__name__})") from None
+    return "found"
 
 
 class StarSystemTransport(Transport):
@@ -82,6 +109,18 @@ class StarSystemTransport(Transport):
             self._cancel([receive, transmit])
             raise
         return [bytes(item.getPacketData()) for item in receive.getTransferItemList()]
+
+    def transmit(self, channel, packets, timeout=5.0):
+        eop = self._enums.STAR_EOP_TYPE.STAR_EOP_TYPE_EOP
+        transmit = self._transmit([self._stream_item.createPacket([], list(p), eop) for p in packets])
+        try:
+            self._channels[channel].submitTransferOperation(transmit)
+            status = transmit.waitOnTransferOperationCompletion(timeout=int(timeout * 1000))
+            if status != self._enums.STAR_TRANSFER_STATUS.STAR_TRANSFER_STATUS_COMPLETE:
+                raise TransportError(f"transmit on channel {channel} did not complete within {timeout} s ({status})")
+        except BaseException:
+            self._cancel([transmit])
+            raise
 
     def receive(self, channel, timeout):
         receive = self._receive(1, receivePackets=True)

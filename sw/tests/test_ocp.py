@@ -4,6 +4,7 @@ words of its status interface."""
 
 import copy
 import json
+from dataclasses import replace
 
 import pytest
 
@@ -295,10 +296,13 @@ def test_end_mark_too_early_and_missing():
 # --- status interface -----------------------------------------------------------------------------------------------
 OCP_REGS = RegisterMap(ocp.TOOLS.parent / "sw" / "ocp_regs.h", "OCP")
 MIB_WORDS = json.loads((ocp.TOOLS / "ocp_mib_words.json").read_text(encoding="utf-8"))
+# the configurations of the testbench of OpenCompact, those with the runtime configuration and the runtime parameters
+# included
+MIB_CONFIGS = ocp_configs.ALL | ocp_configs.RUNTIME | ocp_configs.RUNTIME_PARAMS
 
 
 def test_the_mib_words_cover_every_configuration():
-    assert sorted(MIB_WORDS) == sorted(ocp_configs.ALL)
+    assert sorted(MIB_WORDS) == sorted(MIB_CONFIGS)
 
 
 @pytest.mark.parametrize("name", sorted(MIB_WORDS))
@@ -306,7 +310,248 @@ def test_mib_words_are_those_that_the_opencompact_testbench_reads(name):
     # the file lists the generics that the words depend on; the others (error limits, tables) come from the
     # configuration
     entry = MIB_WORDS[name]
-    generics = ocp_generics.generics(ocp_configs.ALL[name]) | entry["generics"]
+    generics = ocp_generics.generics(MIB_CONFIGS[name]) | entry["generics"]
     expected = {register: int(word, 16) for register, word in entry["words"].items()}
     assert expected.pop("ID") == OCP_REGS.REGMAP_ID
     assert ocp.mib_words(OCP_REGS, generics) == expected
+
+
+# --- runtime configuration ------------------------------------------------------------------------------------------
+BOTH = ocp_configs.RUNTIME["rc04_bi_m4_sample_both"]       # BI, M = 4, absolute and relative error limits
+COLUMN = ocp_configs.RUNTIME["rc05_bsq_column_hybrid"]     # BSQ, lossless, images of width 1
+ImageConfig = ocp.ImageConfig
+
+
+@pytest.mark.parametrize("cfg, values, accepted", [
+    (BOTH, ImageConfig(16, 8, 12, 31, 511), True),             # the maxima and the largest error limit values
+    (BOTH, ImageConfig(2, 1, 1, 0, 0), True),
+    (BOTH, ImageConfig(1, 1, 1), False),                       # full prediction: images at least two samples wide
+    (BOTH, ImageConfig(17, 8, 12), False),
+    (BOTH, ImageConfig(16, 0, 12), False),
+    (BOTH, ImageConfig(16, 8, 13), False),
+    (BOTH, ImageConfig(16, 8, 12, 32, 0), False),              # 2^DA
+    (BOTH, ImageConfig(16, 8, 12, 0, 512), False),             # 2^DR
+    (COLUMN, ImageConfig(1, 1, 1), True),
+    (COLUMN, ImageConfig(8, 8, 5, 0xFFFF, 0xFFFF), True),      # the values of methods not in use are not checked
+    (COLUMN, ImageConfig(0, 8, 5), False),
+])
+def test_commit_accepts_the_ranges_of_the_user_guide(cfg, values, accepted):
+    assert ocp.commit_accepts(cfg, values) == accepted
+
+
+def test_the_refused_values_are_each_one_value_out_of_range():
+    valid = ImageConfig(2, 1, 1, 0, 0)
+    refused = ocp.refused_values(BOTH, valid)
+    assert [name for name, _ in refused] == ["NEXT_X", "NEXT_X", "NEXT_Y", "NEXT_Z", "NEXT_LIMITS", "NEXT_LIMITS"]
+    assert all(not ocp.commit_accepts(BOTH, v) for _, v in refused)
+    assert [name for name, _ in ocp.refused_values(COLUMN, ImageConfig(1, 1, 1))] == ["NEXT_X", "NEXT_Y", "NEXT_Z"]
+
+
+def test_the_image_configuration_is_that_of_the_runtime_testbench_of_opencompact():
+    values = ImageConfig(5, 3, 2, 7, 100)
+    cfg = ocp.image_config(BOTH, values)
+    want = ocp_configs.runtime_image_cfg(BOTH, 5, 3, 2, 7, 100, 0)
+    assert cfg == {k: v for k, v in want.items() if k != "seed"} | {"image": BOTH["image"]}
+    assert (cfg["large_m"], cfg["a_vector"], cfg["r_vector"]) == (2, [7], [100])      # BI: M = min(M, NZ)
+    assert ocp.ocp_model.header(cfg)[:len(ocp.ocp_model.header(BOTH))] != ocp.ocp_model.header(BOTH)
+
+
+def test_a_committed_configuration_applies_from_the_next_image_start():
+    cfg = small(CONFIGS["c25_tp_bsq_lossless"], 4, 3, 2)
+    channel = Channel(cfg, MARKS, runtime=True)
+    values = ImageConfig(2, 1, 2)
+    first = [(1000 + 7 * k) % 65536 for k in range(ocp.samples_per_image(cfg))]
+    data = ocp.encode_samples(cfg, first)
+    # the image in progress keeps its configuration: COMMIT after its first SDU
+    out = channel.sdu(data[:4], 0)
+    assert channel.commit(values) and channel.pending and not out
+    out = channel.sdu(data[4:], END)
+    assert [o.cfg for o in out] == [cfg] and channel.pending
+    out = channel.sdu(ocp.encode_samples(cfg, [1, 2, 3, 4]), END)
+    assert not channel.pending and [o.complete for o in out] == [True]
+    assert out[0].cfg == channel.image_cfg == ocp.image_config(cfg, values) and out[0].samples == (1, 2, 3, 4)
+
+
+def test_a_refused_commit_changes_nothing():
+    channel = Channel(BOTH, MARKS, runtime=True)
+    assert channel.commit(ImageConfig(4, 2, 3, 1, 2))
+    pending = channel.next_cfg
+    assert not channel.commit(ImageConfig(1, 2, 3))
+    assert channel.next_cfg is pending
+    with pytest.raises(ValueError):
+        Channel(BOTH, MARKS).commit(ImageConfig(4, 2, 3))
+
+
+def generics_of(name: str, runtime: bool) -> dict:
+    """The generics of an OpenCompact channel with a configuration of the runtime testbench of OpenCompact."""
+    return ocp_generics.generics(MIB_CONFIGS[name]) | MIB_WORDS[name]["generics"] | {"RuntimeConfig_g": runtime}
+
+
+def test_the_registers_of_the_runtime_configuration_after_a_reset():
+    words = ocp.runtime_words(OCP_REGS, generics_of("rc04_bi_m4_sample_both", True))
+    assert words == {"CONTROL": 0, "STATUS": 0, "NEXT_X": 16, "NEXT_Y": 8, "NEXT_Z": 12, "NEXT_LIMITS": (64 << 16) | 4,
+                     "NEXT_SAMPLES": 0, "NEXT_ORDER": 0, "NEXT_WEIGHTS": 0, "NEXT_ADAPTIVE": 0, "NEXT_BLOCK": 0}
+    assert set(ocp.runtime_words(OCP_REGS, generics_of("rc04_bi_m4_sample_both", False)).values()) == {0}
+
+
+def test_the_model_of_the_runtime_registers():
+    g = generics_of("rc04_bi_m4_sample_both", True)
+    cfg = ocp.model_config(g)
+    regs = ocp.RuntimeRegisters(OCP_REGS, g, Channel(cfg, MARKS, runtime=True))
+    status = lambda: (OCP_REGS.get("STATUS", "CFG_ERROR", regs.read("STATUS")),  # noqa: E731
+                      OCP_REGS.get("STATUS", "CFG_PENDING", regs.read("STATUS")))
+    for name, word in ocp.next_words(OCP_REGS, ImageConfig(3, 2, 1, 5, 6)).items():
+        regs.write(name, word)
+    assert ocp.next_values(OCP_REGS, regs.words) == ImageConfig(3, 2, 1, 5, 6)
+    regs.write("CONTROL", 1)
+    assert status() == (0, 1) and regs.read("CONTROL") == 0
+    regs.write("NEXT_X", 1)
+    regs.write("CONTROL", 1)
+    assert status() == (1, 1) and regs.read("NEXT_X") == 1
+    regs.write("STATUS", OCP_REGS.field("STATUS", "CFG_ERROR", 1))
+    assert status() == (0, 1)
+    # without the runtime configuration the registers read zero and ignore writes
+    fixed = ocp.RuntimeRegisters(OCP_REGS, generics_of("rc04_bi_m4_sample_both", False), Channel(cfg, MARKS))
+    fixed.write("NEXT_X", 3)
+    fixed.write("CONTROL", 1)
+    assert [fixed.read(n) for n in ocp.RUNTIME_REGISTERS] == [0] * 6
+
+
+def test_the_status_interface_shows_the_values_taken():
+    g = generics_of("rc04_bi_m4_sample_both", True)
+    cfg = ocp.model_config(g)
+    image = ocp.image_config(cfg, ImageConfig(5, 3, 2, 7, 100))
+    words = ocp.mib_words(OCP_REGS, g, image)
+    reset = ocp.mib_words(OCP_REGS, g)
+    assert [OCP_REGS.get(n, "SIZE", words[n]) for n in ("IMAGE_X", "IMAGE_Y", "IMAGE_Z")] == [5, 3, 2]
+    assert OCP_REGS.get("ORDER", "SUB_FRAME_DEPTH", words["ORDER"]) == 2
+    assert words["LIMITS"] == (100 << 16) | 7 and reset["LIMITS"] == (64 << 16) | 4
+    assert {n: w for n, w in words.items() if n not in ocp.TAKEN_REGISTERS} == {
+        n: w for n, w in reset.items() if n not in ocp.TAKEN_REGISTERS}
+
+
+# --- runtime parameters (OpenCompact 0.3.0) ------------------------------------------------------------------------
+PARAMS = ocp_configs.RUNTIME_PARAMS["rp01_bi_m4_sample"]   # BI, M up to 4, sample-adaptive coder with a constant K
+HYBRID = ocp_configs.RUNTIME_PARAMS["rp02_bi_mnz_hybrid"]  # hybrid coder whose initial accumulators raise gamma0
+BLOCK = ocp_configs.RUNTIME_PARAMS["rp03_bsq_block"]       # BSQ, block-adaptive coder, r up to 4096
+
+
+def params(cfg, **changed):
+    v = dict(zip(ocp.PARAM_NAMES, ocp.build_params(cfg))) | changed
+    return tuple(v[n] for n in ocp.PARAM_NAMES)
+
+
+def test_the_parameters_of_the_generics_are_valid_and_complete():
+    for cfg in (PARAMS, HYBRID, BLOCK):
+        values = ocp.build_values(cfg, params=True)
+        assert ocp.commit_accepts(cfg, values)
+        assert ocp.image_config(cfg, values) == ocp.image_config(cfg, ocp.build_values(cfg))
+    assert ocp.used_params(BLOCK) == ["user", "tinc", "vmin", "vmax", "r"]
+    assert dict(zip(ocp.PARAM_NAMES, ocp.build_params(BLOCK)))["g0"] == 0
+
+
+@pytest.mark.parametrize("cfg, changed, accepted", [
+    (PARAMS, dict(tinc=4), True), (PARAMS, dict(tinc=3), False), (PARAMS, dict(tinc=12), False),
+    (PARAMS, dict(vmin=-6, vmax=-6), True), (PARAMS, dict(vmin=5, vmax=4), False), (PARAMS, dict(vmin=-7), False),
+    (PARAMS, dict(m=4), True), (PARAMS, dict(m=5), False), (PARAMS, dict(m=0), False),
+    (PARAMS, dict(g0=5, gstar=6), True), (PARAMS, dict(g0=5, gstar=5), False), (PARAMS, dict(umax=33), False),
+    (PARAMS, dict(k=14), True), (PARAMS, dict(k=15), False),
+    (PARAMS, dict(r=4097), True),                   # not in use: not checked
+    (HYBRID, dict(g0=1), False),                    # below the smallest gamma0 of the initial accumulators
+    (BLOCK, dict(r=4096), True), (BLOCK, dict(r=0), False), (BLOCK, dict(g0=0, umax=0), True),
+])
+def test_commit_checks_the_runtime_parameters_in_use(cfg, changed, accepted):
+    values = ocp.build_values(cfg, params=True)
+    assert ocp.commit_accepts(cfg, replace(values, params=params(cfg, **changed))) == accepted
+
+
+def test_m_is_checked_against_the_nz_of_the_same_commit():
+    values = replace(ocp.build_values(PARAMS, params=True), nz=2)
+    assert ocp.commit_accepts(PARAMS, replace(values, params=params(PARAMS, m=2)))
+    assert not ocp.commit_accepts(PARAMS, replace(values, params=params(PARAMS, m=3)))
+
+
+def test_the_refused_parameters_are_refused():
+    valid = replace(ocp.build_values(PARAMS, params=True), nz=1)
+    refused = ocp.refused_values(PARAMS, replace(valid, params=params(PARAMS, m=1)))
+    names = [name for name, _ in refused]
+    assert {"NEXT_WEIGHTS", "NEXT_ADAPTIVE", "NEXT_ORDER"} <= set(names)
+    assert all(not ocp.commit_accepts(PARAMS, v) for _, v in refused)
+
+
+def test_the_image_configuration_takes_the_parameters():
+    values = replace(ocp.build_values(PARAMS, params=True), nx=4, ny=3, nz=2,
+                     params=params(PARAMS, user=7, m=2, tinc=5, vmin=-2, vmax=3, umax=20, g0=2, gstar=6, k=3))
+    cfg = ocp.image_config(PARAMS, values)
+    assert (cfg["user_defined_data"], cfg["large_m"], cfg["log_two_t_inc"], cfg["v_min"], cfg["v_max"]) == (
+        7, 2, 5, -2, 3)
+    assert (cfg["large_u_max"], cfg["gamma_0"], cfg["gamma_star"], cfg["k_prime_prime_vector"]) == (20, 2, 6, [3])
+
+
+def test_the_parameter_registers_round_trip():
+    g = generics_of("rp01_bi_m4_sample", True) | {"RuntimeParams_g": True}
+    values = replace(ocp.build_values(PARAMS, params=True),
+                     params=params(PARAMS, user=255, m=1, tinc=11, vmin=-6, vmax=9, umax=8, g0=1, gstar=4, k=0))
+    words = ocp.next_words(OCP_REGS, values)
+    assert set(ocp.PARAM_REGISTERS) <= set(words)
+    assert ocp.next_values(OCP_REGS, words, params=True) == values
+    reset = ocp.runtime_words(OCP_REGS, g)
+    assert ocp.next_values(OCP_REGS, reset, params=True) == ocp.build_values(PARAMS, params=True)
+
+
+def test_the_model_of_the_parameter_registers():
+    g = generics_of("rp03_bsq_block", True) | {"RuntimeParams_g": True}
+    cfg = ocp.model_config(g)
+    regs = ocp.RuntimeRegisters(OCP_REGS, g, Channel(cfg, MARKS, runtime=True))
+    # the fields of the parameters that the block-adaptive coder does not use read zero
+    regs.write("NEXT_ADAPTIVE", 0xFFFFFFFF)
+    assert regs.read("NEXT_ADAPTIVE") == 0
+    regs.write("NEXT_BLOCK", OCP_REGS.field("NEXT_BLOCK", "REF_INTERVAL", 0))
+    regs.write("CONTROL", 1)
+    assert OCP_REGS.get("STATUS", "CFG_ERROR", regs.read("STATUS")) == 1        # r = 0 is refused
+    regs.write("STATUS", OCP_REGS.field("STATUS", "CFG_ERROR", 1))
+    regs.write("NEXT_BLOCK", OCP_REGS.field("NEXT_BLOCK", "REF_INTERVAL", 7))
+    regs.write("CONTROL", 1)
+    assert OCP_REGS.get("STATUS", "CFG_PENDING", regs.read("STATUS")) == 1
+    assert regs.channel.next_cfg["r"] == 7
+    # without RuntimeParams_g the registers read zero and ignore writes
+    fixed = ocp.RuntimeRegisters(OCP_REGS, g | {"RuntimeParams_g": False}, Channel(cfg, MARKS, runtime=True))
+    fixed.write("NEXT_BLOCK", OCP_REGS.field("NEXT_BLOCK", "REF_INTERVAL", 7))
+    assert [fixed.read(n) for n in ocp.PARAM_REGISTERS] == [0] * 5
+
+
+def test_the_status_interface_shows_the_parameters_taken():
+    g = generics_of("rp01_bi_m4_sample", True) | {"RuntimeParams_g": True}
+    values = replace(ocp.build_values(PARAMS, params=True),
+                     params=params(PARAMS, user=9, m=3, tinc=6, vmin=1, vmax=2, umax=10, g0=3, gstar=7, k=5))
+    words = ocp.mib_words(OCP_REGS, g, ocp.image_config(PARAMS, values))
+    assert OCP_REGS.get("SAMPLES", "USER_DATA", words["SAMPLES"]) == 9
+    assert OCP_REGS.get("ORDER", "SUB_FRAME_DEPTH", words["ORDER"]) == 3
+    assert (OCP_REGS.get("WEIGHTS", "UPDATE_INTERVAL", words["WEIGHTS"]), OCP_REGS.get("WEIGHTS", "VMIN",
+            words["WEIGHTS"]), OCP_REGS.get("WEIGHTS", "VMAX", words["WEIGHTS"])) == (6, 1, 2)
+    assert [OCP_REGS.get("ADAPTIVE", f, words["ADAPTIVE"]) for f in
+            ("UNARY_LIMIT", "INITIAL_COUNT", "RESCALE_SIZE", "ACCU_INIT")] == [10, 3, 7, 5]
+    assert OCP_REGS.get("GENERICS", "RUNTIME_PARAMS", words["GENERICS"]) == 1
+
+
+# --- decoding check (decoder of the model of OpenCompact) ----------------------------------------------------------
+needs_decoder = pytest.mark.skipif(not ocp.decoder_available(), reason="the pinned OpenCompact has no decoder")
+
+
+@needs_decoder
+@pytest.mark.parametrize("name", ["c01_lossless_bip", "c26_tp_bil_near_abs"])
+def test_a_compressed_image_decodes_to_its_samples(name):
+    cfg = small(CONFIGS[name], 6, 4, 5)
+    samples = [(37 * k + 11) % 4096 for k in range(ocp.samples_per_image(cfg))]
+    data = ocp.compress(cfg, ocp.from_input_order(cfg, samples))
+    assert ocp.decode_problems(cfg, data, samples) == []
+
+
+@needs_decoder
+def test_the_decoding_check_finds_a_wrong_sample_and_a_broken_image():
+    cfg = small(CONFIGS["c01_lossless_bip"], 6, 4, 5)
+    samples = [(37 * k + 11) % 4096 for k in range(ocp.samples_per_image(cfg))]
+    data = ocp.compress(cfg, ocp.from_input_order(cfg, samples))
+    wrong = samples[:7] + [samples[7] + 1] + samples[8:]
+    assert "decoded sample" in ocp.decode_problems(cfg, data, wrong)[0]
+    assert ocp.decode_problems(cfg, data[:len(data) // 2], samples)

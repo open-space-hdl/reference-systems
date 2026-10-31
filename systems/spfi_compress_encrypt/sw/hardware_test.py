@@ -22,6 +22,10 @@ send port with its APID) and the key slots from the Composer file of the system,
 of the cores. The test cases TC-RS-HW-01 to TC-RS-HW-04, the register access and the run are those of
 sw/refsys/systest.py. The set-up and the procedure are described with the board target.
 
+TC-RS-HW-10 gives the compressors with the runtime configuration (RuntimeConfig_g) the image dimensions and error
+limit values of every image over RMAP and compares the images with the model images of these values
+(sw/refsys/ocptest.py).
+
 Before the first test case the script discards the packets that an earlier run left on both channels (drain).
 
 Usage: python systems/spfi_compress_encrypt/sw/hardware_test.py --device <STAR-Ultra device name> [--seed N]
@@ -30,6 +34,7 @@ Exit code 0 when every test case passes.
 """
 
 import copy
+import hashlib
 import itertools
 import random
 import re
@@ -42,7 +47,7 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import chunks, ocp, systest  # noqa: E402
+from refsys import chunks, ocp, ocptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -69,16 +74,20 @@ EQUIPMENT_RATE = 20e6
 class Profile:
     """Size of a test run: TC-RS-HW-06 sends one image of every kind of kinds per channel, TC-RS-HW-09 stream images
     per channel at once; TC-RS-HW-08 runs both cases of lost SDUs on every channel, or with split_lost case (a) on
-    the channels of even and case (b) on those of odd number. The hardware test runs the lab profile, the system
-    simulation the sim profile."""
+    the channels of even and case (b) on those of odd number; TC-RS-HW-10 sends the full image plan of every channel
+    with the runtime configuration and one image of every other channel, or without runtime_full three images of the
+    bounds (refsys.ocptest.image_plan). The hardware test runs the lab profile, the system simulation the sim
+    profile."""
 
     name: str
     kinds: tuple[str, ...]
     stream: int
     split_lost: bool = False
+    runtime_full: bool = True
 
 
-PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8), Profile("sim", ("scene",), 2, split_lost=True))}
+PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
+                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False))}
 
 
 @dataclass
@@ -207,14 +216,29 @@ class Sdu:
     lost: bool = False
 
 
-def image_samples(ctx: Context, ch: Channel, kind: str, index: int) -> list[int]:
-    """The samples of test image `index` of a channel in the input order of its compressor."""
-    return ocp.input_order(ch.cfg, ocp.test_image(ch.cfg, kind, f"{ctx.seed} {ch.port} {index}"))
+def image_samples(ctx: Context, ch: Channel, kind: str, index: int, cfg: dict | None = None) -> list[int]:
+    """The samples of test image `index` of a channel in the input order of its compressor, for the configuration of
+    its generics or, with the runtime configuration, cfg; logged."""
+    cfg = cfg or ch.cfg
+    samples = ocp.input_order(cfg, ocp.test_image(cfg, kind, f"{ctx.seed} {ch.port} {index}"))
+    ctx.log.emit("image", f"{ch.compressor}: test image {index}, {kind}, {cfg['large_n_x']} x {cfg['large_n_y']} x "
+                 f"{cfg['large_n_z']} samples of {cfg['large_d']} bits", compressor=ch.compressor, port=ch.port,
+                 index=index, pattern=kind, nx=cfg["large_n_x"], ny=cfg["large_n_y"], nz=cfg["large_n_z"],
+                 samples=len(samples))
+    return samples
+
+
+def sdu_count(ctx: Context, ch: Channel) -> int:
+    """The number of SDUs of an image of the configuration of the generics of a channel."""
+    return len(ocp.split_sdus(ch.cfg, ocp.encode_samples(ch.cfg, [0] * ocp.samples_per_image(ch.cfg)), ctx.sdu_bytes))
 
 
 def image_sdus(ctx: Context, ch: Channel, samples: list[int], lost: tuple[int, ...] = ()) -> list[Sdu]:
-    """The SDUs of an image; the SDUs at the indices `lost` (from 0) are left out."""
+    """The SDUs of an image; the SDUs at the indices `lost` (from 0) are left out; logged."""
     parts = ocp.split_sdus(ch.cfg, ocp.encode_samples(ch.cfg, samples), ctx.sdu_bytes)
+    ctx.log.emit("image", f"{ch.compressor}: {len(parts)} SDUs, {sum(len(p) for p in parts)} bytes"
+                 + (f", SDUs {', '.join(str(k) for k in lost)} left out" if lost else ""), compressor=ch.compressor,
+                 port=ch.port, sdus=len(parts), bytes=sum(len(p) for p in parts), lost=list(lost))
     return [Sdu(ch.port, data, end=k == len(parts) - 1, lost=k in lost) for k, data in enumerate(parts)]
 
 
@@ -222,9 +246,10 @@ def expected_image(ch: Channel, output: ocp.Output) -> bytes | None:
     """The compressed image of an output of the channel: that of the model for a complete image, for an aborted one
     that of the samples taken (ocp.aborted_image), or None with a version of OpenCompact whose model does not give
     it; the bytes of the aborted image are then checked with ocp.aborted_problems."""
+    cfg = output.cfg
     if output.complete:
-        return ocp.compress(ch.cfg, ocp.from_input_order(ch.cfg, list(output.samples)))
-    return ocp.aborted_image(ch.cfg, list(output.samples))
+        return ocp.compress(cfg, ocp.from_input_order(cfg, list(output.samples)))
+    return ocp.aborted_image(cfg, list(output.samples))
 
 
 def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) -> dict[int, list[bytes]]:
@@ -255,6 +280,10 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     aborted = sum(data is None for outs in images.values() for _, data in outs)
     size = sum(len(p) for p in packets) + s.chunk_bytes * (known + aborted)
     transport = regs.transport
+    # the channels work in parallel, each image after the other: a system simulation waits for the slowest channel
+    busy = getattr(transport, "expect_busy", None)
+    if busy is not None:
+        busy(max((sum(ocp.image_cycles(o.cfg) for o, _ in outs) for outs in images.values()), default=0))
     # every chunk of the images that the model gives, and at least one chunk of every other aborted image
     received = transport.exchange(setup.spp_channel, packets, setup.spp_channel, known + aborted,
                                   timeout=10.0 + size / EQUIPMENT_RATE)
@@ -297,6 +326,10 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
         if decrypted:
             check(min(c.counter for c in decrypted) == ctx.next_counter[port], f"APID {apid}: first counter")
             ctx.next_counter[port] += len(decrypted)
+        ctx.log.emit("packets", f"APID {apid}: {len(out)} chunks, Packet Sequence Counts {first} to "
+                     f"{(first + len(out) - 1) & 0x3FFF}, every chunk authenticated and decrypted with the key of its "
+                     f"channel", "pass", apid=apid, chunks=len(out), first_count=first,
+                     lengths=[len(p.data) for p in out])
         try:
             back = chunks.reassemble(decrypted)
         except chunks.ChunkError as err:
@@ -304,13 +337,20 @@ def check_images(ctx: Context, received: list[bytes], images: dict[int, list]) -
         check(len(back) == len(expected), f"APID {apid}: {len(back)} compressed images, expected {len(expected)}")
         for n, (data, (output, want)) in enumerate(zip(back, expected)):
             if want is None:
-                problems = ocp.aborted_problems(data, ch.cfg, list(output.samples))
+                problems = ocp.aborted_problems(data, output.cfg, list(output.samples))
             else:
-                problems = ocp.header_problems(data, ch.cfg)
+                problems = ocp.header_problems(data, output.cfg)
                 if not problems and data != want:
                     first_byte = next((i for i, (a, b) in enumerate(zip(data, want)) if a != b), min(len(data),
                                                                                                     len(want)))
                     problems = [f"{len(data)} bytes, expected {len(want)}, first difference at byte {first_byte}"]
+            figures = ocp.image_figures(output.cfg, len(data))
+            ctx.log.emit("image", f"{ch.compressor}: compressed image {n} of the exchange, {figures['nx']} x "
+                         f"{figures['ny']} x {figures['nz']}, {len(data)} bytes, {figures['bits_per_sample']} bits per "
+                         f"sample, ratio {figures['ratio']}, {'complete' if want is not None else 'aborted'}, "
+                         + (problems[0] if problems else "equal to the model after decryption"),
+                         "fail" if problems else "pass", compressor=ch.compressor, port=ch.port,
+                         complete=want is not None, sha256=hashlib.sha256(data).hexdigest(), **figures)
             check(not problems, f"APID {apid}: compressed image {n}: {problems[0] if problems else ''}")
         result[port] = back
     return result
@@ -335,9 +375,9 @@ def check_status(regs: Registers, ctx: Context) -> None:
     s = ctx.system
     node = s.base(s.node)
     t = ctx.traffic
-    check(regs.read(node + SPP.RX_PACKETS) == t.sdus, f"RX_PACKETS of the Space Packet node, expected {t.sdus}")
-    check(regs.read(node + SPP.TX_PACKETS) == t.chunks, f"TX_PACKETS of the Space Packet node, expected {t.chunks}")
-    check(regs.read(node + SPP.RX_LOSS) == t.losses, f"RX_LOSS of the Space Packet node, expected {t.losses}")
+    regs.expect(node + SPP.RX_PACKETS, t.sdus, "RX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.TX_PACKETS, t.chunks, "TX_PACKETS of the Space Packet node")
+    regs.expect(node + SPP.RX_LOSS, t.losses, "RX_LOSS of the Space Packet node")
     encryptions = systest.ocr_counters(regs, ctx)
     check(encryptions == t.chunks, f"{encryptions} encryptions, {t.chunks} chunks")
     for ch in s.channels:
@@ -348,25 +388,37 @@ def check_status(regs: Registers, ctx: Context) -> None:
             got = regs.read(base + getattr(OCP, name))
             check(got == want, f"{ch.compressor} {name} = {got}, expected {want}")
         for name in ocp.ECC_COUNTERS:
-            check(regs.read(base + getattr(OCP, name)) == 0, f"{ch.compressor} {name}")
+            regs.expect(base + getattr(OCP, name), 0, f"{ch.compressor} {name}")
     systest.ecc_counters(regs, ctx)
 
 
 def tc02_identification(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-02: every register window answers with the identification of its block; the status interface of
-    every compressor reports the configuration of its generics."""
+    every compressor reports the configuration of its generics. A compressor with the runtime configuration shows in
+    IMAGE_X to LIMITS the values of the generics or those of an image of an earlier run on the same device, values in
+    range (refsys/ocptest.check_start)."""
     systest.tc02_identification(regs, ctx)
+    runtime, _ = ocptest.split_channels(ctx.system)
     for ch in ctx.system.channels:
         base = ctx.system.base(ch.compressor)
         for name, value in ocp.mib_words(OCP, ch.generics).items():
+            if ch in runtime and name in ocp.TAKEN_REGISTERS:
+                continue
             word = regs.read(base + getattr(OCP, name))
             check(word == value, f"{ch.compressor} {name}: 0x{word:08X}, expected 0x{value:08X}")
+        if ch in runtime:
+            ocptest.check_start(regs, ctx, ch)
 
 
 def tc05_configure(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-05: input APID i goes to receive port i with the continuity check of its Packet Sequence Count; the
+    Packet Sequence Counts of the output APIDs are read (systest.read_start_counts); a compressor with the runtime
+    configuration that holds values of an earlier run gets the values of the generics (refsys/ocptest.restore); the
     key slot of every AES-GCM core is loaded with its own key and generated IVs; the counters are cleared."""
     systest.route_inputs(regs, ctx, continuity=True)
+    systest.read_start_counts(regs, ctx)
+    for ch in ocptest.split_channels(ctx.system)[0]:
+        ocptest.restore(regs, ctx, ch)
     systest.load_keys(regs, ctx)
     clear_status(regs, ctx)
 
@@ -409,7 +461,7 @@ def tc08_lost_data(regs: Registers, ctx: Context) -> None:
     clear_status(regs, ctx)
     streams = {}
     for ch in ctx.system.channels:
-        n = len(image_sdus(ctx, ch, [0] * ocp.samples_per_image(ch.cfg)))
+        n = sdu_count(ctx, ch)
         check(n >= 3, f"{ch.compressor}: an image of {n} SDUs is too short for the lost SDUs of TC-RS-HW-08")
         plan = lost_plan(ctx, ch.port, n)
         sdus = []
@@ -445,12 +497,64 @@ def tc09_rate(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-10: the runtime configuration of the compressors with RuntimeConfig_g (refsys/ocptest.py). Their
+    registers hold the values of the reset, and every other compressor ignores the writes of the runtime
+    configuration. Before every image of its plan a channel gets the values of the image with a COMMIT, the first one
+    followed by COMMITs with one value out of range, which the compressor refuses; every compressed image equals the
+    model image of its values, header included, and the compressor shows the values it took. In the lab profile every
+    other channel compresses one image of its generics alongside. The counters match."""
+    runtime, fixed = ocptest.split_channels(ctx.system)
+    check(bool(runtime), "no compressor has the runtime configuration (RuntimeConfig_g)")
+    clear_status(regs, ctx)
+    for ch in runtime:
+        ocptest.check_reset(regs, ctx, ch)
+    for ch in fixed:
+        ocptest.check_fixed(regs, ctx, ch)
+    plans = {ch.port: ocptest.image_plan(ctx, ch) for ch in runtime}
+    for k in range(max(len(plan) for plan in plans.values())):
+        streams = {}
+        for ch in (ch for ch in runtime if k < len(plans[ch.port])):
+            ocptest.commit(regs, ctx, ch, plans[ch.port][k])
+            if k == 0:
+                ocptest.refuse(regs, ctx, ch, plans[ch.port][k])
+            cfg = ctx.models[ch.port].next_cfg
+            kind = ctx.profile.kinds[k % len(ctx.profile.kinds)]
+            samples = image_samples(ctx, ch, kind, ctx.images, cfg)
+            streams[ch.port] = image_sdus(ctx, ch, samples)
+            ctx.images += 1
+        if k == 0 and ctx.profile.runtime_full:
+            for ch in fixed:
+                streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+                ctx.images += 1
+        send_images(regs, ctx, streams)
+        for ch in (ch for ch in runtime if k < len(plans[ch.port])):
+            ocptest.check_taken(regs, ctx, ch)
+    check_status(regs, ctx)
+
+
+def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
+    device image, as a second run of the script does (systest.repeat_run): every one passes again. The second run
+    continues the Packet Sequence Counts of the first and starts its compressors with the values of the generics
+    (TC-RS-HW-05); its records go into those of the run."""
+    systest.repeat_run(regs, ctx, make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes))
+
+
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc18_repeated_run]
+
+# Requirements of the cores that the test cases confirm, as far as the procedure names them: it has no coverage
+# section. spfi_compress, whose path of the images up to the chunks is the same, has the full table.
+REQUIREMENTS = {"TC-RS-HW-05": ("SPP:RE-DM-03",)}
+REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage section: the table holds the requirements "
+                     "that it names, a shorter table than that of spfi_compress, which covers the same cores up to the "
+                     "encryption.")
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
-            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure]}
+            tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
+            tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
@@ -466,7 +570,7 @@ def make_context(seed: int, profile: Profile, setup: Setup = Setup(), system: Sy
     longest = system.rx_buffer_bytes - PRIMARY_HEADER_BYTES
     ctx = Context(system=system, setup=setup, seed=seed, profile=profile, sdu_bytes=min(sdu_bytes or longest, longest),
                   **systest.key_material(random.Random(seed), len(system.channels)))
-    ctx.models = {c.port: ocp.Channel(c.cfg, c.marks) for c in system.channels}
+    ctx.models = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
     ctx.cleared = {port: ocp.Counts() for port in ctx.models}
     ctx.next_counter = {c.port: ctx.counter[c.port] for c in system.channels}
     return ctx
@@ -479,12 +583,20 @@ def run(transport, ctx: Context, tests: list | None = None,
     return systest.run(transport, ctx, tests or TESTS, registers)
 
 
+def records_extra(ctx: Context) -> dict:
+    """What the records of a run hold besides the results and the recorded values: the rate of TC-RS-HW-09."""
+    return {"rate": ctx.rate}
+
+
 def main() -> int:
-    parser = systest.arguments(__doc__.splitlines()[0])
+    parser = systest.arguments(__doc__.splitlines()[0], model=True)
     parser.add_argument("--profile", choices=PROFILES, default="lab", help="size of the run (default lab)")
     args = parser.parse_args()
-    ctx = make_context(args.seed, PROFILES[args.profile])
-    return systest.run_on_device(args.device, ctx, select_tests(args.test))
+    if args.check_environment:
+        return systest.check_environment(args.target or "device", compressor=True, cipher=True)
+    if args.target:
+        parser.error("--target goes with --check-environment")
+    return systest.pytest_main(SYSTEM_DIR, args)
 
 
 if __name__ == "__main__":

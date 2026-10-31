@@ -8,14 +8,15 @@ board top level per target with its constraints and build script, and a hardware
 
 ## Status
 
-Release v0.1.0 ([CHANGELOG.md](CHANGELOG.md)). The repository holds two systems with their generated top levels,
-their core versions and the checks of both, their system testbenches and their first board target. Neither system has
-been tested on hardware yet.
+Release v0.2.0 ([CHANGELOG.md](CHANGELOG.md)) with three systems. Every system has its generated top level, its core
+versions and the checks of both, a system testbench and a first board target. The hardware test of the systems is
+open.
 
 | System | Function | Generated top | Simulation | Targets |
 | --- | --- | --- | --- | --- |
-| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in xsim with the transceiver model and in GHDL with the behavioural model of the adapter | AMD VCK190 (board top, constraints, build script; not built yet) |
-| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | test cases of the compression and of lost data pass in GHDL with the behavioural model of the adapter; xsim stops at time 0 in `ocp_predictor` of OpenCompact v0.1.0 (known issue) | AMD VCK190 (board top, constraints, build script; not built yet) |
+| [spfi_encrypt](systems/spfi_encrypt/README.md) | SpaceFibre node with an RMAP target and four AES-GCM encryption channels for Space Packets | generated, checked against the Composer | test cases of the hardware test pass in GHDL with the behavioural model of the adapter; link, RMAP and configuration pass in xsim with the AMD transceiver model | AMD VCK190 (board top, constraints, build script). Not yet built from this release; synthesis, timing and the hardware test follow, with results in a later release |
+| [spfi_compress_encrypt](systems/spfi_compress_encrypt/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 and encrypts the compressed images with AES-GCM in four channels | generated, checked against the Composer | test cases of the compression and of lost data pass in GHDL with the behavioural model of the adapter; link, RMAP and configuration pass in xsim with the AMD transceiver model | AMD VCK190 (board top, constraints, build script). Not yet built from this release; synthesis, timing and the hardware test follow, with results in a later release |
+| [spfi_compress](systems/spfi_compress/README.md) | SpaceFibre node that compresses images with CCSDS 123.0-B-2 in four channels and sends every compressed image in Space Packets of 4096 bytes | generated, checked against the Composer | all test cases of the hardware test pass in GHDL with the behavioural model of the adapter; link, RMAP and configuration pass in xsim with the AMD transceiver model | AMD VCK190 (board top, constraints, build script). Not yet built from this release; synthesis, timing and the hardware test follow, with results in a later release |
 
 ## Layout
 
@@ -29,8 +30,8 @@ been tested on hardware yet.
 | `systems/<system>/sw/` | Host software of the system, for example its hardware test |
 | `cores/` | Submodules: Open Logic FT and every core, at the commits the system files pin |
 | `sim/` | The far end of the system testbenches ([sim/README.md](sim/README.md)) |
-| `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, OpenCompact images and channel model, register maps, facts of a system file, transports, the shared parts of the hardware tests, the system models and the stimuli of the system simulations |
-| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order, the simulators (`xsim.py`, `ghdl.py`) and the runner of the system testbenches (`sysbench.py`), the offline package of a build (`make_offline_bundle.py`) |
+| `sw/refsys/` | Python library of the host software: RMAP, Space Packets, OpenCrypto chunks, OpenCompact images and channel model, register maps, facts of a system file, transports, the shared parts of the hardware tests, their pytest plugin and step log, the system models and the stimuli of the system simulations |
+| `tools/` | Checks of the repository (core versions, generated top levels), the Composer version of the generated top levels (`composer_ref.txt`), the Vivado reader of the Composer compile order and the constraint check of the implementation runs (`tools/vivado/`), the simulators (`xsim.py`, `ghdl.py`) and the runner of the system testbenches (`sysbench.py`), the offline package of a build (`make_offline_bundle.py`) |
 | `lint/` | VSG configuration and lint script of the hand-written VHDL |
 | `run.py` | VUnit run script: compiles the libraries of all systems and runs their testbenches |
 

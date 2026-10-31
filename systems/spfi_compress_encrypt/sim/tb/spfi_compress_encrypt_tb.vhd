@@ -33,7 +33,13 @@ entity spfi_compress_encrypt_tb is
         -- Far end: the generics of the SpaceFibre port of the system (ofb0 of the Composer file)
         NumLanes_g  : positive := 4;
         NumVc_g     : positive := 2;
-        VcInDepth_g : positive := 1024
+        VcInDepth_g : positive := 1024;
+        -- Reference clock of the transceivers in kHz: 156250 (156.25 MHz); the AMD transceiver model (xsim)
+        -- also takes 100000 (100 MHz), the behavioural adapter model needs 156250 (its lane clock is the
+        -- reference clock)
+        RefClkKhz_g : positive := 156250;
+        -- System clock in kHz: 200000 (200 MHz); the hardware builds run at 150000 (150 MHz)
+        SysClkKhz_g : positive := 200000
     );
 end entity;
 
@@ -42,9 +48,10 @@ end entity;
 ---------------------------------------------------------------------------------------------------
 architecture sim of spfi_compress_encrypt_tb is
 
-    -- Clocks: reference clock of the transceivers 156.25 MHz, system clock 200 MHz
-    constant RefPeriod_c : time := 6400 ps;
-    constant SysPeriod_c : time := 5 ns;
+    -- Clocks: reference clock of the transceivers (RefClkKhz_g, default 156.25 MHz), system clock
+    -- (SysClkKhz_g, default 200 MHz)
+    constant RefPeriod_c : time := 1 ps * (1.0e9 / real(RefClkKhz_g));
+    constant SysPeriod_c : time := 1 ps * (1.0e9 / real(SysClkKhz_g));
 
     -- Clocks and reset
     signal RefClk : std_logic := '0';

@@ -1,0 +1,93 @@
+"""Checks the stimuli and the checks of the system simulation of spfi_compress (vectors.py) without a simulator.
+
+A Python stand-in for the bench (refsys.sysvectors.play) plays stimulus.txt against the software model of the system
+at the level of the virtual channels of the far end and writes the records in the format of the bench. The system is
+that of the Composer file with smaller images and chunks (hardware_test.System dims and chunk_bytes), so that the
+model compresses them in seconds and every compressed image takes several Space Packets.
+"""
+
+from pathlib import Path
+
+from refsys import systest, sysvectors
+
+HERE = Path(__file__).resolve().parent
+(vectors,) = systest.system_modules(HERE.parent, "vectors")
+ht, sm = vectors.ht, vectors.sm
+
+SETUP = ht.Setup()
+SYSTEM = ht.System(dims=(16, 8, 6), chunk_bytes=256)      # 768 samples, 1536 bytes per image
+BENCH = vectors.make_bench(SYSTEM, sdu_bytes=200)
+
+
+def play(directory: Path, model=None, **kw) -> None:
+    sysvectors.play(directory, model or sm.SystemModel(SETUP, system=SYSTEM), SYSTEM, SETUP, **kw)
+
+
+def results(report: str) -> dict[str, str]:
+    return {line.split()[0]: line.split()[1] for line in report.splitlines() if line.startswith("TC-RS-HW-")}
+
+
+def operations(directory: Path) -> list[list[str]]:
+    return [t.split() for t in (directory / sysvectors.STIMULUS).read_text(encoding="utf-8").splitlines()
+            if t and not t.startswith("#")]
+
+
+def test_records_of_the_model_pass(tmp_path):
+    sysvectors.write(BENCH, tmp_path, "sim", 1, None)
+    play(tmp_path)
+    assert sysvectors.check(BENCH, tmp_path) == 0
+    report = (tmp_path / sysvectors.REPORT).read_text(encoding="utf-8")
+    assert results(report) == {ht.test_name(t): "PASS" for t in ht.TESTS}
+    assert "1 image per channel in TC-RS-HW-06" in report
+
+
+def test_the_procedure_knows_every_space_packet_in_advance(tmp_path):
+    # the model of OpenCompact gives every compressed image, the aborted ones included: the procedure never receives
+    # until the channel of the Space Packets is quiet (the far end waits on the channel of RMAP only during its link
+    # reset in TC-RS-HW-12, which runs twice: TC-RS-HW-18 repeats the run)
+    sysvectors.write(BENCH, tmp_path, "sim", 1, None)
+    quiet = [op for op in operations(tmp_path) if op[0] == "quiet"]
+    assert quiet == [["quiet", str(SYSTEM.rmap_vc), str(sysvectors.QUIET_NS), str(sysvectors.QUIET_LIMIT_NS)]] * 2
+
+
+def append_last_packet(directory: Path) -> None:
+    """The system sends the last Space Packet that the far end received once more."""
+    path = directory / sysvectors.rx_file(SYSTEM.spp_vc)
+    rx = path.read_text(encoding="utf-8").splitlines()
+    path.write_text("\n".join(rx + rx[-1:]) + "\n", encoding="utf-8")
+
+
+def test_a_space_packet_that_no_request_awaits_fails(tmp_path):
+    sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-08"])
+    play(tmp_path)
+    append_last_packet(tmp_path)
+    assert sysvectors.check(BENCH, tmp_path) == 1
+    assert "packets that no request awaited" in (tmp_path / sysvectors.REPORT).read_text(encoding="utf-8")
+
+
+def test_a_lost_space_packet_fails(tmp_path):
+    sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-06"])
+    play(tmp_path, drop_last=True)
+    assert sysvectors.check(BENCH, tmp_path) == 1
+    assert results((tmp_path / sysvectors.REPORT).read_text(encoding="utf-8"))["TC-RS-HW-06"] == "FAIL"
+
+
+def test_the_bench_of_the_composer_file_has_the_lab_images():
+    ctx = vectors.BENCH.context(1, "sim")
+    assert {c.cfg["large_n_x"] * c.cfg["large_n_y"] * c.cfg["large_n_z"] for c in ctx.system.channels} == {
+        64 * 64 * 48}
+    assert {c.chunk_bytes for c in ctx.system.channels} == {4096}
+
+
+def test_the_limit_of_an_exchange_includes_the_work_of_the_compressors(tmp_path, monkeypatch):
+    # an image in BI order with a small runtime M takes the predictor several cycles per sample (TC-RS-HW-10 sends
+    # channel 0 such an image): the procedure tells the bench the cycles of the images of an exchange
+    cycles = 10 ** 6
+    monkeypatch.setattr(vectors.ht.ocp, "image_cycles", lambda cfg: cycles)
+    sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-10"])
+    limits = [int(op[3]) for op in operations(tmp_path) if op[0] == "recv" and int(op[2]) > 1]
+    busy = cycles * sysvectors.BUSY_NS_PER_CYCLE * 5 // 4
+    assert limits and all(limit > busy for limit in limits)
+    monkeypatch.undo()
+    sysvectors.write(BENCH, tmp_path, "sim", 1, ["TC-RS-HW-10"])
+    assert all(int(op[3]) < busy for op in operations(tmp_path) if op[0] == "recv")

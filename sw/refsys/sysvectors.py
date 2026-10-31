@@ -26,7 +26,8 @@ reply is checked and removed.
 Operations of stimulus.txt, one per line, numbered from 0 without the comments:
 
   mark <name>                                  start of a test case
-  mibw <address> <data>                        write of a register of the far end
+  mibw <address> <data>                        write of a register of the far end (a link reset of the far end: the
+                                               operator step of TC-RS-HW-12)
   mibp <address> <mask> <value> <limit ns>     reads a register of the far end until it has the value
   send <vc> <bytes> <packet>                   sends a packet on a virtual channel
   recv <vc> <count> <limit ns>                 waits for count more packets on a virtual channel
@@ -47,14 +48,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
 
-from refsys import systest
-from refsys.transport import Transport, TransportError
+from refsys import steplog, systest
+from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
 
 STIMULUS = "stimulus.txt"
 VECTORS = "vectors.json"
 EVENTS = "events.txt"
 WALL = "wall.txt"
 REPORT = "report.txt"
+STEPS = "steps.jsonl"                  # the step log of the check (refsys/steplog.py), as JSON lines
+STEPS_TEXT = "steps.log"               # the same as text
 
 # Simulated time limits of the far end (ns). The link initialises in about 100 us; a command and its reply take a
 # few microseconds; the Space Packets of an exchange cross the link at several Gbit/s.
@@ -62,6 +65,10 @@ LINK_TIMEOUT_NS = 500_000
 REQUEST_TIMEOUT_NS = 200_000
 EXCHANGE_TIMEOUT_NS = 50_000
 EXCHANGE_NS_PER_BYTE = 4
+# A procedure that knows how long the system works on what it sends (expect_busy) adds that time to the limit of its
+# next exchange, in cycles of the system clock; a cycle counts BUSY_NS_PER_CYCLE ns (100 MHz, the slowest system clock
+# of the benches) with a margin of a quarter
+BUSY_NS_PER_CYCLE = 10
 # A channel is quiet when no packet arrived for QUIET_NS; the reception ends at the latest after QUIET_LIMIT_NS
 QUIET_NS = 100_000
 QUIET_LIMIT_NS = 20_000_000
@@ -135,6 +142,7 @@ class Recorder(Transport):
         self.poll: tuple[int, int] | None = None
         self.polled = False
         self.quiet: int | None = None          # channel of the reception that is going on
+        self.busy_cycles = 0                   # system clock cycles of the work of the next exchange (expect_busy)
 
     def line(self, text: str) -> int:
         self.lines.append(text)
@@ -143,6 +151,11 @@ class Recorder(Transport):
     def begin(self, name: str) -> None:
         self.quiet = None
         self.ops.append({"kind": "mark", "name": name, "line": self.line(f"mark {name}")})
+
+    def expect_busy(self, cycles: int) -> None:
+        """The system works cycles cycles of its clock on the packets of the next exchange (for example compressors
+        at the pipeline rate of their predictor): its time limit grows by that time."""
+        self.busy_cycles = cycles
 
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
         self.quiet = None
@@ -170,6 +183,8 @@ class Recorder(Transport):
                 self.line(f"send {tx.vc} {len(p)} {p.hex()}")
             size = sum(len(p) for p in bare) + sum(len(r) for r in replies)
             limit = REQUEST_TIMEOUT_NS if count == 1 else EXCHANGE_TIMEOUT_NS + EXCHANGE_NS_PER_BYTE * size
+            limit += self.busy_cycles * BUSY_NS_PER_CYCLE * 5 // 4
+            self.busy_cycles = 0
             op["line"] = self.line(f"recv {rx.vc} {count} {limit}")
         self.ops.append(op)
         return replies
@@ -187,6 +202,23 @@ class Recorder(Transport):
 
     def end_poll(self) -> None:
         self.polled = False
+
+    def operator(self, step: str) -> None:
+        """The operator step as operations of the far end: its link reset (DL_CTRL.LINK_RESET with DATA_SCRAMBLED
+        kept, OpenFibre register map), a wait of QUIET_NS on the virtual channel of RMAP, during which no packet may
+        arrive, and the wait until the link of the far end is initialised again."""
+        assert step == FAR_END_LINK_RESET
+        self.model.operator(step)
+        self.quiet = None
+        ofb = systest.OFB
+        reset = ofb.field("DL_CTRL", "LINK_RESET", 1) | ofb.field("DL_CTRL", "DATA_SCRAMBLED", 1)
+        mask = ofb.field("DL_STATUS", "LINK_STATE", ofb.DL_STATUS_LINK_STATE_MASK)
+        value = ofb.field("DL_STATUS", "LINK_STATE", systest.LINK_INITIALISED)
+        vc = self.routes[min(self.routes)].vc
+        lines = [self.line(f"mibw {ofb.DL_CTRL:08x} {reset:08x}"),
+                 self.line(f"quiet {vc} {QUIET_NS} {QUIET_LIMIT_NS}"),
+                 self.line(f"mibp {ofb.DL_STATUS:08x} {mask:08x} {value:08x} {LINK_TIMEOUT_NS}")]
+        self.ops.append({"kind": "operator", "step": step, "lines": lines})
 
 
 class RecordingRegisters(PollingRegisters):
@@ -273,6 +305,7 @@ class Replay(Transport):
         self.routes = routes_
         self.rx = {vc: deque(packets) for vc, packets in received.items()}
         self.tries = {line: int(values[0]) for _, kind, line, values in events if kind == "poll"}
+        self.mibp = {line for _, kind, line, _ in events if kind == "mibp"}
         self.quiet_counts = {line: int(values[0]) for _, kind, line, values in events if kind == "quiet"}
         self.timeouts = {line for _, kind, line, _ in events if kind == "timeout"}
         self.poll: tuple[int, int] | None = None
@@ -306,6 +339,18 @@ class Replay(Transport):
                 queue.popleft()
             return self._take(rx_channel, 1)
         return self._take(rx_channel, count)
+
+    def operator(self, step: str) -> None:
+        op = self._next()
+        if op["kind"] != "operator" or op["step"] != step:
+            raise TransportError(f"operator step {step} where the recording has {op}")
+        _, quiet, link = op["lines"]
+        if self.quiet_counts.get(quiet) != 0:
+            raise TransportError(f"operator step {step}: {self.quiet_counts.get(quiet)} packets arrived during the "
+                                 f"link reset of the far end (operation {quiet})")
+        if link not in self.mibp:
+            raise TransportError(f"operator step {step}: the link of the far end did not initialise again within "
+                                 f"{LINK_TIMEOUT_NS} ns of simulated time (operation {link})")
 
     def receive(self, channel, timeout):
         if self.quiet is None or self.quiet[0] != channel:
@@ -347,16 +392,25 @@ class Replay(Transport):
         return {vc: len(q) for vc, q in self.rx.items() if q}
 
 
-def check(bench: Bench, directory: Path) -> int:
-    """Replays the records of the bench with the procedure of the hardware test, writes report.txt; returns the exit
-    code."""
+def check(bench: Bench, directory: Path, out: Path | None = None) -> int:
+    """Replays the records of the bench in directory with the procedure of the hardware test; writes report.txt and the
+    step log of the check (steps.jsonl, steps.log) into out (default: directory); returns the exit code. With out, the
+    records of an earlier simulation are checked again with the procedure of the current code."""
     ht = bench.ht
+    out = out or directory
+    out.mkdir(parents=True, exist_ok=True)
     vectors = json.loads((directory / VECTORS).read_text(encoding="utf-8"))
     events, received = read_records(directory, vectors["vcs"])
     ctx = bench.restore(vectors)
     selected = ht.select_tests(vectors["tests"])
     replay = Replay(vectors["ops"], events, received, routes(ctx.system, ctx.setup))
-    results = ht.run(replay, ctx, selected, PollingRegisters)
+    sinks = [steplog.JsonLines(out / STEPS), steplog.TextLines(out / STEPS_TEXT)]
+    ctx.log.sinks += sinks
+    try:
+        results = ht.run(replay, ctx, selected, PollingRegisters)
+    finally:
+        for sink in sinks:
+            sink.close()
     problems = []
     kinds = {kind for _, kind, _, _ in events}
     if not events:
@@ -369,8 +423,8 @@ def check(bench: Bench, directory: Path) -> int:
     passed = len(results) == len(selected) and all(error is None for _, error in results)
     if passed and replay.leftover():
         problems.append(f"packets that no request awaited: {replay.leftover()} (virtual channel: count)")
-    report = make_report(bench, vectors, events, results, problems, read_wall(directory))
-    (directory / REPORT).write_text(report, encoding="utf-8")
+    report = make_report(bench, vectors, events, results, problems, read_wall(directory), ctx.records)
+    (out / REPORT).write_text(report, encoding="utf-8")
     print(report, end="")
     return 0 if passed and not problems else 1
 
@@ -383,7 +437,7 @@ def read_wall(directory: Path) -> dict[int, float]:
     return {int(a): float(b) for a, b in (t.split() for t in path.read_text(encoding="utf-8").splitlines() if t)}
 
 
-def make_report(bench: Bench, vectors, events, results, problems, wall) -> str:
+def make_report(bench: Bench, vectors, events, results, problems, wall, records=()) -> str:
     times = {line: ns for ns, kind, line, _ in events if kind in ("mark", "mibp", "end", "timeout")}
     ready = next((ns for ns, kind, _, _ in events if kind == "ready"), None)
     marks = [op for op in vectors["ops"] if op["kind"] == "mark"]
@@ -410,6 +464,8 @@ def make_report(bench: Bench, vectors, events, results, problems, wall) -> str:
         out += ["", f"Total simulated time {stop / 1000:.1f} us"]
     if wall and stop_line in wall:
         out.append(f"Total wall-clock time {wall[stop_line] / 60:.1f} min")
+    if records:
+        out += ["", "Recorded values (no pass criteria)"] + [f"  {text}" for text in records]
     errors = [f"{name}: {error}" for name, error in results if error]
     if errors or problems:
         out += [""] + errors + problems
@@ -474,6 +530,8 @@ def play(directory: Path, model: Transport, system, setup, drop_last: bool = Fal
             events.append(f"{ns} end {index}")
         else:
             assert f[0] == "mibw" and len(f) == 3
+            if int(f[1], 16) == systest.OFB.DL_CTRL and int(f[2], 16) & systest.OFB.field("DL_CTRL", "LINK_RESET", 1):
+                model.operator(FAR_END_LINK_RESET)
     (directory / EVENTS).write_text("\n".join(events) + "\n", encoding="utf-8")
     for vc, lines in rx.items():
         (directory / rx_file(vc)).write_text("".join(f"{t}\n" for t in lines), encoding="utf-8")

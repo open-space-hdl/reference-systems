@@ -5,7 +5,7 @@
 """System simulation of spfi_encrypt with the behavioural model of the GTY adapter at both ends of the link (GHDL).
 
 Usage: python systems/spfi_encrypt/sim/run_ghdl.py [--profile sim] [--seed N] [--each] [--hdl DIR]
-       [TC-RS-HW-nn ...]
+       [--sysclk-mhz 200|150] [TC-RS-HW-nn ...]
 
 tools/sysbench.py describes the runs and their results (sim_out/ghdl/spfi_encrypt, or RS_GHDL_OUT).
 """
