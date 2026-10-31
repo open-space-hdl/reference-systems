@@ -77,9 +77,9 @@ initialisation.
 ## Build
 
 The build needs AMD Vivado 2025.2 with device support and a synthesis licence for the XCVC1902, the submodules in
-`cores/` and the generated top level in `systems/spfi_encrypt/hdl/`. A build computer without network access gets the
-repository as Git bundles (`tools/make_offline_bundle.py`, [hardware test procedure](docs/hardware_test.md),
-section 3).
+`cores/` and the generated top level in `systems/spfi_encrypt/hdl/`. The Python package openspacehdl exports the release
+with its submodules, also on a computer without network access, and a clone from GitHub serves as well ([hardware test
+procedure](docs/hardware_test.md), section 3).
 
 ```shell
 vivado -mode batch -source systems/spfi_encrypt/targets/vck190/tcl/build.tcl [-tclargs <words>]
