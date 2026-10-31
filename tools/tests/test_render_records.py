@@ -49,7 +49,7 @@ def test_the_command_line(tmp_path):
     path = tmp_path / "records.json"
     path.write_text(json.dumps(RECORDS), encoding="utf-8")
     out = tmp_path / "tables.md"
-    result = subprocess.run([sys.executable, str(TOOLS / "render_records.py"), str(path), "--out", str(out)],
+    result = subprocess.run([sys.executable, "-B", str(TOOLS / "render_records.py"), str(path), "--out", str(out)],
                             capture_output=True, text=True, check=False)
     assert result.returncode == 0, result.stderr
     assert out.read_text(encoding="utf-8") == render_records.render(RECORDS)

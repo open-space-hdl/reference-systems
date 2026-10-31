@@ -144,10 +144,15 @@ def test_keep_going_runs_the_test_cases_whose_dependencies_passed(tmp_path):
 
 
 def test_a_run_with_bytecode_warns(tmp_path):
-    done = session(tmp_path, "--tc", "TC-RS-HW-01", bytecode=True)
+    # the bytecode goes to a cache outside the repository (PYTHONPYCACHEPREFIX): the run writes it, the tree stays
+    results, cache = tmp_path / "results", tmp_path / "pycache"
+    results.mkdir()
+    before = hwplugin.tree_state()
+    done = session(results, "--tc", "TC-RS-HW-01", bytecode=True, env={"PYTHONPYCACHEPREFIX": str(cache)})
     assert done.returncode == 0
-    warning = [e for e in events(run_dir(tmp_path)) if e["kind"] == "env" and e["data"].get("bytecode") is True]
+    warning = [e for e in events(run_dir(results)) if e["kind"] == "env" and e["data"].get("bytecode") is True]
     assert warning and "python -B -m pytest" in warning[0]["text"]
+    assert any(cache.rglob("*.pyc")) and hwplugin.tree_state() == before
 
 
 def test_the_step_log_writes_json_lines_and_text(tmp_path):
