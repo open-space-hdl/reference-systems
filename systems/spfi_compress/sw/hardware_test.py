@@ -984,10 +984,12 @@ REQUIREMENTS = {
     "TC-RS-HW-14": ("OFB:DL-RE-03", "OFB:DL-ER-03", "OFB:DL-SQ-02", "OFB:CORE-ED-01/02", "ORMAP:TG-EX-06",
                     "ORMAP:MG-ED-01/02", "SPP:RE-FT-01", "SPP:SE-AS-05") + _OFB_MG + _SPP_MG,
     "TC-RS-HW-15": ("ORMAP:TG-RX-02/03/06", "ORMAP:TG-TX-02", "ORMAP:TG-AU-01..08", "ORMAP:TG-EX-02/03/05/07/08",
+                    "ORMAP:TG-EX-06",
                     "ORMAP:CO-DM-04") + _ORMAP_MG,
     "TC-RS-HW-16": ("SPP:RE-RC-02", "SPP:RE-DM-01", "SPP:RE-DM-02", "SPP:EN-RX-03", "SPP:SE-MX-01",
                     "SPP:CO-SY-01/02/04/08", "SPP:TB-FN-01") + _SPP_MG,
     "TC-RS-HW-17": _OFB_MG,
+    "TC-RS-HW-19": ("SPP:CO-RS-01/02/12", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:MB-RS-01") + _SPP_MG + _OCP_MB,
 }
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error

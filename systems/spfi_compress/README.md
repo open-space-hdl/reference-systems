@@ -30,9 +30,11 @@ place of the framer and the AES-GCM core of every channel.
 | `chunk0` to `chunk3` | `olo.olo_base_chunker` | Cuts every compressed image into chunks of 256 beats of 128 bits (4096 bytes); the last chunk of an image holds the rest |
 | `dec0` | `olo.olo_axi_lite_decoder` | Splits the AXI4-Lite master of `rmap0` into the register windows |
 | `edac0` | `olo.olo_ft_ecc_monitor_axi` | Counts the corrected and uncorrectable errors of the memories of the compressors (channels 0 to 3) and of the FIFOs (channels 4 to 7) |
+| `prst0` | `olo.olo_ft_reset_ctrl_axi` | Pipeline reset controller: resets the processing path on command ([pipeline reset](#pipeline-reset)) |
 
 The register windows follow each other without gaps (`hdl/spfi_compress_address_map.md`): `spp0`, `edac0`, `rmap0`,
-`ofb0` and `ocp0` to `ocp3` at 0x00000 to 0x70000, 64 KiB each.
+`ofb0`, `ocp0` to `ocp3` and `prst0` at 0x00000 to 0x80000, 64 KiB each. The decoder takes 20 address bits: the map
+repeats every 0x100000 bytes, and the port indices 9 to 15 answer with an error response.
 
 ## Data paths
 
@@ -169,6 +171,31 @@ receive buffer of the far end must hold.
 As in spfi_encrypt: `Clk_sys` for all blocks except the lane clock domain of `ofb0`, the OpenCompact channels and the
 chunkers included; `Rst` is the asynchronous, high-active reset of the system.
 
+## Pipeline reset
+
+`prst0` (`olo.olo_ft_reset_ctrl_axi` of Open Logic FT) resets the processing path on command, without a new device image
+and with the link up. Its output `RstOut` is the source of the reset group `pipe` of the Composer file (`resetGroups`):
+the members are `spp0`, the FIFOs `rxf0` to `rxf3`, the compressors `ocp0` to `ocp3` and the chunkers `chunk0` to
+`chunk3`. `spp0` takes the group reset on its data path reset `DpRst`; its link output stage keeps the system reset and
+ends a packet open on the link with an EEP. `pa0`, `ofb0`, `nchar0`, `rmap0`, `dec0`, `edac0` and `prst0` keep the
+system reset. The register map of `prst0` (`ID`, `CTRL`, `STATUS`) is in its documentation in Open Logic FT; the
+hardware test procedure, section "Pipeline reset", has the steps of the software and the test cases that show every
+requirement.
+
+| ID | Requirement |
+| --- | --- |
+| PR-01 | A write of the key with all four byte enables to `prst0.CTRL`, reachable over RMAP, shall command a reset of the processing path. Any other write shall do nothing (PR-09). |
+| PR-02 | The pipeline reset shall reset `spp0` (data path, register file and both APID tables with every per-APID sequence state, through `DpRst`), the FIFOs `rxf0` to `rxf3`, the compressors `ocp0` to `ocp3` (image in progress, adapters, counters, runtime registers to the generics) and the chunkers `chunk0` to `chunk3`. |
+| PR-03 | The pipeline reset shall not touch `ofb0` and `pa0` (the link and the lanes stay up, no lane reset, no link reset), `nchar0`, `rmap0` (logical address, key, windows, counters), `dec0`, `edac0` (its counters keep the memory errors of the reset blocks) and `prst0` itself. |
+| PR-04 | Every member shall see the same reset, asserted and released in the same clock cycle (one register, `prst0.RstOut`, drives them all); a commanded reset shall last `RstPulseCycles_g` = 16 cycles. |
+| PR-05 | `prst0.STATUS.BUSY` shall read 1 while the reset is asserted. The processing path is ready when `BUSY` is 0, `TABLE_STATUS.TX_BUSY` and `RX_BUSY` of `spp0` are 0 (the initialisation of the tables, 2048 cycles after the release). |
+| PR-06 | `prst0.STATUS.COUNT` shall count every command since the system reset, also one that restarts a running reset (16 bits, saturating at 0xFFFF), so that a record shows how many commands the device took. |
+| PR-07 | A packet that `spp0` is sending on the link when the pipeline reset comes shall end with an EEP. No byte of a packet that started before the reset shall follow the EEP. |
+| PR-08 | A command while the reset is asserted shall restart the count without a gap: the reset ends 16 cycles after the write response of the last command, and the processing path ends in the same state as after one command. |
+| PR-09 | The key shall be the 32-bit value 0x50495045 (ASCII "PIPE"; on the RMAP link the bytes 45 50 49 50). A write of another value, of the key with a flipped bit, with a missing byte enable, to another address, and of all zeros or all ones shall not reset the processing path. |
+| PR-10 | The system reset shall also reset the processing path (`prst0.RstOut` is the registered OR of its `Rst`, the system reset, and the commanded pulse), and `prst0` itself is reset only by the system reset. A command whose write response falls in the system reset is discarded. |
+| PR-11 | From the command until the software has written the receive table again, the far end shall not send on the virtual channel of the data path. A Space Packet that arrives during the reset is dropped; one that arrives after the release and before the receive table is written goes to receive port 0 (the path default of the APID tables, `RxPathDefault_g`). The rest of a Space Packet that the reset interrupted is checked after the release as a packet of its own; it is usually discarded and counted once, and goes to receive port 0 if it happens to form a valid packet. A second pipeline reset with the link quiet returns the pipeline to its reset state; the procedure states this rather than the hardware preventing it. The far end is part of the test setup, so the procedure controls it. |
+
 ## Lane initialisation
 
 As in spfi_encrypt ([lane initialisation](../spfi_encrypt/README.md#lane-initialisation)): the lane settings of the
@@ -194,9 +221,13 @@ the image of the reference model for the values committed before it; the configu
 `runtime_image_cfg` of OpenCompact (`tools/ocp_configs.py`), which builds the expected images of its own runtime
 testbench. Channels 1 and 2 must ignore the writes of the runtime registers.
 
-TC-RS-HW-18 runs the test cases of the run again on the same device without a new device image, as a second run of the
-script does: every run reads the Packet Sequence Counts from which its Space Packets continue and starts its compressors
-with the values of the generics (hardware test procedure, section "Repeated runs").
+Every run starts with the pipeline reset. TC-RS-HW-19 tests it: the reset values of `spp0` and of the compressors,
+the writes that `prst0` ignores, everything outside the processing path unchanged, and a round of images after it.
+
+TC-RS-HW-18 runs the test cases of the run again on the same device without the pipeline reset and without a new
+device image, as a second run of the script does: every run reads the Packet Sequence Counts from which its Space
+Packets continue and starts its compressors with the values of the generics (hardware test procedure, section
+"Repeated runs").
 
 TC-RS-HW-11 to TC-RS-HW-17 check the error handling of the SpaceFibre port, the RMAP target and the Space Packet node
 and the protection of their memories: registers of the port written and read back, a link reset from the far end, a

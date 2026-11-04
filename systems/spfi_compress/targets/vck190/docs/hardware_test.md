@@ -12,9 +12,10 @@ OpenCompact for the configuration of its channel. The script
 
 Besides the data paths, TC-RS-HW-11 to TC-RS-HW-17 provoke and check the error handling of the SpaceFibre port, the RMAP
 target and the Space Packet node and the protection of their memories, and check at the end of the run that no error
-register counted on its own. TC-RS-HW-18 runs the test cases again on the same device without a new device image
-(section 8, "Repeated runs"). The procedure is the hardware test plan of the cores in the system: section 10 lists per
-core the requirements that the test cases exercise and those they do not, with the reason.
+register counted on its own. TC-RS-HW-19 tests the pipeline reset with which every run starts (section 8, "Pipeline
+reset"). TC-RS-HW-18 runs the test cases again on the same device without the pipeline reset and without a new device
+image (section 8, "Repeated runs"). The procedure is the hardware test plan of the cores in the system: section 10
+lists per core the requirements that the test cases exercise and those they do not, with the reason.
 
 The board, the far end, the cable and the reference clock are those of spfi_encrypt
 ([its procedure](../../../../spfi_encrypt/targets/vck190/docs/hardware_test.md)); this procedure repeats what the
@@ -220,6 +221,9 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <ST
   OpenCompact, a few seconds per image.
 - `hardware_test.py --device` and `--model`, the commands of earlier releases, run the same pytest tests with the
   same options.
+- Every run starts with the pipeline reset (section "Pipeline reset"): TC-RS-HW-01 writes the key to `prst0.CTRL`
+  after the check of the link, waits for the end of the reset and records `prst0.STATUS.COUNT`. `--no-pipeline-reset`
+  skips it, for diagnosis only; the report of such a run says so.
 
 TC-RS-HW-12 asks the operator for one step: reset the link of port 1 in STAR-System (a link reset of that port,
 nothing else) while no traffic is in flight, then press Enter; the script then waits until the RMAP target answers
@@ -231,8 +235,9 @@ with the image sent: equal for the lossless channels, every sample within its ma
 of OpenCompact whose model has no decoder the check is skipped, and the `RECORD` lines and the records say so.
 
 TC-RS-HW-12, 13 and 16 send one image per channel (a round of images) after the event they provoke, TC-RS-HW-14
-three rounds. Before a test case that provokes errors clears the error registers, it checks that only the registers
-it targets moved: every other error register of every block must still read 0.
+three rounds, TC-RS-HW-19 one round before and one after the pipeline reset. Before a test case that provokes errors
+clears the error registers, it checks that only the registers it targets moved: every other error register of every
+block must still read 0.
 
 The expected compressed images come from the reference model of OpenCompact for the generics of the compressor of
 every channel in the Composer file; the expected images and counters after lost Space Packets come from the error
@@ -240,8 +245,8 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | As spfi_encrypt; then the baseline of the error registers of every block (section 10): read, the registers that hold a value printed as a `RECORD` line, cleared and read again | Link initialised, all lanes of `ofb0` active; after the clear every error register reads 0, `RXERR_COUNT` of every lane at most its first value |
-| TC-RS-HW-02 Identification | Read the identification register of every register window; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`); read `GENERICS` and `BUFFERS` of `rmap0`, `GENERICS`, `SERVICES`, `TX_BUFFER` and `RX_BUFFER` of `spp0`, `GENERICS`, `DL_STATUS`, `ML_STATUS` and `LANE_STATUS` of every lane of `ofb0` | `ID` of every register bank with an identification = its `SPFI_COMPRESS_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435003); `INFO` of `edac0` gives its channels and counter width; every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file; on `ocp0` and `ocp3` `IMAGE_X` to `LIMITS` give either those values or the values of an image of an earlier run on the same device (section "Repeated runs"), values that a COMMIT accepts, shown as for an image of them, and the values are recorded; the generics registers of `rmap0`, `spp0` and `ofb0` give their generics in the Composer file (0x00040041, 0x00200100; 0x03020484, 0x000F000F, 8192, 8192; 0x00000402); `DL_STATUS.LINK_STATE` 3 and `TX_READY` 1; `ML_STATUS`: all four lanes sending and receiving, `ALIGN_STATE` 2, no bypass; every lane Active |
+| TC-RS-HW-01 Link | As spfi_encrypt, the pipeline reset included; then the baseline of the error registers of every block (section 10): read, the registers that hold a value printed as a `RECORD` line, cleared and read again | Link initialised, all lanes of `ofb0` active; the pipeline reset as in section "Pipeline reset"; after the clear every error register reads 0, `RXERR_COUNT` of every lane at most its first value |
+| TC-RS-HW-02 Identification | Read the identification register of every register window and `STATUS` of `prst0`; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`); read `GENERICS` and `BUFFERS` of `rmap0`, `GENERICS`, `SERVICES`, `TX_BUFFER` and `RX_BUFFER` of `spp0`, `GENERICS`, `DL_STATUS`, `ML_STATUS` and `LANE_STATUS` of every lane of `ofb0` | `ID` of every register bank with an identification = its `SPFI_COMPRESS_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435003), `prst0` 0x52535401; `INFO` of `edac0` gives its channels and counter width; `prst0.STATUS.BUSY` 0 and `COUNT` the value that TC-RS-HW-01 recorded (in a run without its pipeline reset `COUNT` is recorded); every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file; on `ocp0` and `ocp3` `IMAGE_X` to `LIMITS` give either those values or the values of an image of an earlier run on the same device (section "Repeated runs"), values that a COMMIT accepts, shown as for an image of them, and the values are recorded; the generics registers of `rmap0`, `spp0` and `ofb0` give their generics in the Composer file (0x00040041, 0x00200100; 0x03020484, 0x000F000F, 8192, 8192; 0x00000402); `DL_STATUS.LINK_STATE` 3 and `TX_READY` 1; `ML_STATUS`: all four lanes sending and receiving, `ALIGN_STATE` 2, no bypass; every lane Active |
 | TC-RS-HW-03 RMAP | As spfi_encrypt; then the error registers | Every value reads back; the wrong key gives the status "invalid key" (3); `rmap0` counts it (`TGT_CNT_ERR2.KEY` 1, `EVENTS.TGT_ERROR`) and no other error register moved; cleared |
 | TC-RS-HW-04 Commands of several words | Read the configuration registers of `ocp0` (`ID` to `BLOCK`, 48 bytes) with one command and word by word; write `WIN_CTRL`, `WIN_BASE` and `WIN_LAST` of the test window with one verified command, read them word by word, write back the values read before | Both reads give the same words; the window was disabled before; the three registers hold the written values; the window is restored |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i, continuity check on, `VALID` 0); the send APID table entry of every output APID read (`TX_TABLE_APID`, `TX_TABLE_ENTRY`); `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3` read, and when they do not hold the values of the reset, the values of the generics written and committed; the packet and loss counters of `spp0` and the image, SDU and memory error counters of every compressor cleared | Table entries read back with the port, the enable and the continuity check; no table overrun; no double error in a send table entry, whose `COUNT` is recorded as the Packet Sequence Count from which the Space Packets of the APID continue in this run; a COMMIT of the values of the generics, when one is needed, gives `STATUS.CFG_PENDING` 1 and is recorded |
@@ -253,11 +258,12 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 | TC-RS-HW-11 SpaceFibre port | Write and read back `IRQ_MASK` (its documented fields), `DL_BC_INTERVAL`, `VC_IDLE_LIMIT`, `ECC_SELECT` and `LANE_INIT_TIMEOUT` of `ofb0`, each with a random value, its complement and all ones in its writable bits (`LANE_INIT_TIMEOUT` with bit 23 set, so that a lane never waits shorter than after the reset), then its value of the reset; `VC_CFG.VN` of both virtual channels with a random number, then its value of the reset | Every register reads its value of the reset before and every value written after; `VN` of VC 1 reads back, `VN` of VC 0 reads 0; every register restored |
 | TC-RS-HW-12 Far-end link reset | Operator step: link reset of port 1 in STAR-System, no traffic in flight. The script waits until RMAP answers again, reads `DL_ERRORS`, `DL_STATUS`, `ML_STATUS` and every lane, then sends one image per channel | `DL_ERRORS.FAR_END_LINK_RESET` 1, no other bit of `DL_ERRORS`; link initialised with all lanes; the images equal the model, the counters match; the registers of the lanes (events, timeouts and receiver resets, `RXERR_COUNT`), `ML_MISALIGNED` and `DL_RETRIES` of the restart are recorded, no other error register moved; cleared |
 | TC-RS-HW-14 Memory errors | `ECC_INJECT` of `ofb0`, `rmap0` and `spp0` (section 10): single errors into `ofb0` channels 0 to 3 and 6 to 8, `rmap0` channels 0 to 2, and the receive data buffer, descriptor and table and the send data buffer and descriptor of channel 0 and the send table of `spp0`, then one image per channel; double errors into `ofb0` channels 6 and 7, each followed by one image per channel; a double error into the write buffer of `rmap0`, followed by a verified write of `WIN_BASE` of window 3; a double error into the receive descriptor of `spp0`, followed by a Space Packet of APID 0x021 | The images equal the model, the counters match. Single errors: every monitor channel counts its error, `SEC` exactly 1 on `ofb0` channels 2, 6, 7 and 8, `rmap0` channels 0 to 2 and `spp0` monitor channels 0, 1, 4 and 5, 1 or 2 on `ofb0` channels 0 and 3 (one buffer per virtual channel), at least 1 on `ofb0` channel 1 (retry buffer with its scrubber) and on the read or scrubber channel of each table of `spp0`; no uncorrectable error. Double errors: `DED` 1 on `ofb0` channels 6 and 7 with the link up; the verified write ends with the status 1 (`TGT_CNT_ERR1.GENERAL` 1, `DED` 1 on `rmap0` channel 0); the Space Packet is discarded with the code 0x1B (`ERR_RX6.BUFFER` 1, `DED` 1 on monitor channel 5). The retries and the error counters of the data link layer are recorded; no other error register moved; cleared |
-| TC-RS-HW-15 RMAP errors | Commands built byte by byte (`sw/refsys/rmaptest.py`): target logical address 0x55; wrong key on a write; both; command code 0110; data CRC error of a verified and of a non-verified write; early EOP and too much data of a verified write; a verified write of 260 bytes; a read-modify-write of 3 bytes; Extended Address 1. Without a reply: header CRC error, a header that ends early, a reply packet, a reserved packet type, a CPTP packet on virtual channel 0. Executed: a non-verified write, a write without a reply, single-address write and read of two words, write and read of no data, a read-modify-write of `IRQ_ENA` of `edac0`, reads with a Reply Address field of 8 and 12 bytes, a read at 0x80000. Windows: window 3 opened for `rmap0`, window 0 restricted to verified writes, then to no writes, restored through window 3, window 3 closed | The statuses 12, 3 (register unchanged), 12, 2, 4 (unchanged), 5 and 6 (unchanged), 9 (unchanged), 11, 10 and 4 (data written); no reply to the discarded packets; the executed commands as specified, the read at 0x80000 with the identification of `spp0` (the decoder has 8 ports, so the map repeats every 0x80000 bytes); the non-verified and then the verified write outside window 3 refused with 10, window 0 restored. `TGT_LAST` shows every command with its status, instruction, transaction identifier and address, unchanged by the discarded packets; the counters of `rmap0` equal the sum of the cases, no other error register moved; cleared |
+| TC-RS-HW-15 RMAP errors | Commands built byte by byte (`sw/refsys/rmaptest.py`): target logical address 0x55; wrong key on a write; both; command code 0110; data CRC error of a verified and of a non-verified write; early EOP and too much data of a verified write; a verified write of 260 bytes; a read-modify-write of 3 bytes; Extended Address 1. Without a reply: header CRC error, a header that ends early, a reply packet, a reserved packet type, a CPTP packet on virtual channel 0. Executed: a non-verified write, a write without a reply, single-address write and read of two words, write and read of no data, a read-modify-write of `IRQ_ENA` of `edac0`, reads with a Reply Address field of 8 and 12 bytes. A write at 0x90000, after the last register window. Windows: window 3 opened for `rmap0`, window 0 restricted to verified writes, then to no writes, restored through window 3, window 3 closed | The statuses 12, 3 (register unchanged), 12, 2, 4 (unchanged), 5 and 6 (unchanged), 9 (unchanged), 11, 10 and 4 (data written); no reply to the discarded packets; the executed commands as specified; the write at 0x90000 gives the status 1 (the decoder has 9 ports and answers the port indices 9 to 15 with an error response, `TGT_CNT_ERR1.GENERAL`); the non-verified and then the verified write outside window 3 refused with 10, window 0 restored. `TGT_LAST` shows every command with its status, instruction, transaction identifier and address, unchanged by the discarded packets; the counters of `rmap0` equal the sum of the cases, no other error register moved; cleared |
 | TC-RS-HW-16 Space Packet errors | Space Packets on virtual channel 1 that `spp0` discards (`sw/refsys/spptest.py`): Protocol Identifier 3, reserved byte 0x5A, a Space Packet of 6 bytes, version 1, a Packet Data Length that does not match, a Space Packet of 8193 bytes, the idle APID 0x7FF, APID 0x030 with its table entry disabled, Sequence Flags '01'. Then one image per channel with: the input APID of channel 0 preset to `LAST` 16382 and its output APID to the count 16383, the input APID of channel 3 without the continuity check and a skipped count, `CONFIG.ROUND_ROBIN` 1. Tables and `CONFIG` restored | Each discard: `LAST_ERROR` with its code (0x11, 0x12, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A), port and APID, its counter in `ERR_RX1` to `ERR_RX6`; `RX_PACKETS` 0 and the counters of the compressors unchanged. The images equal the model: the sequence counts wrap from 16383 to 0 without the Data Loss Indicator, the skipped count gives none without the check; no other error register moved; cleared |
+| TC-RS-HW-19 Pipeline reset at rest | One image per channel. Left in the processing path: a COMMIT of other valid values on `ocp0` and `ocp3`, the receive APID table entry of APID 0x030 (enabled, port 1, continuity check), the count 0x123 in the send APID table entry of APID 0x031, `CONFIG.ROUND_ROBIN` 1 of `spp0`. Left outside it: `WIN_CTRL` (disabled), `WIN_BASE` and `WIN_LAST` of window 3 of `rmap0`, `IRQ_ENA` of `edac0` 1, `DL_BC_INTERVAL` of `ofb0` 0x123; the lanes, `TGT_CNT_OK` of `rmap0` and the error registers of `ofb0`, `rmap0` and `edac0` read. Writes that `prst0` ignores: another value at `CTRL`, the two low bytes of the key at `CTRL` (byte enables 0011), the key at `STATUS`. The pipeline reset and the checks, a second pipeline reset and the checks again. Window 3, `IRQ_ENA` and `DL_BC_INTERVAL` restored, the configuration of TC-RS-HW-05 written again, one image per channel | Before: `IMAGES_DONE` of every compressor and `RX_PACKETS` and `TX_PACKETS` of `spp0` above 0. Each ignored write is answered with the status 0; `COUNT` and the table entry stay. After each reset: `COUNT` one more than before; both table entries hold the path defaults (enabled, port or destination 0, count 0), so does the send APID table entry of every output APID; `CONFIG`, `MAX_LENGTH` and the generics registers of `spp0` their values of the reset, `RX_PACKETS`, `TX_PACKETS` and `RX_LOSS` 0; every compressor counts 0 and its configuration registers, `IMAGE_X` to `LIMITS` included, give its generics, `CONTROL` to `NEXT_BLOCK` of `ocp0` and `ocp3` the values of the reset without a pending configuration; every error register of `spp0` and of the compressors reads 0. Outside: window 3, `IRQ_ENA` and `DL_BC_INTERVAL` as written, the link initialised with every lane active and the lanes as before, the counters of `TGT_CNT_OK` not below their values before, every error register of `ofb0`, `rmap0` and `edac0` as before. Afterwards the Packet Sequence Count of every output APID is 0, every image equals the model and the counters match |
 | TC-RS-HW-13 Lane removal | With the link idle, `LANE_CTRL.TX_EN` and `RX_EN` of lane 3 of `ofb0` cleared; one image per channel; both set again; one image per channel | `ML_STATUS` with lanes 0 to 2 sending and receiving, aligned, lane 3 not Active; the images equal the model; lane 3 Active again and `ML_STATUS` with all lanes; the images equal the model; `ML_MISALIGNED`, `DL_RETRIES` and the registers of lane 3 are recorded, no other error register moved; cleared |
 | TC-RS-HW-17 End of run | Read every error register of every block (section 10) and every lane | Every error register reads 0 since the baseline of TC-RS-HW-01, `RXERR_COUNT` of every lane at most its baseline; the values, the lanes and the rate of TC-RS-HW-09 are recorded |
-| TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without a reset or a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
+| TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without the pipeline reset of TC-RS-HW-01 and without a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
 
 The Space Packets do not mark the end of an image (system [README](../../../README.md#images-on-the-link)): the
 script knows the length of every compressed image from the model, the aborted images included, and checks the cut
@@ -265,9 +271,10 @@ points between the chunks as well as their bytes.
 
 ### Repeated runs
 
-A run need not start from the reset. TC-RS-HW-18 runs the test cases of the run again on the same device, without a
-reset or a new device image, as a second run of the script does, and every one must pass again: the second run finds
-what the first one left in the system.
+Every run starts with the pipeline reset, which returns the processing path to its reset state. TC-RS-HW-18 runs the
+test cases of the run again on the same device without it and without a new device image, as a second run of the
+script does, and every one must pass again: the second run finds what the first one left in the system. The same
+holds for a run of single test cases (`--tc`) without TC-RS-HW-01:
 
 - Send side: the Space Packet node keeps the Packet Sequence Count of every APID in its send APID table until its
   reset. TC-RS-HW-05 reads the count of every output APID, records it, and the Space Packets of the run must continue
@@ -280,11 +287,50 @@ what the first one left in the system.
   them, and records it. `IMAGE_X` to `LIMITS` show the values of the last image until the next image starts:
   TC-RS-HW-02 accepts there the values of an image of the earlier run, values in range, and records them.
 
-The system has no reset of its data path that the script could command. After a run that stopped early, program the
-device again before the next run: the stop may leave an image half sent in a compressor, chunks in the buffers of the
-Space Packet node, or a test value in a register: after a stop in TC-RS-HW-11 (a register of `ofb0`), TC-RS-HW-13 (lane
-3 may be out of the link), TC-RS-HW-14 (an injected error may wait in its buffer), TC-RS-HW-15 (window 0 may be
-restricted) or TC-RS-HW-16 (a table entry or `CONFIG`).
+The pipeline reset returns the processing path (the Space Packet node, the FIFOs, the compressors and the chunkers)
+to its reset state without a new device image, and every run starts with it. After a run that stopped early, the next
+run therefore needs no new device image when the stop left state only in the processing path: an image half sent in
+a compressor, chunks in the buffers of the Space Packet node, a table entry or `CONFIG` of `spp0` (TC-RS-HW-16).
+Program the device again when the stop may have left state outside it: after a stop in TC-RS-HW-11 (a register of
+`ofb0`), TC-RS-HW-13 (lane 3 may be out of the link), TC-RS-HW-14 (an injected error may wait in a buffer of `ofb0`
+or `rmap0`) or TC-RS-HW-15 (window 0 may be restricted), and when RMAP no longer answers.
+
+TC-RS-HW-18 runs its second run without the pipeline reset, so that it still shows that a run passes on what an
+earlier run left in the system.
+
+### Pipeline reset
+
+`prst0` (`olo_ft_reset_ctrl_axi` of Open Logic FT) resets the processing path on command: `spp0` through its data
+path reset `DpRst`, the FIFOs `rxf0` to `rxf3`, the compressors `ocp0` to `ocp3` and the chunkers `chunk0` to
+`chunk3` (the reset group of the Composer file). A write of the key 0x50495045 with all four byte enables to `CTRL`
+(offset 0x04) is a command; any other write does nothing. The reset lasts 16 clock cycles and starts after the write
+response of the command. `STATUS` (offset 0x08) shows `BUSY` and `COUNT`, the commands since the system reset. The
+link, the RMAP target, the decoder and the ECC monitor are not reset: the link stays up and the reply of the command
+arrives.
+
+The software (`sw/refsys/systest.py`, `pipeline_reset`) reads `STATUS`, writes the key with a verified write of one
+32-bit word and checks its reply, polls `STATUS` until `BUSY` is 0, checks that `COUNT` is one more than before and
+records it, then polls `TABLE_STATUS` of `spp0` until both APID tables are initialised again. After the reset the
+receive table routes every APID to receive port 0, as after the system reset, and the counts of the send table start
+at 0: send no Space Packet on virtual channel 1 from the command until the routing is written again (TC-RS-HW-05 or
+the test case that resets); the far end is part of the test setup, so this procedure controls it. A Space Packet that
+arrives during the reset is dropped; one that arrives after the release and before the receive table is written goes
+to receive port 0. The rest of a Space Packet that the reset interrupted is checked after the release as a packet of
+its own; it is usually discarded and counted once, and goes to receive port 0 if it happens to form a valid packet. A
+second pipeline reset with the link quiet returns the pipeline to its reset state.
+
+| Requirement (system README) | Shown by |
+| --- | --- |
+| PR-01 command register, PR-09 key and ignored writes | TC-RS-HW-19 (the ignored writes, the command); every run (TC-RS-HW-01) |
+| PR-02 the processing path is reset | TC-RS-HW-19 (`spp0` and the compressors read their reset values, the FIFOs and chunkers pass the images after it) |
+| PR-03 the rest is not reset | TC-RS-HW-19 (the link, the lanes, window 3, `IRQ_ENA`, `DL_BC_INTERVAL`, the counters and error registers of `ofb0`, `rmap0` and `edac0`) |
+| PR-04 one reset signal of 16 cycles | The generated top level (one signal `prst0_RstOut_s` to every member); the length: the testbench of the entity in Open Logic FT |
+| PR-05 `BUSY` and the end of the reset | Every pipeline reset (TC-RS-HW-01, 19): `BUSY` 0 and the APID tables initialised before the next step |
+| PR-06 `COUNT` | TC-RS-HW-01, 02, 19 |
+| PR-07 a packet open on the link ends with an EEP | The testbench of OpenSPP (`DpRst` while a packet is open); TC-RS-HW-19 resets with no packet on the link |
+| PR-08 two commands give one reset state | TC-RS-HW-19 (two commands, `COUNT` two more, the reset values after each); a command during a running reset: the testbench of the entity |
+| PR-10 the system reset resets the pipeline | The generated top level (`prst0.Rst` on the system reset); a run after a new device image reads `COUNT` 1 after TC-RS-HW-01 |
+| PR-11 the far end is quiet from the command until the routing is written | This section; the test cases send no Space Packet in between |
 
 ### When the link does not come up
 
@@ -355,7 +401,7 @@ provokes errors checks them before it clears them:
 | --- | --- | --- |
 | TG-IF, TG-RX, TG-TX | IF-01..03, RX-01, RX-05, TX-01..04 (traffic); RX-02/03/06 discards, TX-02 Reply Address fields of 8 and 12 bytes (TC-RS-HW-15) | IF-04 (ExtAuth_g false); IF-05 (indication port open: seen through `TGT_LAST`); RX-04 and every case with an EEP (the transport sends packets with an EOP only) |
 | TG-AU | AU-01..08 (TC-RS-HW-03, 15) | The cases with an EEP |
-| TG-EX | EX-01/04 (traffic); EX-02/03/05/07/08 (TC-RS-HW-15); EX-06 double error (TC-RS-HW-14) | EX-06 with an error response of the memory: no address of spfi_compress gives one (the decoder has 8 ports, so every address reaches a register window and the map repeats every 0x80000 bytes; the register maps answer every access) |
+| TG-EX | EX-01/04 (traffic); EX-02/03/05/07/08 (TC-RS-HW-15); EX-06 double error (TC-RS-HW-14) and an error response of the memory at 0x90000 (TC-RS-HW-15) | |
 | CO | IF-01, DM-01/05, MX-01, NO-01 (traffic); DM-04 a CPTP packet on the channel of RMAP (TC-RS-HW-15) | IF-02 (no passthrough), DM-03 (no initiator) |
 | MG | IF-01/02, RF-01/03..05/07 (TC-RS-HW-02, 03, 04, 15); ED-01/02 (TC-RS-HW-14) | RF-06 interrupt (Irq open) |
 | IN | | All: the system has no initiator |
@@ -369,7 +415,7 @@ provokes errors checks them before it clears them:
 | EN | RX-01/02, TX-01/02, IF-02 (traffic); RX-03 discards of the CPTP header (TC-RS-HW-16) | The Target Logical Address check (`TLA_CHECK` 0); EEP |
 | SE | IF-01/02/04, BF-01, AS-01/02/04 (traffic; the header fields in TC-RS-HW-06); MX-01 round robin (TC-RS-HW-16); AS-05 (TC-RS-HW-14) | The rejection at `MAX_LENGTH` (0x01: an output chunk would be lost); the Packet Service (IF-03, BF-03, AS-03); BF-04 (the user signals of the send ports are tied) |
 | MG | TB-01/02, CN-01/02, CF-01..03, EV-01, FT-01/02 (TC-RS-HW-05, 14, 16) | Interrupt (Irq open) |
-| CO, TB, PK | SY-01/02/04/08 and TB-FN-01: the counts wrap from 16383 to 0, the tables preset, round robin (TC-RS-HW-16) | Services and paths that the system does not configure |
+| CO, TB, PK | SY-01/02/04/08 and TB-FN-01: the counts wrap from 16383 to 0, the tables preset, round robin (TC-RS-HW-16); RS-01/02/12: `DpRst` returns the registers and both APID tables to their reset values while the link stays up (TC-RS-HW-19) | Services and paths that the system does not configure; `DpRst` while a packet is open (CO-RS-03 to 05, the EEP) or while packets arrive (CO-RS-09 to 11): the pipeline reset of TC-RS-HW-19 comes with the processing path at rest |
 | Memories (`ECC_INJECT`) | Single errors into the receive data buffer, descriptor and table and the send data buffer, descriptor and table; a double error into the receive descriptor (TC-RS-HW-14) | Double errors into the send data buffers (packets that end with an EEP), the send descriptors and tables (an output chunk lost) and the receive data buffer and table |
 
 ### OpenCompact (`ocp0` to `ocp3`: the four configurations of the system README)
@@ -378,9 +424,9 @@ provokes errors checks them before it clears them:
 | --- | --- | --- |
 | Predictor PR | IF-01/03, FR-01, LS-02/04, PD-03, QU-01, MP-01, TP-01/02, RC-01..03 (TC-RS-HW-06 to 10); RP-01 (M of every image on `ocp0`), RP-02 (log2 t_inc, vmin and vmax of every image) (TC-RS-HW-10) | D other than 16 and signed samples, P other than 3, wide column sums (LS-03), custom weights and exponent offsets, relative and band-dependent limits, other damping and offset, the stride order (TP-03, FR-02, RC-04): not in the four configurations |
 | Coder EC | SA-01..03, HY-01..04, BA-01..03, IF-01, RC-01 (TC-RS-HW-06 to 10); RP-01 (Umax, gamma0, gamma\* and K of every image on `ocp0`, Umax, gamma0 and gamma\* on `ocp3`; TC-RS-HW-10) | Restricted codes, J other than 16, the accumulator table; RP-02 (r of every image: the block-adaptive `ocp2` has no runtime parameters) |
-| Core CO | IF-01/02, HD-01/02/04..08, PK-01..03, FR-02..05/08/09, RC-01..03/05, RP-01/03 (TC-RS-HW-06, 08, 10) | IF-03/04 memory errors (no injection path in the system); FR-06 (Ev_ImageError open); FR-07 (periodic updating); RS-01 reset during an image; RC-07 and RP-02 (the MIB refuses values out of range instead); RC-06 resources; CF (elaboration) |
-| Channel CH, input adapter IA | CH-IF-01..04, FN-01..03, RC-01, RP-01 (TC-RS-HW-10), the error scenarios of a lost SDU and of a lost last SDU (TC-RS-HW-08); IA-IF, FN-01..05, ER-01..03 | The other scenarios of the channel table (faulty SDUs, early and missing end marks); container sizes other than 2 bytes; a reset at any time |
-| MIB MB | IF-02, ID-01, GN-01, CN-01/02, RC-01..05, RP-01..04 (TC-RS-HW-02, 07, 10) | Counter saturation, unused addresses |
+| Core CO | IF-01/02, HD-01/02/04..08, PK-01..03, FR-02..05/08/09, RC-01..03/05, RP-01/03 (TC-RS-HW-06, 08, 10); RS-01 the next image after a reset compresses from the initial state (TC-RS-HW-19) | IF-03/04 memory errors (no injection path in the system); FR-06 (Ev_ImageError open); FR-07 (periodic updating); a reset during an image; RC-07 and RP-02 (the MIB refuses values out of range instead); RC-06 resources; CF (elaboration) |
+| Channel CH, input adapter IA | CH-IF-01..04, FN-01..03, RC-01, RP-01 (TC-RS-HW-10), the error scenarios of a lost SDU and of a lost last SDU (TC-RS-HW-08); IA-IF, FN-01..05, ER-01..03; CH-RS-01 a reset clears the counters and a pending configuration (TC-RS-HW-19) | The other scenarios of the channel table (faulty SDUs, early and missing end marks); container sizes other than 2 bytes; a reset during an image |
+| MIB MB | IF-02, ID-01, GN-01, CN-01/02, RC-01..05, RP-01..04 (TC-RS-HW-02, 07, 10); RS-01 (TC-RS-HW-19) | Counter saturation, unused addresses |
 | Memories PR-FT, EC-FT | The counters read 0 (TC-RS-HW-07, 17) | Correction on the board: the system has no path to inject errors into the compressors |
 
 The decoding check adds a second check to the comparison with the model: the compressed images of the board decode
@@ -395,7 +441,8 @@ to the images sent, equal on the lossless channels and within the maximum error 
 | `olo_ft_fifo_packet` | The receive buffer of `ofb0`, the send and receive data of `spp0` | Data path; correction (TC-RS-HW-14) | |
 | `olo_ft_ram_sdp_scrub` | The retry buffer RAM of `ofb0`, the APID tables of `spp0` | Data path; repair counted by the scrubber (TC-RS-HW-14) | |
 | `olo_ft_ram_sdp` | The memories of the predictors and coders of the compressors | Data path, every image equals the model | Correction (no injection path) |
-| `olo_ft_axi_master_full` | `rmap0` | Every RMAP command | An error response: no address of spfi_compress gives one (OpenRMAP, TG-EX) |
+| `olo_ft_axi_master_full` | `rmap0` | Every RMAP command; an error response (TC-RS-HW-15) | |
+| `olo_ft_reset_ctrl_axi` | `prst0` | The command, the ignored writes, `BUSY` and `COUNT` (TC-RS-HW-01, 02, 19) | A command during a running reset and during the system reset (a second command cannot reach `prst0` within 16 cycles; the testbench of the entity covers both) |
 | `olo_ft_ecc_monitor` (inside the cores) | `ofb0` (9 channels), `rmap0` (3), `spp0` (8) | Counters and the channel select (TC-RS-HW-14, 17) | `DedSticky`, interrupts (open) |
 | `olo_ft_ecc_monitor_axi` | `edac0` | `INFO`, `IRQ_ENA` (TC-RS-HW-02, 03, 15), the counters read 0 and clear (TC-RS-HW-01, 17) | Counting (no injection into the compressors and `rxf0` to `rxf3`); Irq (open) |
 | `olo_base_cc_*`, `olo_base_reset_gen`, `olo_intf_sync` (SyncTmr_g) | `ofb0`, `pa0`, the top level | Used by every test case | TMR voting |
