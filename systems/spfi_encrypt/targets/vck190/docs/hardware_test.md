@@ -286,6 +286,8 @@ and fields from the headers of the cores (`cores/<core>/sw/<prefix>_regs.h`).
 | TC-RS-HW-06 Encryption | Space Packets on the four input APIDs: first 1 byte, one byte less than, equal to and one byte more than a chunk of 4096 bytes, and 8186 bytes (a Space Packet of 8192 bytes, the size of the receive buffer of `spp0`), then random lengths | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
 | TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and the ECC counters of every channel of `edac0` (`SPFI_ENCRYPT_EDAC0_CH_FRM0_ECC_0` to `FRM3_ECC_1`) are 0 |
 | TC-RS-HW-19 Pipeline reset at rest | One Space Packet of 4097 bytes per channel. Left in the processing path: the receive APID table entry of APID 0x030 (enabled, port 1, continuity check), the count 0x123 in the send APID table entry of APID 0x031, `CONFIG.ROUND_ROBIN` 1 of `spp0`, the loaded key slots. Left outside it: `WIN_CTRL` (disabled), `WIN_BASE` and `WIN_LAST` of window 3 of `rmap0`, `IRQ_ENA` of `edac0` 1, `DL_BC_INTERVAL` of `ofb0` 0x123; the lanes, `TGT_CNT_OK` of `rmap0` and the error registers of `ofb0`, `rmap0` and `edac0` read. Writes that `prst0` ignores: another value at `CTRL`, the two low bytes of the key at `CTRL` (byte enables 0011), the key at `STATUS`. Channel 1 read for 0.5 s and every key slot queried; the pipeline reset and the checks, a second pipeline reset and the checks again. Window 3, `IRQ_ENA` and `DL_BC_INTERVAL` restored; the receive APID table written again, every key loaded again with the counter after its last chunk, the counters cleared; one Space Packet of 4097 bytes per channel | Before: `RX_PACKETS` and `TX_PACKETS` of `spp0` above 0; no packet on channel 1, and the query of every slot reads the counter after the last chunk received. Each ignored write is answered with the status 0; `COUNT` and the table entry stay. After each reset: `COUNT` one more than before; both table entries hold the path defaults (enabled, port or destination 0, count 0), so does the send APID table entry of every output APID; `CONFIG`, `MAX_LENGTH` and the generics registers of `spp0` their values of the reset, `RX_PACKETS`, `TX_PACKETS` and `RX_LOSS` 0; every key slot erased (the query reads 0), `ENCRYPTIONS` and every error counter of every AES-GCM core 0; every error register of `spp0` reads 0. Outside: window 3, `IRQ_ENA` and `DL_BC_INTERVAL` as written, the link initialised with every lane active and the lanes as before, the counters of `TGT_CNT_OK` not below their values before, every error register of `ofb0`, `rmap0` and `edac0` as before. Afterwards every Space Packet comes back as chunks with Packet Sequence Counts from 0, authenticated and decrypted with the key of its channel; the first invocation counter of every channel is the one loaded after the reset, above every counter used before it |
+| TC-RS-HW-22 Pipeline reset during traffic | The Packet Sequence Counts of the output APIDs read; of the Space Packets of TC-RS-HW-06 (the channels in turn) the far end sends the first k, k from the seed and recorded, every key slot is queried and the pipeline reset follows at once, while the channels encrypt; the far end then sends nothing and reads channel 1 until it is quiet; `DL_STATUS`, `ML_STATUS`, the lanes and the counters of `spp0` read; a second pipeline reset; the configuration of TC-RS-HW-05 with every key loaded again at its bound, and one Space Packet of 4097 bytes per channel | Per output APID every Space Packet that came back is the next chunk of the packets sent, the last one possibly cut by the reset (recorded), none after it; the query of every slot at most its bound; RMAP answers, the link is initialised with every lane active; the counters of `spp0` are recorded (Space Packets in flight at the command are dropped or go to receive port 0). After the second reset the reset values as in TC-RS-HW-19; afterwards every Space Packet comes back as chunks with Packet Sequence Counts from 0, the first invocation counter of every channel its bound, above every counter before the first reset, and every error register of `ofb0`, `rmap0` and `edac0` holds its value from before the traffic |
+| TC-RS-HW-23 Fresh after the pipeline reset | Channel 1 read for 0.5 s and every key slot queried; the pipeline reset, then TC-RS-HW-02 to 07 again as a run that starts from the reset values, its keys loaded at the counters after the last chunks before the reset | As after a new device image: every output APID starts at the Packet Sequence Count 0 and every test case passes; the records carry the name TC-RS-HW-23 and that of their test case |
 | TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without the pipeline reset of TC-RS-HW-01 and without a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
 
 ### Repeated runs
@@ -321,11 +323,22 @@ checked after the release as a packet of its own; it is usually discarded and co
 if it happens to form a valid packet. A second pipeline reset with the link quiet returns the pipeline to its reset
 state.
 
+TC-RS-HW-22 reset the processing path while it works. What comes back around such a reset is judged per output APID
+against what the data sent can give: the chunks of every Space Packet sent, and at most one Space Packet cut by the
+reset, the last one: a proper prefix of the next chunk and the byte 0x00 of the EEP beat of `spp0`. The device run does
+not report the end marker; the test judges the content.
+
 The reset erases every key slot with its IV state, as every reset of the AES-GCM core does (OpenCrypto user guide,
 KT-IV-03). The software loads every key again with an invocation counter above every counter used with it before the
-reset: before the command, with nothing in flight, it checks that channel 1 stays quiet for 0.5 s and that the query of
-every slot reads the counter after the last chunk received, and after the reset it loads the key with that counter. The
-first chunk of every channel after the reload carries it, one more than the last chunk before the reset.
+reset. At rest, before the command, it checks that channel 1 stays quiet for 0.5 s and that the query of every slot
+reads exactly the counter after the last chunk received, and after the reset it loads the key with that counter: the
+first chunk after the reload carries it, one more than the last chunk before the reset.
+
+When the reset comes during traffic (TC-RS-HW-22), no status can show the encryption quiet. The software then loads the
+key with the counter after the last chunk before the traffic plus the largest number of chunks that the data sent can
+give, ceil(L / 4096) for every Space Packet of L bytes; it counts from the data and not from a rate and a time, and it
+checks that the query of the slot before the command reads at most that counter. Either way every counter used before
+the reset is smaller, and the first chunk after the reload carries the new counter.
 
 The keys of the test software are test keys, never used for real data. They come from the seed of the run, so that a run
 is reproducible from its seed: runs with the same seed, and the second run of TC-RS-HW-18, use the same keys and start
@@ -334,16 +347,16 @@ counters again. The rule above holds within one run.
 | Requirement (system README) | Shown by |
 | --- | --- |
 | PR-01 command register, PR-09 key and ignored writes | TC-RS-HW-19 (the ignored writes, the command); every run (TC-RS-HW-01) |
-| PR-02 the processing path is reset | TC-RS-HW-19 (`spp0` reads its reset values, every key slot is erased and every AES-GCM core counts 0; the framers pass the chunks after it) |
+| PR-02 the processing path is reset | TC-RS-HW-19 and 22 (`spp0` reads its reset values, every key slot is erased and every AES-GCM core counts 0, also after a reset during traffic; the framers pass the chunks after it) |
 | PR-03 the rest is not reset | TC-RS-HW-19 (the link, the lanes, window 3, `IRQ_ENA`, `DL_BC_INTERVAL`, the counters and error registers of `ofb0`, `rmap0` and `edac0`) |
 | PR-04 one reset signal of 16 cycles | The generated top level (one signal `prst0_RstOut_s` to every member); the length: the testbench of the entity in Open Logic FT |
-| PR-05 `BUSY` and the end of the reset | Every pipeline reset (TC-RS-HW-01, 19): `BUSY` 0, the APID tables initialised and every AES-GCM core idle before the next step |
-| PR-06 `COUNT` | TC-RS-HW-01, 02, 19 |
-| PR-07 a packet open on the link ends with an EEP | The testbench of OpenSPP (`DpRst` while a packet is open); TC-RS-HW-19 resets with no packet on the link |
-| PR-08 two commands give one reset state | TC-RS-HW-19 (two commands, `COUNT` two more, the reset values after each); a command during a running reset: the testbench of the entity |
+| PR-05 `BUSY` and the end of the reset | Every pipeline reset (TC-RS-HW-01, 19, 22, 23): `BUSY` 0, the APID tables initialised and every AES-GCM core idle before the next step |
+| PR-06 `COUNT` | TC-RS-HW-01, 02, 19, 22, 23 |
+| PR-07 a packet open on the link ends with an EEP | TC-RS-HW-22 record a Space Packet cut by the reset and check that nothing follows it (RMAP cannot place the command inside a packet); the testbench of OpenSPP covers `DpRst` while a packet is open |
+| PR-08 two commands give one reset state | TC-RS-HW-19 and 22 (two commands, `COUNT` two more, the reset values after the second); a command during a running reset: the testbench of the entity |
 | PR-10 the system reset resets the pipeline | The generated top level (`prst0.Rst` on the system reset); a run after a new device image reads `COUNT` 1 after TC-RS-HW-01 |
-| PR-11 the far end is quiet from the command until the routing is written | This section; the test cases send no Space Packet in between |
-| PR-12 the keys loaded again above every counter used | TC-RS-HW-19 (the counter of every slot before the reset, the reload with it, the first chunk after it) |
+| PR-11 the far end is quiet from the command until the routing is written | This section; the test cases send no Space Packet in between; TC-RS-HW-22 resets while Space Packets may still arrive and returns the reset state with a second reset, the link quiet |
+| PR-12 the keys loaded again above every counter used | TC-RS-HW-19, 23 (at rest: the counter of every slot before the reset, the reload with it, the first chunk after it); TC-RS-HW-22 (during traffic: the bound of the data sent, the query of every slot at most the bound, the first chunk after the reload) |
 
 ### When the link does not come up
 

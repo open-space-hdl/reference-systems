@@ -78,12 +78,12 @@ def test_system_facts_from_the_composer_file():
 def test_procedure_passes_against_the_model():
     ctx = run_all(SystemModel(ht.Setup()))
     assert ctx.chunks >= 24
-    # the pipeline reset at the start of the run and the two commands of TC-RS-HW-19; the second run of TC-RS-HW-18
-    # skips the first and repeats the others
+    # the pipeline reset at the start of the run, the two commands of TC-RS-HW-19 and of TC-RS-HW-22 and the one of
+    # TC-RS-HW-23; the second run of TC-RS-HW-18 skips the first and repeats the others
     texts = [r["text"] for r in ctx.recorded]
     assert texts.count("pipeline reset at the start of the run: prst0 STATUS.COUNT 1, BUSY 0 at poll 1") == 1
     assert "pipeline reset at the start of the run: skipped" in texts
-    assert ctx.reset_count == 3
+    assert ctx.reset_count == 6
 
 
 def test_the_reset_group_comes_from_the_composer_file(tmp_path):
@@ -154,14 +154,16 @@ class ResetFault(SystemModel):
             self.regs[core + ht.OCR.SLOT_COUNT_LO] += 1          # one invocation more than the chunks received
 
 
-@pytest.mark.parametrize("fault, message", [
-    ("slots_kept", "ocr0 slot 0 holds"),
-    ("invocation", "a chunk is in flight or one was lost"),
+@pytest.mark.parametrize("fault, test, message", [
+    ("slots_kept", "TC-RS-HW-19", "ocr0 slot 0 holds"),
+    ("invocation", "TC-RS-HW-19", "a chunk is in flight or one was lost"),
+    ("invocation", "TC-RS-HW-22", "above the bound"),
+    ("slots_kept", "TC-RS-HW-22", "ocr0 slot 0 holds"),
 ])
-def test_tc19_detects_a_faulty_pipeline_reset(fault, message):
+def test_the_reset_test_cases_detect_a_faulty_pipeline_reset(fault, test, message):
     ctx = ht.make_context(seed=1, packets=ht.PROFILES["sim"].packets)
-    results = dict(ht.run(ResetFault(fault), ctx, ht.select_tests(["TC-RS-HW-19"])))
-    assert message in (results["TC-RS-HW-19"] or ""), results
+    results = dict(ht.run(ResetFault(fault), ctx, ht.select_tests([test])))
+    assert message in (results[test] or ""), results
 
 
 @pytest.mark.xfail(DEFECT_PINNED, raises=ht.TestFailed, strict=True,

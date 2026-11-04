@@ -47,7 +47,7 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import chunks, ocp, ocptest, resettest, systest  # noqa: E402
+from refsys import chunks, errorstate, ocp, ocptest, resettest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -76,18 +76,21 @@ class Profile:
     per channel at once; TC-RS-HW-08 runs both cases of lost SDUs on every channel, or with split_lost case (a) on
     the channels of even and case (b) on those of odd number; TC-RS-HW-10 sends the full image plan of every channel
     with the runtime configuration and one image of every other channel, or without runtime_full three images of the
-    bounds (refsys.ocptest.image_plan). The hardware test runs the lab profile, the system simulation the sim
-    profile."""
+    bounds (refsys.ocptest.image_plan). TC-RS-HW-20 and 22 send one image per channel, or with small only one image of
+    at most small samples (NX, NY, NZ) on each channel with the runtime configuration (reset_images). The hardware
+    test runs the lab profile, the system simulation the sim profile."""
 
     name: str
     kinds: tuple[str, ...]
     stream: int
     split_lost: bool = False
     runtime_full: bool = True
+    small: tuple[int, int, int] | None = None
 
 
 PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
-                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False))}
+                                Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
+                                        small=(64, 16, 8)))}
 
 
 @dataclass
@@ -251,13 +254,13 @@ def expected_image(ch: Channel, output: ocp.Output) -> bytes | None:
     return ocp.aborted_image(cfg, list(output.samples))
 
 
-def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) -> dict[int, list[bytes]]:
-    """Sends the SDUs of every channel, the channels interleaved SDU by SDU, and returns per channel the compressed
-    images that it sent back; checks every chunk and every image against the model of the channel."""
+def sdu_packets(ctx: Context, streams: dict[int, list[Sdu]], limit: int | None = None) -> tuple[list[bytes], dict]:
+    """The link packets of the SDUs of every channel, the channels interleaved SDU by SDU (only the first limit SDUs
+    of that order with a limit), and per channel the outputs that the model of the channel gives for them."""
     s, setup = ctx.system, ctx.setup
     order = [sdu for group in itertools.zip_longest(*(streams[p] for p in sorted(streams))) for sdu in group if sdu]
     packets, outputs = [], {p: [] for p in streams}
-    for sdu in order:
+    for sdu in order[:limit]:
         ch = s.channels[sdu.port]
         apid = setup.input_apid_base + ch.port
         count = ctx.input_count.get(apid, 0)
@@ -274,6 +277,14 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
         outputs[sdu.port] += ctx.models[sdu.port].sdu(sdu.data, user)
         ctx.traffic.sdus += 1
         ctx.traffic.losses += loss
+    return packets, outputs
+
+
+def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) -> dict[int, list[bytes]]:
+    """Sends the SDUs of every channel, the channels interleaved SDU by SDU, and returns per channel the compressed
+    images that it sent back; checks every chunk and every image against the model of the channel."""
+    s, setup = ctx.system, ctx.setup
+    packets, outputs = sdu_packets(ctx, streams)
     images = {p: [(o, expected_image(s.channels[p], o)) for o in outs] for p, outs in outputs.items()}
     known = sum(len(chunks.split(data, s.chunk_bytes)) for outs in images.values() for _, data in outs if data)
     aborted = sum(data is None for outs in images.values() for _, data in outs)
@@ -605,6 +616,229 @@ def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
                        f"the pipeline reset {counters[ch.port] - 1}")
 
 
+def link_packets(ctx: Context, ch: Channel, images: list[tuple[bytes, int | None]]) -> list[bytes]:
+    """The link packets in which the system sends the chunks of these compressed images of a channel, each image
+    with the number of its chunks that can leave (None: all; an image in flight sends only full chunks): the
+    authenticated chunks of the framer and the AES-GCM core of the channel, the invocation counters from the next one
+    of its key slot (ctx.next_counter), each in a CPTP packet of a Space Packet with the APID of the channel, the
+    Packet Sequence Counts from the next one of the APID (ctx.output_count), as the model of the system builds them."""
+    apid = ch.output_apid
+    count, counter = ctx.output_count.get(apid, 0), ctx.next_counter[ch.port]
+    out = []
+    for data, n in images:
+        for pos, part in (chunks.split(data, ctx.system.chunk_bytes)[:n] if data else []):
+            chunk = chunks.encrypt(ctx.keys[ch.port], ctx.fixed[ch.port], counter, pos, part)
+            out.append(cptp_encode(SpacePacket(apid=apid, data=chunk, sequence_count=count).encode(),
+                                   ctx.setup.far_end_tla))
+            count, counter = (count + 1) & 0x3FFF, counter + 1
+    return out
+
+
+def in_flight(cfg: dict, samples: list[int], taken: int, chunk_bytes: int) -> tuple[bytes, int]:
+    """The compressed image of all samples of an image in flight and the number of its full chunks that can leave when
+    the compressor has taken its first taken samples: as many as the compressed image of the samples taken fills
+    (ocp.aborted_image); the framer sends a chunk only when it is full or the image ends."""
+    full = ocp.compress(cfg, ocp.from_input_order(cfg, samples))
+    part = ocp.aborted_image(cfg, list(samples[:taken]))
+    if part is None:
+        raise TestFailed("the model of OpenCompact gives no aborted image (compress_aborted): the test cannot bound "
+                         "the chunks of an image in flight")
+    return full, len(part) // chunk_bytes
+
+
+def reset_images(regs: Registers, ctx: Context) -> tuple[list[Channel], dict[int, tuple]]:
+    """The images of TC-RS-HW-20 and 22, one per channel: in a profile with small images only on the channels with the
+    runtime configuration, each a scene image of at most Profile.small samples after a COMMIT of its values; else a
+    scene image of the generics on every channel. Returns the channels and per channel the configuration, the
+    samples and the SDUs of its image."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    channels = runtime if ctx.profile.small else ctx.system.channels
+    images = {}
+    for ch in channels:
+        if ctx.profile.small:
+            values = ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics))
+            nx, ny, nz = (min(a, b) for a, b in zip(ctx.profile.small, (values.nx, values.ny, values.nz)))
+            ocptest.commit(regs, ctx, ch, ocp.resized(values, nx, ny, nz))
+            cfg = ctx.models[ch.port].next_cfg
+            samples = ocp.input_order(cfg, ocp.test_image(cfg, "scene", f"{ctx.seed} {ch.port} {ctx.images}"))
+        else:
+            cfg = ch.cfg
+            samples = image_samples(ctx, ch, "scene", ctx.images)
+        ctx.images += 1
+        images[ch.port] = (cfg, samples, image_sdus(ctx, ch, samples))
+    return channels, images
+
+
+def reset_round(regs: Registers, ctx: Context) -> None:
+    """The round of images after the pipeline reset of TC-RS-HW-20 and 22: the images of reset_images, every one
+    complete; with small images the values of the generics are committed after them. Every compressed image equals
+    the model, the counters match."""
+    clear_status(regs, ctx)
+    _, images = reset_images(regs, ctx)
+    send_images(regs, ctx, {port: sdus for port, (_, _, sdus) in images.items()})
+    if ctx.profile.small:
+        for port in images:
+            ch = ctx.system.channels[port]
+            ocptest.commit(regs, ctx, ch, ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics)))
+    check_status(regs, ctx)
+
+
+def taken_samples(cfg: dict, sdus: list[Sdu]) -> int:
+    """The samples in these SDUs (every SDU holds whole samples of ceil(D/8) bytes)."""
+    return sum(len(sdu.data) for sdu in sdus) // ((cfg["large_d"] + 7) // 8)
+
+
+def bound_counters(regs: Registers, ctx: Context, done: dict[int, list[bytes]], flight: dict[int, bool]) -> dict:
+    """The reload counters after a pipeline reset during traffic (systest.bound_counters, PR-12): N, the largest number
+    of chunks that the data sent to a channel can give, is ceil(B / chunk bytes) for every complete image of B bytes
+    and ceil(W / chunk bytes) for an image in flight, W the bound of one compressed image of the channel over the
+    ranges of its runtime configuration (ocp.worst_image_bytes)."""
+    s = ctx.system
+    n = {ch.port: sum(-(-len(data) // s.chunk_bytes) for data in done.get(ch.port, []))
+         + (-(-ocp.worst_image_bytes(ch.cfg, ch.generics) // s.chunk_bytes) if flight.get(ch.port) else 0)
+         for ch in s.channels}
+    return systest.bound_counters(regs, ctx, n, " during the traffic")
+
+
+def tc20_reset_mid_image(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-20: pipeline reset in the middle of an image (sw/refsys/resettest.py). Every channel of the images of
+    TC-RS-HW-20 and 22 (reset_images) gets the first half of the SDUs of its image; once the Space Packet node has
+    received them all (RX_PACKETS) the channel of the Space Packets is read until it is quiet: what came back are the
+    first chunks of the compressed image, authenticated, as many as the samples sent fill. The image is in flight, so
+    no status shows the encryption quiet: the reload counter of every key is the bound of the data sent
+    (bound_counters, PR-12). Then the pipeline reset, and the channel is read until it is quiet again: no Space
+    Packet of the half images follows, except the next chunk cut by the reset (recorded). Every compressor counts 0
+    and holds its reset values, every key slot is erased; after the configuration of TC-RS-HW-05 with every key
+    loaded again at its bound, a round of images equals the model, with the Packet Sequence Counts from 0 and a first
+    invocation counter per channel greater than every counter before the reset."""
+    s = ctx.system
+    clear_status(regs, ctx)
+    channels, images = reset_images(regs, ctx)
+    halves = {port: sdus[:max(1, len(sdus) // 2)] for port, (_, _, sdus) in images.items()}
+    packets, outputs = sdu_packets(ctx, halves)
+    check(not any(outputs.values()), "the model of a channel gives an image for half of its SDUs")
+    regs.transport.transmit(ctx.setup.spp_channel, packets)
+    regs.wait(s.base(s.node) + SPP.RX_PACKETS, 0xFFFFFFFF, len(packets))
+    expected = {}
+    for ch in channels:
+        cfg, samples, _ = images[ch.port]
+        expected[ch.output_apid] = link_packets(ctx, ch, [in_flight(cfg, samples, taken_samples(cfg, halves[ch.port]),
+                                                                    s.chunk_bytes)])
+    seen = resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), expected, "before the pipeline reset",
+                                   cut=False)
+    counters = bound_counters(regs, ctx, {}, {ch.port: True for ch in channels})
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-20")
+    rest = {apid: links[seen[apid]:] for apid, links in expected.items()}
+    resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), rest, "after the pipeline reset")
+    ocptest.reset_models(ctx)
+    for ch in s.channels:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    systest.erased_slots(regs, ctx)
+    after_pipeline_reset(regs, ctx, counters)
+    reset_round(regs, ctx)
+
+
+def tc22_reset_during_traffic(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-22: pipeline reset during traffic (sw/refsys/resettest.py). The images of TC-RS-HW-20 and 22
+    (reset_images), the channels interleaved SDU by SDU; the far end sends the first k of the n SDUs, k from the seed,
+    the slots are queried and the command follows, while the channels compress and encrypt; the reload counter of
+    every key is the bound of the data sent (bound_counters, PR-12). The far end then sends nothing until the
+    configuration is written again (PR-11) and reads the channel of the Space Packets until it is quiet: what came
+    back is per APID a prefix of what the data sent can give (complete images exactly, an image in flight as far as
+    its samples taken), the last packet possibly cut by the reset (recorded). RMAP answers and the link is up; the
+    counters of the Space Packet node are recorded (Space Packets in flight at the command are dropped or go to
+    receive port 0). A second pipeline reset with the link quiet: the reset values as in TC-RS-HW-19; after the
+    configuration of TC-RS-HW-05 with every key loaded again at its bound, a round of images equals the model, with
+    the Packet Sequence Counts from 0 and a first invocation counter per channel greater than every counter before
+    the first reset; every error register outside the processing path holds its value from before the traffic."""
+    s = ctx.system
+    errors = errorstate.read_state(regs, resettest.outside_items(ctx))
+    clear_status(regs, ctx)
+    channels, images = reset_images(regs, ctx)
+    streams = {port: sdus for port, (_, _, sdus) in images.items()}
+    order = [sdu for group in itertools.zip_longest(*(streams[p] for p in sorted(streams))) for sdu in group if sdu]
+    k = random.Random(f"{ctx.seed} TC-RS-HW-22").randrange(1, len(order))
+    packets, outputs = sdu_packets(ctx, streams, limit=k)
+    sent = {port: [sdu for sdu in order[:k] if sdu.port == port] for port in streams}
+    systest.record(ctx, f"TC-RS-HW-22: the pipeline reset after {k} of {len(order)} SDUs")
+    regs.transport.transmit(ctx.setup.spp_channel, packets)
+    expected, done, flight = {}, {}, {}
+    for ch in channels:
+        cfg, samples, _ = images[ch.port]
+        done[ch.port] = [expected_image(ch, o) for o in outputs[ch.port]]
+        taken = taken_samples(cfg, sent[ch.port])
+        flight[ch.port] = not done[ch.port] and taken > 0
+        parts = [(data, None) for data in done[ch.port]]
+        if flight[ch.port]:
+            parts.append(in_flight(cfg, samples, taken, s.chunk_bytes))
+        expected[ch.output_apid] = link_packets(ctx, ch, parts)
+    counters = bound_counters(regs, ctx, done, flight)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-22, during traffic")
+    resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), expected, "TC-RS-HW-22")
+    systest.check_link_state(regs, ctx)
+    node = s.base(s.node)
+    systest.record(ctx, f"after the pipeline reset during traffic: {s.node} " + ", ".join(
+        f"{name} {regs.read(node + getattr(SPP, name))}" for name in ("RX_PACKETS", "TX_PACKETS", "RX_LOSS")))
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-22, second command")
+    ocptest.reset_models(ctx)
+    resettest.check_node_reset(regs, ctx)
+    for ch in s.channels:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    systest.erased_slots(regs, ctx)
+    resettest.check_members_errors(regs, ctx)
+    after_pipeline_reset(regs, ctx, counters)
+    reset_round(regs, ctx)
+    resettest.check_outside_errors(regs, ctx, errors, "at the end of TC-RS-HW-22")
+
+
+def tc21_misconfigured_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-21: pipeline reset with misconfigured compressors (sw/refsys/ocptest.py): every compressor with the
+    runtime configuration holds a pending COMMIT of other valid values and a refused COMMIT with a value out of range
+    (STATUS.CFG_ERROR and CFG_PENDING 1). With the channel of the Space Packets quiet and every key slot at the
+    counter after its last chunk (systest.quiet_counters), the pipeline reset: STATUS reads 0, CONTROL to NEXT_BLOCK
+    their values of the reset and IMAGE_X to LIMITS the generics; after the configuration of TC-RS-HW-05 with every
+    key loaded again at that counter (PR-12), one image on each of these channels equals the model image of the
+    generics, not of the values committed before the reset."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    check(bool(runtime), "no compressor has the runtime configuration (RuntimeConfig_g)")
+    for ch in runtime:
+        ocptest.leave_refused(regs, ctx, ch)
+    counters = systest.quiet_counters(regs, ctx)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-21")
+    ocptest.reset_models(ctx)
+    for ch in runtime:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    after_pipeline_reset(regs, ctx, counters)
+    streams = {}
+    for ch in runtime:
+        streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+        ctx.images += 1
+    send_images(regs, ctx, streams)
+    check_status(regs, ctx)
+
+
+# the state of a run that the test cases of TC-RS-HW-23 continue: the models of the channels, the counts of the input
+# and output APIDs, the losses, the traffic since the counters were cleared and the next invocation counters
+RUN_STATE = ("models", "cleared", "input_count", "output_count", "pending_loss", "traffic", "next_counter")
+
+
+def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-23: fresh after a pipeline reset: with the channel of the Space Packets quiet and every key slot at the
+    counter after its last chunk (systest.quiet_counters), the pipeline reset, then TC-RS-HW-02 to 07 again as a run
+    that starts from the reset values (systest.fresh_run), its keys loaded at these counters (PR-12): the compressors
+    show the values of their generics and take no COMMIT, the Packet Sequence Counts of the output APIDs start at 0,
+    every compressed image equals the model and the counters match, as after a new device image."""
+    counters = systest.quiet_counters(regs, ctx)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-23")
+    fresh = make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes)
+    tests = [tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression, tc07_counters]
+    try:
+        systest.fresh_run(regs, ctx, fresh, tests, counters)
+    finally:
+        for name in RUN_STATE:
+            setattr(ctx, name, getattr(fresh, name))
+
+
 def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
     device image, as a second run of the script does (systest.repeat_run): every one passes again. The second run
@@ -614,7 +848,8 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc19_pipeline_reset, tc18_repeated_run]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc19_pipeline_reset, tc20_reset_mid_image,
+         tc21_misconfigured_reset, tc22_reset_during_traffic, tc23_fresh_after_reset, tc18_repeated_run]
 
 # Requirements of the cores that the test cases confirm, as far as the procedure names them: it has no coverage
 # section. spfi_compress, whose path of the images up to the chunks is the same, has the full table.
@@ -626,7 +861,9 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage sec
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
             tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
-            tc19_pipeline_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc20_reset_mid_image: [tc01_link, tc05_configure],
+            tc21_misconfigured_reset: [tc01_link, tc05_configure], tc22_reset_during_traffic: [tc01_link, tc05_configure],
+            tc23_fresh_after_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

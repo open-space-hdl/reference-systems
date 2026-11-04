@@ -21,6 +21,17 @@
   TC-RS-HW-18 skips the pipeline reset. The procedures have a new section "Pipeline reset", and "Repeated runs" needs a
   new device image only after a stop that may have left state outside the processing path.
 
+- TC-RS-HW-20 to 23: the pipeline reset in the middle of an image (spfi_compress, spfi_compress_encrypt), with
+  misconfigured compressors (the same two systems), during traffic (all three) and a fresh run of TC-RS-HW-02 to 07
+  after it (all three). What comes back around a reset during traffic is judged per output APID against what the data
+  sent can give: complete images exactly, an image in flight as far as its samples taken fill its chunks, at most one
+  Space Packet cut by the reset (a proper prefix and the byte 0x00 of the EEP beat of OpenSPP), nothing after it. In
+  the encrypting systems the keys are loaded again after a reset during traffic with the counter after the last chunk
+  before the traffic plus the largest number of chunks that the data sent can give; the bound of one compressed image
+  over the ranges of the runtime configuration comes from the model of OpenCompact. A received packet carries its end
+  marker as the transport reports it: the system model and the system testbench report it, the run against the
+  device does not, and the test judges the content.
+
 ### Changed
 
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of

@@ -2,8 +2,10 @@
 # Copyright (c) 2026 by Julian Schneider
 # Authors: Julian Schneider
 # ---------------------------------------------------------------------------------------------------
-"""Steps of TC-RS-HW-19, the pipeline reset at rest, that every reference system takes; the reset step itself, the
-reload counters of the keys and the check of the erased key slots are in sw/refsys/systest.py.
+"""Steps of the test cases of the pipeline reset that every reference system takes: TC-RS-HW-19, the pipeline reset
+at rest, and the judgement of the Space Packets that come back around a pipeline reset during traffic (TC-RS-HW-20,
+22). The reset step itself, the reload counters of the keys and the check of the erased key slots are in
+sw/refsys/systest.py.
 
 The test case of a system leaves values in the processing path (the reset group of the Composer file,
 systest.System.pipeline) and outside it, sends the writes that the pipeline reset controller must ignore, resets the
@@ -15,6 +17,7 @@ of the reset come from the generics of the Composer file and the register maps o
 import random
 
 from refsys import errorstate
+from refsys.transport import end_of
 from refsys.spptest import write_entry
 from refsys.systest import (EDAC_IRQ_ENA, OFB, OMAP, PRST_COUNT_SHIFT, PRST_CTRL, PRST_STATUS, SPP, WIN_CTRL_WRITTEN,
                             WIN_ENABLE, Registers, check, check_link_state, generic_value, generic_words, hex_words,
@@ -26,6 +29,51 @@ RX_APID, TX_APID, TX_COUNT = 0x030, 0x031, 0x0123
 # The values that the test case leaves outside the processing path: IRQ_ENA of the ECC monitor and DL_BC_INTERVAL of
 # the SpaceFibre port (their values of the reset are 0 and 0x28)
 IRQ_ENA_VALUE, BC_INTERVAL_VALUE = 0x1, 0x0123
+
+
+def is_cut(packet: bytes, full: bytes) -> bool:
+    """Whether a received packet is the link packet full cut by a pipeline reset: the link output stage of OpenSPP
+    ends a packet that is open at the reset with one EEP beat whose byte 0x00 the far end receives as a data character
+    before the EEP (OpenSPP CO-RS-04/05), so the packet is a proper prefix of full followed by exactly one 0x00."""
+    size = len(packet) - 1
+    return size >= 0 and packet[-1] == 0 and size < len(full) and packet[:-1] == full[:size]
+
+
+def judge_traffic(ctx, received: list[bytes], expected: dict[int, list[bytes]], what: str,
+                  cut: bool = True) -> dict[int, int]:
+    """The Space Packets that came back around a pipeline reset during traffic, in the order of their arrival, against
+    the link packets that the model gives for the data sent, per output APID in order (expected; for an image in
+    flight the chunks that its samples can give). Every packet is the next expected packet of its APID, complete,
+    or (with cut, after a reset) that packet cut by the reset (is_cut; end marker EEP, or none when the transport
+    does not report it); at most one packet is cut, the last one received: no byte of a packet that the reset
+    interrupted follows. Recorded per APID; returns the number of complete packets per APID."""
+    position = {apid: 0 for apid in expected}
+    cut_at = None
+    for n, packet in enumerate(received):
+        check(cut_at is None, f"{what}: Space Packet {n} arrived after the packet that the pipeline reset cut")
+        end = end_of(packet)
+        if end != "EEP":
+            hit = [a for a, k in position.items() if k < len(expected[a]) and expected[a][k] == packet]
+            if hit:
+                position[hit[0]] += 1
+                continue
+        candidates = [a for a, k in position.items() if k < len(expected[a]) and is_cut(packet, expected[a][k])]
+        check(cut and end != "EOP" and bool(candidates), f"{what}: Space Packet {n} of {len(packet)} bytes (end "
+              f"marker {end}) is not the next Space Packet of an output APID"
+              + (" nor that packet cut by the reset" if cut else ""))
+        cut_at = (n, candidates, len(packet) - 1, end)
+    for apid, k in position.items():
+        record(ctx, f"{what}: APID {apid}: {k} Space Packets equal to the model, of {len(expected[apid])} that the "
+               "data sent can give")
+    if cut_at is None:
+        if cut:
+            record(ctx, f"{what}: no Space Packet cut by the pipeline reset")
+    else:
+        n, candidates, size, end = cut_at
+        record(ctx, f"{what}: Space Packet {n} cut by the pipeline reset after {size} bytes of the next Space Packet "
+               f"of APID {'/'.join(str(a) for a in candidates)} and the byte 0x00 of the EEP beat, end marker "
+               f"{end if end else 'not reported by the transport'}")
+    return position
 
 
 def rx_entry(ch_port: int = 1) -> int:
@@ -184,15 +232,22 @@ def check_outside(regs: Registers, ctx, left: dict) -> None:
     counted_on = all(OMAP.get("TGT_CNT_OK", f, ok) >= OMAP.get("TGT_CNT_OK", f, left["ok"]) for f in ("READ", "WRITE"))
     check(counted_on, f"{s.rmap} TGT_CNT_OK 0x{ok:08X} after the pipeline reset, 0x{left['ok']:08X} before: a "
           "counter of the RMAP target went back")
+    state = check_outside_errors(regs, ctx, left["errors"], "after the pipeline reset")
+    record(ctx, f"outside the processing path after the pipeline reset: {s.rmap} TGT_CNT_OK 0x{ok:08X} "
+           f"(0x{left['ok']:08X} before), error registers {errorstate.nonzero(state)}")
+
+
+def check_outside_errors(regs: Registers, ctx, before: dict[str, int], what: str) -> dict[str, int]:
+    """Every error register of the blocks outside the processing path holds the value it had before (before, read with
+    errorstate.read_state of outside_items), a leaky counter at least that value; returns the values read."""
     items = outside_items(ctx)
     state = errorstate.read_state(regs, items)
     for r in items:
         if isinstance(r, errorstate.Register):
-            now, then = state[r.name] & r.errors, left["errors"][r.name] & r.errors
-            check(now >= then if r.leaky else now == then, f"{r.name} 0x{state[r.name]:08X} after the pipeline "
-                  f"reset, 0x{left['errors'][r.name]:08X} before")
-    record(ctx, f"outside the processing path after the pipeline reset: {s.rmap} TGT_CNT_OK 0x{ok:08X} "
-           f"(0x{left['ok']:08X} before), error registers {errorstate.nonzero(state)}")
+            now, then = state[r.name] & r.errors, before[r.name] & r.errors
+            check(now >= then if r.leaky else now == then, f"{r.name} 0x{state[r.name]:08X} {what}, "
+                  f"0x{before[r.name]:08X} before")
+    return state
 
 
 def restore_outside(regs: Registers, ctx, left: dict) -> None:

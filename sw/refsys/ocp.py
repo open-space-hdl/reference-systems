@@ -472,6 +472,20 @@ def build_params(cfg: dict) -> tuple[int, ...]:
     return tuple(v[n] if n in used else 0 for n in PARAM_NAMES)
 
 
+def worst_image_bytes(cfg: dict, generics: dict) -> int:
+    """W, an upper bound of the bytes of one compressed image of a channel over the ranges of its runtime
+    configuration (max_image_bytes of the model of OpenCompact): the image dimensions of the runtime configuration
+    are at most those of the generics, and fewer samples give no larger bound; with the runtime parameters, the
+    largest bound over the ranges of Umax and gamma* (CO-RP-02), the runtime parameters on which the bound depends.
+    The bound of the invocation counters after a pipeline reset during traffic takes ceil(W / chunk bytes) chunks for
+    an image in flight."""
+    hi = ocp_configs.param_bounds(cfg, cfg["large_n_z"]) if runtime_params(generics) else {}
+    if "umax" not in hi:
+        return ocp_model.max_image_bytes(cfg)
+    return max(ocp_model.max_image_bytes(dict(cfg, large_u_max=u, gamma_star=g))
+               for u in range(hi["umax"][0], hi["umax"][1] + 1) for g in range(hi["gstar"][0], hi["gstar"][1] + 1))
+
+
 def build_values(cfg: dict, params: bool = False) -> ImageConfig:
     """The values of the configuration of the generics: the maxima and the first error limit values of the methods in
     use (0 for a method not in use), with params also the runtime parameters; NEXT_X to NEXT_BLOCK and the values
