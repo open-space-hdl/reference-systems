@@ -1,5 +1,5 @@
 {
- "_code": "the code of the pipeline reset (prst0, TC-RS-HW-19 to 23), on which the system simulations of the evidence of the next release run; sc_08 and sc_09 unchanged since 0caa839 (pull request #43)",
+ "_code": "the code of the pipeline reset (prst0, TC-RS-HW-19 to 23), on which the system simulations of the evidence of the next release run; sc_08 and sc_09 unchanged since 0caa839 (pull request #43); se_19, sce_19, se_22 and sce_22 with the clearing of the bandwidth flags before their first read (systest.clear_bw_flags)",
  "_how": "sw/tests/stimulus_digest.py <system> <directory> <tests>: stimuli of profile sim, seed 1, SHA-256 over the content with LF line ends",
  "sc_01_07": {
   "system": "spfi_compress",
@@ -64,14 +64,14 @@
  "sce_19": {
   "system": "spfi_compress_encrypt",
   "tests": "TC-RS-HW-01 TC-RS-HW-05 TC-RS-HW-19",
-  "stimulus": "f0a4d02b56ad4492ff4c14ca7077d28b229f421ee54719ea792c0c75a644b7e5",
-  "vectors": "44a3999ac37e25e4b0517f81e1b543d7c5c46d65ad4c5bcff80b63460d63273b"
+  "stimulus": "911f5f0406ba6cfbcb9be75eeeea3fc4b837ed09df39834f314c1db5ebdf7e8c",
+  "vectors": "18d80e74b761a0d563c74a8d34271bcbf54a9ae0cb249359fc03b9001d82ff9e"
  },
  "se_19": {
   "system": "spfi_encrypt",
   "tests": "TC-RS-HW-01 TC-RS-HW-05 TC-RS-HW-19",
-  "stimulus": "594814f8e815382413d3574121e6e6622c57377ddc7063097518e2f8e39fadec",
-  "vectors": "8d0d05688a56122c976d46ad459d25b5202b83f5ea32cedf3cba2ce2058eb366"
+  "stimulus": "67bd3ae0e4cac25b8f451c32e484f883430bb23aed860308a533abd4f32779ae",
+  "vectors": "ee80dc6847d9a04a393fd7264f1dea6edd8cf7dc53966e136bf5087e04908841"
  },
  "sc_20": {
   "system": "spfi_compress",
@@ -112,8 +112,8 @@
  "sce_22": {
   "system": "spfi_compress_encrypt",
   "tests": "TC-RS-HW-01 TC-RS-HW-05 TC-RS-HW-22",
-  "stimulus": "f3b341043fce4325f7c2b73cb6dec1943d4741de232907978900fb32edb46e74",
-  "vectors": "f9bc8ba11358925b4632643b7209fd5bb2a012bf75eee15d2b97610a36419153"
+  "stimulus": "382a863ace2332b75657aa735cd94ebd46233509bbbeb079145720983c5717f8",
+  "vectors": "8ed06d5e9ec4d06297b57d7d6d0e11b75b1cae079ea68da096f7093ab3ea983e"
  },
  "sce_23": {
   "system": "spfi_compress_encrypt",
@@ -124,8 +124,8 @@
  "se_22": {
   "system": "spfi_encrypt",
   "tests": "TC-RS-HW-01 TC-RS-HW-05 TC-RS-HW-22",
-  "stimulus": "aa28b90896253485e2cc72786040f62a79866bc8ce83bcd1a12e6100a5e9c5e2",
-  "vectors": "096c3f995a931242fd29f530a04bc340f42932a12a949830a70380b4c5084eb4"
+  "stimulus": "915fd8c6eafab732a8c021584375e793ba9e649b71dba817eefbac20194ea8f4",
+  "vectors": "c1a7e30574a91d91590ad9eb1d5a61e7c0d546d4b8bf64006dc002620eb462f3"
  },
  "se_23": {
   "system": "spfi_encrypt",
