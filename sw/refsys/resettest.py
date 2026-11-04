@@ -20,8 +20,8 @@ from refsys import errorstate
 from refsys.transport import end_of
 from refsys.spptest import write_entry
 from refsys.systest import (EDAC_IRQ_ENA, OFB, OMAP, PRST_COUNT_SHIFT, PRST_CTRL, PRST_STATUS, SPP, WIN_CTRL_WRITTEN,
-                            WIN_ENABLE, Registers, check, check_link_state, generic_value, generic_words, hex_words,
-                            lane_records, record)
+                            WIN_ENABLE, Registers, check, check_link_state, clear_bw_flags, generic_value,
+                            generic_words, hex_words, lane_records, record)
 
 # The entries that the test case leaves in the APID tables of the Space Packet node, at APIDs that the run uses for
 # nothing else (the inputs are input_apid_base + i, the outputs the APIDs of the send ports)
@@ -130,8 +130,9 @@ def member_items(ctx) -> list:
 def leave_outside(regs: Registers, ctx) -> dict:
     """Values left outside the processing path: WIN_CTRL (ENABLE 0), WIN_BASE and WIN_LAST of the last window of the
     RMAP target, IRQ_ENA of the ECC monitor and DL_BC_INTERVAL of the SpaceFibre port, each read back; then the
-    lanes, TGT_CNT_OK of the RMAP target and the error registers of the blocks outside are read. Returns what
-    check_outside and restore_outside need."""
+    lanes, TGT_CNT_OK of the RMAP target and the error registers of the blocks outside are read, in the sim profile
+    after VC_BW_OVER and VC_BW_UNDER are cleared (systest.clear_bw_flags). Returns what check_outside and
+    restore_outside need."""
     s = ctx.system
     rng = random.Random(f"{ctx.seed} TC-RS-HW-19")
     window = s.file.generic(s.rmap, "Windows_g") - 1
@@ -150,6 +151,7 @@ def leave_outside(regs: Registers, ctx) -> dict:
         regs.write(address, value)
         regs.expect(address, value)
     lanes = lane_records(regs, ctx, "before the pipeline reset: ")
+    clear_bw_flags(regs, ctx)
     return {"window": (win, before, words), "saved": saved, "written": {irq: IRQ_ENA_VALUE, bc: BC_INTERVAL_VALUE},
             "lanes": lanes, "ok": regs.read(s.base(s.rmap) + OMAP.TGT_CNT_OK),
             "errors": errorstate.read_state(regs, outside_items(ctx))}

@@ -55,6 +55,12 @@ SPP_RX_ERRORS = {0x10: ("ERR_RX1", "EEP"), 0x11: ("ERR_RX1", "PROTOCOL_ID"), 0x1
 # olo_ft_ecc_monitor_axi (register map of its Open Logic documentation): INFO, IRQ_ENA, counters of channel ch
 EDAC_INFO, EDAC_IRQ_ENA, EDAC_CNT = 0x00, 0x0C, 0x10
 
+# Known issue of OpenFibre v0.1.4 in simulation: VC_BW_OVER and VC_BW_UNDER of the SpaceFibre port hold 'U' until the
+# status of the core has crossed into the management clock domain, which happens only after the lane clock of the
+# simulated transceiver starts; a read puts 'U' into the RMAP reply and its CRC, and the reply never arrives. Writing
+# ones clears both flags (write-one-to-clear). On hardware the flags start at 0 (clear_bw_flags).
+BW_FLAGS = ("VC_BW_OVER", "VC_BW_UNDER")
+
 LANE_ACTIVE = 7           # LANE_STATUS.STATE of an active lane (OpenFibre register map)
 LINK_INITIALISED = 3      # DL_STATUS.LINK_STATE of an initialised link
 
@@ -389,6 +395,9 @@ class Context:
     reset_count: int | None = field(default=None, kw_only=True)           # STATUS.COUNT after the last command
     # the test cases run on a processing path at its reset values (TC-RS-HW-23): the start values are those of the reset
     from_reset: bool = field(default=False, kw_only=True)
+    # the profile of the system simulation: VC_BW_OVER and VC_BW_UNDER are cleared before their first read (BW_FLAGS)
+    clear_bw_flags: bool = field(default=False, kw_only=True)
+    bw_flags_cleared: bool = field(default=False, kw_only=True)          # they are cleared in this run
 
 
 def record(ctx: Context, text: str) -> None:
@@ -501,6 +510,18 @@ def baseline(regs: Registers, ctx: Context) -> None:
     ctx.baseline = errorstate.read_state(regs, items)
     problems = errorstate.unexpected(items, ctx.baseline, baseline=first)
     check(not problems, f"error registers that do not clear: {', '.join(problems)}")
+
+
+def clear_bw_flags(regs: Registers, ctx: Context) -> None:
+    """With Context.clear_bw_flags (the sim profile of the system simulation): VC_BW_OVER and VC_BW_UNDER of the
+    SpaceFibre port are written with ones, once per run, before their first read (BW_FLAGS). Every test case that can
+    be the first one of a run to read the flags calls this before it reads them; the run against the model does not
+    show the 'U'. On hardware (the lab profile) it writes nothing."""
+    if ctx.clear_bw_flags and not ctx.bw_flags_cleared:
+        base = ctx.system.base(ctx.system.port)
+        for name in BW_FLAGS:
+            regs.write(base + getattr(OFB, name), 0xFFFFFFFF)
+        ctx.bw_flags_cleared = True
 
 
 def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] | None = None,

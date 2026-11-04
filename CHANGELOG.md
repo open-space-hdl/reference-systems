@@ -50,6 +50,15 @@
   the three `spp_packetizer` files in the compile orders.
 - OpenCompact v0.3.1 (was v0.3.0): tools and documentation only, the sources are those of v0.3.0.
 
+### Known issues
+
+- OpenFibre v0.1.4 in simulation: `VC_BW_OVER` and `VC_BW_UNDER` of the SpaceFibre port hold 'U' until they are
+  cleared, and a read of them leaves the RMAP reply on the link without end. In the `sim` profile the hardware tests
+  of all three systems clear both flags before their first read in a run (`systest.clear_bw_flags`): spfi_compress in
+  TC-RS-HW-01, spfi_encrypt and spfi_compress_encrypt in TC-RS-HW-19 and 22. Every test case that can be the first
+  one of a run to read the flags needs this step. The `lab` profile reads them as they are; the hardware is not
+  affected.
+
 ## v0.2.0 (2026-10-31)
 
 The third system, spfi_compress; OpenCompact v0.3.0 with runtime configuration and parameters on two channels;
