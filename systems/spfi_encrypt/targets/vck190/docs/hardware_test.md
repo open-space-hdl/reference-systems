@@ -264,6 +264,9 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
   and the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on.
 - The [system testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`.
 - `hardware_test.py --device` and `--model`, the commands of earlier releases, run the same pytest tests.
+- Every run starts with the pipeline reset (section "Pipeline reset"): TC-RS-HW-01 writes the key to `prst0.CTRL`
+  after the check of the link, waits for the end of the reset and records `prst0.STATUS.COUNT`. `--no-pipeline-reset`
+  skips it, for diagnosis only; the report of such a run says so.
 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
@@ -275,23 +278,72 @@ and fields from the headers of the cores (`cores/<core>/sw/<prefix>_regs.h`).
 
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS`, and `LANE_STATUS` and `LANE_TIMEOUT_COUNT` of every lane of `ofb0`. The script prints for every lane, as a `RECORD` line that is no pass criterion, the completed receiver resets (`LANE_TIMEOUT_COUNT.RX_RESETS`), the initialisation timeouts (`LANE_TIMEOUT_COUNT.COUNT`) and `LANE_STATUS` bits 24 to 27 (RXRESETDONE, receiver reset in progress, CDR lock, receiver electrical idle) | `ID` = `SPFI_ENCRYPT_OFB0_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7) |
-| TC-RS-HW-02 Identification | Read the identification register of every register window | `ID` of every register bank with an identification (`spp0`, `ocr0` to `ocr3`, `rmap0`, `ofb0`) = its `SPFI_ENCRYPT_<BANK>_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters) |
+| TC-RS-HW-01 Link | Read `ID`, `DL_STATUS`, and `LANE_STATUS` and `LANE_TIMEOUT_COUNT` of every lane of `ofb0`. The script prints for every lane, as a `RECORD` line that is no pass criterion, the completed receiver resets (`LANE_TIMEOUT_COUNT.RX_RESETS`), the initialisation timeouts (`LANE_TIMEOUT_COUNT.COUNT`) and `LANE_STATUS` bits 24 to 27 (RXRESETDONE, receiver reset in progress, CDR lock, receiver electrical idle). Then the pipeline reset (section "Pipeline reset") | `ID` = `SPFI_ENCRYPT_OFB0_ID`, link initialised (`DL_STATUS.LINK_STATE` = 3), all lanes of `ofb0` (`NumLanes_g` in the Composer file) active (`LANE_STATUS.STATE` = 7); the pipeline reset as in section "Pipeline reset" |
+| TC-RS-HW-02 Identification | Read the identification register of every register window and `STATUS` of `prst0` | `ID` of every register bank with an identification (`spp0`, `ocr0` to `ocr3`, `rmap0`, `ofb0`, `prst0`) = its `SPFI_ENCRYPT_<BANK>_ID`; `INFO` of `edac0` 0x00001008 (8 channels, 16-bit counters); `prst0.STATUS.BUSY` 0 and `COUNT` the value that TC-RS-HW-01 recorded (in a run without its pipeline reset `COUNT` is recorded) |
 | TC-RS-HW-03 RMAP | Verified writes of `IRQ_ENA` of `edac0` and read back; a read with a wrong key | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | Read `ID`, `GENERICS`, `GENERICS2` and `RELEASE_BYTES` of `ocr0` with one command of 16 bytes and with single reads; load the test slot with the key in one write of 32 bytes and `IV_FIXED`, `IV_COUNT_LO` and `IV_COUNT_HI` in one write of 12 bytes, then `KEY_LOAD`; select the slot in `SLOT_QUERY` and read `SLOT_STATUS` to `SLOT_COUNT_HI` with one command of 16 bytes and with single reads | Both reads of 16 bytes give the words of the single reads; the slot is valid with generated IVs (`SLOT_STATUS` 0x3) and holds the written fixed field and invocation counter |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i); slot 0 of every AES-GCM core loaded as in TC-RS-HW-04 with the key and IV values of its channel and queried; counters cleared | Table entries read back, no table overrun; `STATUS.BUSY` of every core returns to 0; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
 | TC-RS-HW-06 Encryption | Space Packets on the four input APIDs: first 1 byte, one byte less than, equal to and one byte more than a chunk of 4096 bytes, and 8186 bytes (a Space Packet of 8192 bytes, the size of the receive buffer of `spp0`), then random lengths | Every input packet comes back as ceil(n / 4096) Space Packets with the APID of its channel and consecutive sequence counts; every chunk authenticates and decrypts with the key of its channel, carries the fixed field of its channel, the first invocation counter is the loaded one, the invocation counters have no gap, and the decrypted chunks give the input packets |
 | TC-RS-HW-07 Counters | Read the packet counters of `spp0`, the encryption and error counters of the AES-GCM cores and the counters of `edac0` | Received and sent packets and encryptions match TC-RS-HW-06; every error counter and the ECC counters of every channel of `edac0` (`SPFI_ENCRYPT_EDAC0_CH_FRM0_ECC_0` to `FRM3_ECC_1`) are 0 |
-| TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without a reset or a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
+| TC-RS-HW-19 Pipeline reset at rest | One Space Packet of 4097 bytes per channel. Left in the processing path: the receive APID table entry of APID 0x030 (enabled, port 1, continuity check), the count 0x123 in the send APID table entry of APID 0x031, `CONFIG.ROUND_ROBIN` 1 of `spp0`, the loaded key slots. Left outside it: `WIN_CTRL` (disabled), `WIN_BASE` and `WIN_LAST` of window 3 of `rmap0`, `IRQ_ENA` of `edac0` 1, `DL_BC_INTERVAL` of `ofb0` 0x123; the lanes, `TGT_CNT_OK` of `rmap0` and the error registers of `ofb0`, `rmap0` and `edac0` read. Writes that `prst0` ignores: another value at `CTRL`, the two low bytes of the key at `CTRL` (byte enables 0011), the key at `STATUS`. Channel 1 read for 0.5 s and every key slot queried; the pipeline reset and the checks, a second pipeline reset and the checks again. Window 3, `IRQ_ENA` and `DL_BC_INTERVAL` restored; the receive APID table written again, every key loaded again with the counter after its last chunk, the counters cleared; one Space Packet of 4097 bytes per channel | Before: `RX_PACKETS` and `TX_PACKETS` of `spp0` above 0; no packet on channel 1, and the query of every slot reads the counter after the last chunk received. Each ignored write is answered with the status 0; `COUNT` and the table entry stay. After each reset: `COUNT` one more than before; both table entries hold the path defaults (enabled, port or destination 0, count 0), so does the send APID table entry of every output APID; `CONFIG`, `MAX_LENGTH` and the generics registers of `spp0` their values of the reset, `RX_PACKETS`, `TX_PACKETS` and `RX_LOSS` 0; every key slot erased (the query reads 0), `ENCRYPTIONS` and every error counter of every AES-GCM core 0; every error register of `spp0` reads 0. Outside: window 3, `IRQ_ENA` and `DL_BC_INTERVAL` as written, the link initialised with every lane active and the lanes as before, the counters of `TGT_CNT_OK` not below their values before, every error register of `ofb0`, `rmap0` and `edac0` as before. Afterwards every Space Packet comes back as chunks with Packet Sequence Counts from 0, authenticated and decrypted with the key of its channel; the first invocation counter of every channel is the one loaded after the reset, above every counter used before it |
+| TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without the pipeline reset of TC-RS-HW-01 and without a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
 
 ### Repeated runs
 
-TC-RS-HW-18 runs the test cases of the run again on the same device, without a reset or a new device image, as a
-second run of the script does, and every one must pass again. The second run finds what the first one left: the
-Space Packet node continues the Packet Sequence Counts of its output APIDs, and TC-RS-HW-06 checks only that the
-counts of an APID are consecutive; TC-RS-HW-05 writes the receive table entries again and loads the key slots again.
-The system has no reset of its data path that the script could command: after a run that stopped early, program the
-device again before the next run.
+Every run starts with the pipeline reset, which returns the processing path to its reset state. TC-RS-HW-18 runs the
+test cases of the run again on the same device without it and without a new device image, as a second run of the
+script does, and every one must pass again. The second run finds what the first one left: the Space Packet node
+continues the Packet Sequence Counts of its output APIDs, and TC-RS-HW-06 checks only that the counts of an APID are
+consecutive; TC-RS-HW-05 writes the receive table entries again and loads the key slots again.
+
+After a run that stopped early, the next run needs no new device image when the stop left state only in the
+processing path (the Space Packet node, the framers and the AES-GCM cores): its pipeline reset clears it. Program the
+device again when RMAP no longer answers.
+
+### Pipeline reset
+
+`prst0` (`olo_ft_reset_ctrl_axi` of Open Logic FT) resets the processing path on command: `spp0` through its data path
+reset `DpRst`, the framers `frm0` to `frm3` and the AES-GCM cores `ocr0` to `ocr3` (the reset group of the Composer
+file). A write of the key 0x50495045 with all four byte enables to `CTRL` (offset 0x04) is a command; any other write
+does nothing. The reset lasts 16 clock cycles and starts after the write response of the command. `STATUS` (offset 0x08)
+shows `BUSY` and `COUNT`, the commands since the system reset. The link, the RMAP target, the decoder and the ECC
+monitor are not reset: the link stays up and the reply of the command arrives.
+
+The software (`sw/refsys/systest.py`, `pipeline_reset`) reads `STATUS`, writes the key with a verified write of one
+32-bit word and checks its reply, polls `STATUS` until `BUSY` is 0, checks that `COUNT` is one more than before and
+records it, then polls `TABLE_STATUS` of `spp0` until both APID tables are initialised again and `STATUS.BUSY` of every
+AES-GCM core until it is 0. After the reset the receive table routes every APID to receive port 0, as after the system
+reset, and the counts of the send table start at 0: send no Space Packet on virtual channel 1 from the command until the
+routing is written again (TC-RS-HW-05 or the test case that resets); the far end is part of the test setup, so this
+procedure controls it. A Space Packet that arrives during the reset is dropped; one that arrives after the release and
+before the receive table is written goes to receive port 0. The rest of a Space Packet that the reset interrupted is
+checked after the release as a packet of its own; it is usually discarded and counted once, and goes to receive port 0
+if it happens to form a valid packet. A second pipeline reset with the link quiet returns the pipeline to its reset
+state.
+
+The reset erases every key slot with its IV state, as every reset of the AES-GCM core does (OpenCrypto user guide,
+KT-IV-03). The software loads every key again with an invocation counter above every counter used with it before the
+reset: before the command, with nothing in flight, it checks that channel 1 stays quiet for 0.5 s and that the query of
+every slot reads the counter after the last chunk received, and after the reset it loads the key with that counter. The
+first chunk of every channel after the reload carries it, one more than the last chunk before the reset.
+
+The keys of the test software are test keys, never used for real data. They come from the seed of the run, so that a run
+is reproducible from its seed: runs with the same seed, and the second run of TC-RS-HW-18, use the same keys and start
+counters again. The rule above holds within one run.
+
+| Requirement (system README) | Shown by |
+| --- | --- |
+| PR-01 command register, PR-09 key and ignored writes | TC-RS-HW-19 (the ignored writes, the command); every run (TC-RS-HW-01) |
+| PR-02 the processing path is reset | TC-RS-HW-19 (`spp0` reads its reset values, every key slot is erased and every AES-GCM core counts 0; the framers pass the chunks after it) |
+| PR-03 the rest is not reset | TC-RS-HW-19 (the link, the lanes, window 3, `IRQ_ENA`, `DL_BC_INTERVAL`, the counters and error registers of `ofb0`, `rmap0` and `edac0`) |
+| PR-04 one reset signal of 16 cycles | The generated top level (one signal `prst0_RstOut_s` to every member); the length: the testbench of the entity in Open Logic FT |
+| PR-05 `BUSY` and the end of the reset | Every pipeline reset (TC-RS-HW-01, 19): `BUSY` 0, the APID tables initialised and every AES-GCM core idle before the next step |
+| PR-06 `COUNT` | TC-RS-HW-01, 02, 19 |
+| PR-07 a packet open on the link ends with an EEP | The testbench of OpenSPP (`DpRst` while a packet is open); TC-RS-HW-19 resets with no packet on the link |
+| PR-08 two commands give one reset state | TC-RS-HW-19 (two commands, `COUNT` two more, the reset values after each); a command during a running reset: the testbench of the entity |
+| PR-10 the system reset resets the pipeline | The generated top level (`prst0.Rst` on the system reset); a run after a new device image reads `COUNT` 1 after TC-RS-HW-01 |
+| PR-11 the far end is quiet from the command until the routing is written | This section; the test cases send no Space Packet in between |
+| PR-12 the keys loaded again above every counter used | TC-RS-HW-19 (the counter of every slot before the reset, the reload with it, the first chunk after it) |
 
 ### When the link does not come up
 

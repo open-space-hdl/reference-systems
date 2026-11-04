@@ -47,7 +47,7 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import chunks, ocp, ocptest, systest  # noqa: E402
+from refsys import chunks, ocp, ocptest, resettest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -198,7 +198,6 @@ class Context(systest.Context):
     cleared: dict[int, ocp.Counts] = field(default_factory=dict)      # port: model counts when the counters cleared
     input_count: dict[int, int] = field(default_factory=dict)         # APID: next Packet Sequence Count
     output_count: dict[int, int] = field(default_factory=dict)        # APID: expected next Packet Sequence Count
-    next_counter: dict[int, int] = field(default_factory=dict)        # port: next invocation counter of its slot
     pending_loss: set[int] = field(default_factory=set)               # APIDs whose last SDU was left out
     traffic: Traffic = field(default_factory=Traffic)
     images: int = 0
@@ -533,6 +532,79 @@ def tc10_runtime_config(regs: Registers, ctx: Context) -> None:
     check_status(regs, ctx)
 
 
+def image_round(regs: Registers, ctx: Context) -> None:
+    """One scene image per channel of the configuration of its generics, with the counters cleared before: a
+    compressor with the runtime configuration that holds other values (the last image of TC-RS-HW-10 in a profile
+    without its full plan) gets the values of the generics first; every compressed image equals the model, the
+    counters match."""
+    for ch in ocptest.split_channels(ctx.system)[0]:
+        if ocptest.read_config(regs, ctx, ch) != ocptest.reset_words(ch):
+            ocptest.commit(regs, ctx, ch, ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics)))
+    clear_status(regs, ctx)
+    streams = {}
+    for ch in ctx.system.channels:
+        streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+        ctx.images += 1
+    send_images(regs, ctx, streams)
+    check_status(regs, ctx)
+
+
+def after_pipeline_reset(regs: Registers, ctx: Context, counters: dict[int, int]) -> None:
+    """The configuration of TC-RS-HW-05 again after a pipeline reset, which returned it to its reset values: input
+    APID i goes to receive port i with the continuity check, the Packet Sequence Count of every output APID is 0
+    (systest.read_start_counts), every key is loaded again with the invocation counter of its channel in counters
+    (PR-12), the counters are cleared."""
+    ctx.pending_loss.clear()
+    systest.route_inputs(regs, ctx, continuity=True)
+    systest.read_start_counts(regs, ctx)
+    check(not any(ctx.output_count.values()), f"Packet Sequence Counts of the output APIDs after the pipeline reset: "
+          f"{ctx.output_count}")
+    systest.load_keys(regs, ctx, counters)
+    clear_status(regs, ctx)
+
+
+def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-19: pipeline reset at rest (sw/refsys/resettest.py). A round of images (one per channel) leaves counts
+    in the Space Packet node, the compressors and the AES-GCM cores; a COMMIT of other valid values leaves a pending
+    configuration in every compressor with the runtime configuration; an entry of each APID table and
+    CONFIG.ROUND_ROBIN are left in the node, the last window of the RMAP target, IRQ_ENA of the ECC monitor and
+    DL_BC_INTERVAL of the SpaceFibre port outside the processing path. The writes that the pipeline reset controller
+    ignores change neither STATUS.COUNT nor the table entry. With the channel of the Space Packets quiet and every key
+    slot at the counter after its last chunk (systest.quiet_counters), the command resets the processing path: the
+    Space Packet node and every compressor hold their reset values, every key slot is erased and every AES-GCM core
+    counts 0, the error registers of the path read 0, nothing outside changed; a second command counts once more and
+    leaves the reset values. After the configuration of TC-RS-HW-05 with every key loaded again at the counter after
+    its last chunk (PR-12), a round of images equals the model, with the Packet Sequence Counts of the output APIDs
+    from 0 and a first invocation counter per channel greater than the last one before the reset."""
+    s = ctx.system
+    runtime, _ = ocptest.split_channels(s)
+    image_round(regs, ctx)
+    for ch in s.channels:
+        count = regs.read(s.base(ch.compressor) + OCP.IMAGES_DONE)
+        check(count > 0, f"{ch.compressor} IMAGES_DONE is 0 before the pipeline reset")
+    for ch in runtime:
+        ocptest.commit(regs, ctx, ch, ocptest.other_values(ch))
+    resettest.leave_in_node(regs, ctx)
+    left = resettest.leave_outside(regs, ctx)
+    resettest.ignored_writes(regs, ctx)
+    counters = systest.quiet_counters(regs, ctx)
+    for label in (" of TC-RS-HW-19", " of TC-RS-HW-19, second command"):
+        systest.pipeline_reset(regs, ctx, label)
+        ocptest.reset_models(ctx)
+        resettest.check_node_reset(regs, ctx)
+        for ch in s.channels:
+            ocptest.check_pipeline_reset(regs, ctx, ch)
+        systest.erased_slots(regs, ctx)
+        resettest.check_members_errors(regs, ctx)
+        resettest.check_outside(regs, ctx, left)
+    resettest.restore_outside(regs, ctx, left)
+    after_pipeline_reset(regs, ctx, counters)
+    image_round(regs, ctx)
+    for ch in s.channels:
+        systest.record(ctx, f"{ch.core}: first invocation counter after the reload {counters[ch.port]}, last before "
+                       f"the pipeline reset {counters[ch.port] - 1}")
+
+
 def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
     device image, as a second run of the script does (systest.repeat_run): every one passes again. The second run
@@ -542,7 +614,7 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc18_repeated_run]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc19_pipeline_reset, tc18_repeated_run]
 
 # Requirements of the cores that the test cases confirm, as far as the procedure names them: it has no coverage
 # section. spfi_compress, whose path of the images up to the chunks is the same, has the full table.
@@ -554,7 +626,7 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage sec
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
             tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
-            tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

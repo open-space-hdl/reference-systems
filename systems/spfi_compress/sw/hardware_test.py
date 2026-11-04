@@ -58,12 +58,13 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import ecctest, errorstate, ocp, ocptest, rmaptest, spptest, systest  # noqa: E402
+from refsys import ecctest, errorstate, ocp, ocptest, resettest, rmaptest, spptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
 from refsys.systest import (  # noqa: E402, F401
-    OFB, OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
+    OFB, OMAP, SPP, WIN_CTRL_WRITTEN, WIN_ENABLE, Registers, Setup, TestFailed, check, consecutive, drain, hex_words,
+    tc11_port_registers, test_name)
 from refsys.transport import FAR_END_LINK_RESET  # noqa: E402
 
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
@@ -81,11 +82,6 @@ DATA_LOSS = 1 << 12
 # The configuration registers of the status interface of a compressor, read with one command in TC-RS-HW-04
 OCP_CONFIG = ("ID", "GENERICS", "IMAGE_X", "IMAGE_Y", "IMAGE_Z", "SAMPLES", "ORDER", "CODER", "PREDICTOR", "WEIGHTS",
               "ADAPTIVE", "BLOCK")
-# The fields of WIN_CTRL of the RMAP target that TC-RS-HW-04 writes: all but ENABLE (OpenRMAP register map)
-WIN_CTRL_WRITTEN = (OMAP.field("WIN_CTRL", "LAST_EXT", 0xFF) | OMAP.field("WIN_CTRL", "BASE_EXT", 0xFF)
-                    | sum(OMAP.field("WIN_CTRL", f, 1) for f in ("READ", "WRITE", "VERIFIED_ONLY", "RMW", "SINGLE")))
-WIN_ENABLE = OMAP.field("WIN_CTRL", "ENABLE", 1)
-
 # Assumed lowest rate of the test equipment, for the time-outs of the exchanges of images (bytes per second)
 EQUIPMENT_RATE = 20e6
 
@@ -857,9 +853,54 @@ def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
 def tc15_rmap_errors(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-15: the RMAP target against commands that it refuses, discards or treats specially: the reply, TGT_LAST
     and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py). The
-    decoder of spfi_compress has 8 ports, so every address reaches a register window and the map repeats every
-    0x80000 bytes: a read at 0x80000 returns the identification of spp0."""
+    decoder of spfi_compress has 9 ports and decodes 20 address bits: a write at 0x90000, after the last register
+    window, ends with the status 1 of an AXI error (systest.System.unmapped_address)."""
     rmaptest.tc15_rmap_errors(regs, ctx, ctx.system.unmapped_address())
+
+
+def after_pipeline_reset(regs: Registers, ctx: Context) -> None:
+    """The configuration of TC-RS-HW-05 again after a pipeline reset, which returned it to its reset values: input
+    APID i goes to receive port i with the continuity check, the Packet Sequence Count of every output APID is 0
+    (systest.read_start_counts), the counters are cleared."""
+    ctx.pending_loss.clear()
+    systest.route_inputs(regs, ctx, continuity=True)
+    systest.read_start_counts(regs, ctx)
+    check(not any(ctx.output_count.values()), f"Packet Sequence Counts of the output APIDs after the pipeline reset: "
+          f"{ctx.output_count}")
+    clear_status(regs, ctx)
+
+
+def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-19: pipeline reset at rest (sw/refsys/resettest.py). A round of images (traffic_round) leaves counts
+    in the Space Packet node and the compressors; a COMMIT of other valid values leaves a pending configuration in
+    every compressor with the runtime configuration; an entry of each APID table and CONFIG.ROUND_ROBIN are left in
+    the node, the last window of the RMAP target, IRQ_ENA of the ECC monitor and DL_BC_INTERVAL of the SpaceFibre port
+    outside the processing path. The writes that the pipeline reset controller ignores change neither STATUS.COUNT
+    nor the table entry. The command resets the processing path: the Space Packet node and every compressor hold
+    their reset values (no pending configuration, IMAGE_X to LIMITS the generics), their error registers read 0,
+    nothing outside changed; a second command counts once more and leaves the reset values. After the configuration
+    of TC-RS-HW-05 a round of images equals the model, with the Packet Sequence Counts of the output APIDs from 0."""
+    s = ctx.system
+    runtime, _ = ocptest.split_channels(s)
+    for ch in traffic_round(regs, ctx):
+        count = regs.read(s.base(ch.compressor) + OCP.IMAGES_DONE)
+        check(count > 0, f"{ch.compressor} IMAGES_DONE is 0 before the pipeline reset")
+    for ch in runtime:
+        ocptest.commit(regs, ctx, ch, ocptest.other_values(ch))
+    resettest.leave_in_node(regs, ctx)
+    left = resettest.leave_outside(regs, ctx)
+    resettest.ignored_writes(regs, ctx)
+    for label in (" of TC-RS-HW-19", " of TC-RS-HW-19, second command"):
+        systest.pipeline_reset(regs, ctx, label)
+        ocptest.reset_models(ctx)
+        resettest.check_node_reset(regs, ctx)
+        for ch in s.channels:
+            ocptest.check_pipeline_reset(regs, ctx, ch)
+        resettest.check_members_errors(regs, ctx)
+        resettest.check_outside(regs, ctx, left)
+    resettest.restore_outside(regs, ctx, left)
+    after_pipeline_reset(regs, ctx)
+    traffic_round(regs, ctx)
 
 
 def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
@@ -888,8 +929,8 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
-         tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal,
-         tc17_end_of_run, tc18_repeated_run]
+         tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors,
+         tc19_pipeline_reset, tc13_lane_removal, tc17_end_of_run, tc18_repeated_run]
 
 # Requirements of the cores that the test cases confirm on the board, as section 10 of the hardware test procedure
 # lists them (coverage of the cores): <core>:<group>-<ids>, the IDs written as the procedure writes them. Requirements
@@ -943,10 +984,12 @@ REQUIREMENTS = {
     "TC-RS-HW-14": ("OFB:DL-RE-03", "OFB:DL-ER-03", "OFB:DL-SQ-02", "OFB:CORE-ED-01/02", "ORMAP:TG-EX-06",
                     "ORMAP:MG-ED-01/02", "SPP:RE-FT-01", "SPP:SE-AS-05") + _OFB_MG + _SPP_MG,
     "TC-RS-HW-15": ("ORMAP:TG-RX-02/03/06", "ORMAP:TG-TX-02", "ORMAP:TG-AU-01..08", "ORMAP:TG-EX-02/03/05/07/08",
+                    "ORMAP:TG-EX-06",
                     "ORMAP:CO-DM-04") + _ORMAP_MG,
     "TC-RS-HW-16": ("SPP:RE-RC-02", "SPP:RE-DM-01", "SPP:RE-DM-02", "SPP:EN-RX-03", "SPP:SE-MX-01",
                     "SPP:CO-SY-01/02/04/08", "SPP:TB-FN-01") + _SPP_MG,
     "TC-RS-HW-17": _OFB_MG,
+    "TC-RS-HW-19": ("SPP:CO-RS-01/02/12", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:MB-RS-01") + _SPP_MG + _OCP_MB,
 }
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
@@ -957,7 +1000,8 @@ REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
             tc14_memory_errors: [tc01_link, tc05_configure],
             tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
-            tc17_end_of_run: [tc01_link], tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc17_end_of_run: [tc01_link],
+            tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
