@@ -102,6 +102,9 @@ def render(data: dict, digests: bool = False) -> str:
     lines = ["### Run", ""] + run_table(data)
     if data.get("keep_going"):
         lines += ["", "This run continued after a failure (--keep-going): a run for diagnosis, not evidence."]
+    if data.get("no_pipeline_reset"):
+        lines += ["", "This run did not start with the pipeline reset (--no-pipeline-reset): a run for diagnosis, not "
+                      "evidence."]
     lines += ["", "### Results per test case", ""] + results_table(data)
     if data.get("requirements_note"):
         lines += ["", data["requirements_note"]]

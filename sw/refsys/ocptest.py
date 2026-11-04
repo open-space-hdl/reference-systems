@@ -140,6 +140,37 @@ def check_reset(regs: Registers, ctx, ch) -> None:
           f"expected {hex_words(want)}")
 
 
+def other_values(ch) -> ocp.ImageConfig:
+    """Valid values of the runtime configuration of a channel that are not those of its generics: the image half as
+    wide (at least two samples)."""
+    values = ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics))
+    other = ocp.resized(values, max(2, values.nx // 2), values.ny, values.nz)
+    check(other != values, f"{ch.compressor}: no other valid image width than {values.nx}")
+    return other
+
+
+def reset_models(ctx) -> None:
+    """The bookkeeping of a pipeline reset: the model of every channel whose compressor is a member of the reset group
+    starts again without an image or a pending configuration, its counts as cleared."""
+    for c in ctx.system.channels:
+        if c.compressor in ctx.system.pipeline:
+            ctx.models[c.port] = ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics))
+            ctx.cleared[c.port] = ocp.Counts()
+
+
+def check_pipeline_reset(regs: Registers, ctx, ch) -> None:
+    """A compressor after a pipeline reset: its image and SDU counters read 0, every configuration register of its
+    status interface the value of its generics (IMAGE_X to LIMITS included); with the runtime configuration CONTROL
+    to NEXT_BLOCK their values of the reset without a pending configuration (check_reset)."""
+    base = ctx.system.base(ch.compressor)
+    for name in ocp.COUNTERS:
+        regs.expect(base + getattr(OCP, name), 0, f"{ch.compressor} {name} after the pipeline reset")
+    for name, value in ocp.mib_words(OCP, ch.generics).items():
+        regs.expect(base + getattr(OCP, name), value, f"{ch.compressor} {name} after the pipeline reset")
+    if ocp.runtime_config(ch.generics):
+        check_reset(regs, ctx, ch)
+
+
 def check_fixed(regs: Registers, ctx, ch) -> None:
     """A compressor without the runtime configuration ignores the writes of NEXT_X to NEXT_BLOCK and a COMMIT: the
     eleven registers read zero, and IMAGE_X to LIMITS keep the values of its generics."""

@@ -72,6 +72,22 @@ OCR_SLOT = ("SLOT_STATUS", "SLOT_FIXED", "SLOT_COUNT_LO", "SLOT_COUNT_HI")
 OCR_ERRORS = ("ERR_AUTH", "ERR_FORMAT", "ERR_KEY", "ERR_IV_MODE", "ERR_IV_EXHAUSTED", "ERR_LENGTH", "ERR_ECC",
               "ERR_OVERFLOW")
 
+# The pipeline reset controller olo_ft_reset_ctrl_axi (Open Logic FT 4.7.0-ft.12, doc/ft/olo_ft_reset_ctrl_axi.md),
+# which has no C header: ID; CTRL, where a write of the key (Key_g) with all four byte enables is a command and any
+# other write does nothing; STATUS with BUSY in bit 0 while the reset is applied and COUNT, the commands since the
+# system reset, in bits 31:16 (saturating). The reset of the group starts after the write response of the command.
+PRST_ID, PRST_CTRL, PRST_STATUS = 0x00, 0x04, 0x08
+PRST_ID_VALUE = 0x52535401     # "RST" and version 1 of the register map
+PRST_BUSY = 0x1
+PRST_COUNT_SHIFT, PRST_COUNT_MAX = 16, 0xFFFF
+PRST_REGISTERS = {PRST_ID: "ID", PRST_CTRL: "CTRL", PRST_STATUS: "STATUS"}
+
+# The fields of WIN_CTRL of the RMAP target that a test case writes into a disabled window: all but ENABLE (OpenRMAP
+# register map)
+WIN_CTRL_WRITTEN = (OMAP.field("WIN_CTRL", "LAST_EXT", 0xFF) | OMAP.field("WIN_CTRL", "BASE_EXT", 0xFF)
+                    | sum(OMAP.field("WIN_CTRL", f, 1) for f in ("READ", "WRITE", "VERIFIED_ONLY", "RMW", "SINGLE")))
+WIN_ENABLE = OMAP.field("WIN_CTRL", "ENABLE", 1)
+
 
 class System:
     """What every system test needs to know about its system, from its Composer file and the header of its register
@@ -90,6 +106,10 @@ class System:
         self.rmap_vc = vcs[f.instance_of_block("openspp/spp_nchar")]
         self.spp_vc = vcs[self.node]
         self.ecc = f.instance_of_block("olo/olo_ft_ecc_monitor_axi")
+        # the pipeline reset controller, its key and the members of its reset group (the processing path)
+        self.reset = f.instance_of_block("olo/olo_ft_reset_ctrl_axi")
+        self.reset_key = generic_value(f.generic(self.reset, "Key_g"))
+        self.pipeline = f.reset_group(f"{self.reset}.RstOut")
         constants = banks.constants()
         self.windows = {n.removesuffix("_BASE").lower(): v for n, v in constants.items() if n.endswith("_BASE")}
         self.ids = {n.removesuffix("_ID").lower(): v for n, v in constants.items() if n.endswith("_ID")}
@@ -111,7 +131,8 @@ class System:
 
     def id_offsets(self) -> dict[str, int]:
         """The offset of the identification register of every block with an identification, in its register map."""
-        return {self.node: SPP.ID, self.rmap: OMAP.ID, self.port: OFB.ID} | {c.core: OCR.ID for c in self.cores()}
+        return ({self.node: SPP.ID, self.rmap: OMAP.ID, self.port: OFB.ID, self.reset: PRST_ID}
+                | {c.core: OCR.ID for c in self.cores()})
 
     def cores(self) -> list:
         """The channels with an AES-GCM core (attribute core): all channels of a system that encrypts, none of one
@@ -236,13 +257,15 @@ def check(condition: bool, text: str) -> None:
 def register_names(system: "System") -> dict[int, str]:
     """The name of every register of the register windows of a system, by address: <instance>.<register>, an
     element of a register array <instance>.<register>(<index>) (RegisterMap.registers), the registers of the ECC
-    monitor with their channel counters CNT(<channel>)."""
+    monitor with their channel counters CNT(<channel>), those of the pipeline reset controller (PRST_REGISTERS)."""
     names = {}
     for instance, base in system.windows.items():
         if instance == system.ecc:
             registers = {EDAC_INFO: "INFO", errorstate.EDAC_CTRL: "CTRL", errorstate.EDAC_IRQ_STATUS: "IRQ_STATUS",
                          EDAC_IRQ_ENA: "IRQ_ENA"}
             registers |= {EDAC_CNT + 4 * ch: f"CNT({ch})" for ch in range(system.ecc_channels)}
+        elif instance == system.reset:
+            registers = PRST_REGISTERS
         else:
             regs = WINDOW_MAPS.get(instance.rstrip("0123456789"))
             registers = regs.registers() if regs else {}
@@ -273,6 +296,7 @@ class Registers:
         self.target = rmap.Target(logical_address=setup.system_tla, path=setup.rmap_path,
                                   reply_path=setup.rmap_reply_path)
         self.tid = 0
+        self.polls = 0                                  # the reads of the last wait
 
     def next_tid(self) -> int:
         self.tid = (self.tid + 1) & 0xFFFF
@@ -311,11 +335,17 @@ class Registers:
 
     def write_block(self, address: int, words: list[int]) -> None:
         """Writes consecutive registers with one verified command (incrementing address)."""
-        data = b"".join(w.to_bytes(4, "little") for w in words)
+        self.write_bytes(address, b"".join(w.to_bytes(4, "little") for w in words), list(words))
+
+    def write_bytes(self, address: int, data: bytes, words: list[int] | None = None) -> None:
+        """Writes bytes with one verified command (incrementing address): the first byte to the lowest address, so
+        that a write of fewer than four bytes at a register reaches it with the byte enables of those bytes (OpenRMAP
+        user guide, 8.1 and the endian order). words: the words of the log (default: the bytes as one number)."""
         tid = self.next_tid()
         reply = self.command(rmap.write_command(self.target, address, data, tid), tid, read=False)
         check(reply.ok, f"write of {len(data)} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
-        self.log.access("write", address, list(words), self.names.get(address, ""))
+        self.log.access("write", address, list(words) if words is not None else [int.from_bytes(data, "little")],
+                        self.names.get(address, ""))
 
     def wait(self, address: int, mask: int, value: int, timeout: float = 1.0) -> int:
         end = time.monotonic() + timeout
@@ -326,6 +356,7 @@ class Registers:
             if word & mask == value:
                 self.log.access("wait", address, [word], self.names.get(address, ""), mask=mask, value=value,
                                 polls=polls)
+                self.polls = polls
                 return word
             check(time.monotonic() < end, f"0x{address:08X} = 0x{word:08X}, waited for 0x{value:X} under 0x{mask:X}")
 
@@ -352,6 +383,10 @@ class Context:
     selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
     log: steplog.StepLog = field(default_factory=steplog.StepLog, kw_only=True)  # the step log of the run
     requirements: dict = field(default_factory=dict, kw_only=True)        # test case: requirements it confirms
+    next_counter: dict[int, int] = field(default_factory=dict, kw_only=True)  # port: next invocation counter
+    # the session step of TC-RS-HW-01 resets the pipeline (False: --no-pipeline-reset, the second run of TC-RS-HW-18)
+    pipeline_reset: bool = field(default=True, kw_only=True)
+    reset_count: int | None = field(default=None, kw_only=True)           # STATUS.COUNT after the last command
 
 
 def record(ctx: Context, text: str) -> None:
@@ -410,7 +445,8 @@ def loaded_slot(fixed: int, counter: int) -> list[int]:
 def tc01_link(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP. Recorded for every lane: the
     receiver resets of the physical adapter and the initialisation timeouts since the reset, and the receiver status
-    (OpenFibre user guide, receiver reset of ofb_pa_gty), which show how the lanes came up."""
+    (OpenFibre user guide, receiver reset of ofb_pa_gty), which show how the lanes came up. Then the pipeline reset
+    that starts every run (session_reset)."""
     port = ctx.system.port
     base = ctx.system.base(port)
     regs.expect(base + OFB.ID, ctx.system.ids[port], "ID of the SpaceFibre port")
@@ -418,6 +454,18 @@ def tc01_link(regs: Registers, ctx: Context) -> None:
     check(state == LINK_INITIALISED, f"DL_STATUS.LINK_STATE = {state}")
     for lane, state in enumerate(lane_records(regs, ctx)):
         check(state == LANE_ACTIVE, f"LANE_STATUS({lane}).STATE = {state}")
+    session_reset(regs, ctx)
+
+
+def session_reset(regs: Registers, ctx: Context) -> None:
+    """Step of TC-RS-HW-01: the pipeline reset at the start of every run, after the check of the link and before the
+    baseline of the error registers, so that the processing path starts from its reset state whatever an earlier run
+    left in it (pipeline_reset). A run without it (--no-pipeline-reset, the second run of TC-RS-HW-18) records that it
+    skipped it."""
+    if not ctx.pipeline_reset:
+        record(ctx, "pipeline reset at the start of the run: skipped")
+        return
+    pipeline_reset(regs, ctx, " at the start of the run")
 
 
 def lane_records(regs: Registers, ctx: Context, when: str = "") -> list[int]:
@@ -578,7 +626,9 @@ def end_of_run(regs: Registers, ctx: Context) -> None:
 
 
 def tc02_identification(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-02: every register window answers with the identification of its block."""
+    """TC-RS-HW-02: every register window answers with the identification of its block; the pipeline reset
+    controller is idle (STATUS.BUSY 0) and STATUS.COUNT is the count recorded by the pipeline reset of this run, or is
+    recorded in a run without it."""
     s = ctx.system
     # the identification register of a block in its own register map, its value in the exported header
     offsets = s.id_offsets()
@@ -587,6 +637,13 @@ def tc02_identification(regs: Registers, ctx: Context) -> None:
     for name, offset, value in expected:
         word = regs.read(s.base(name) + offset)
         check(word == value, f"{name}: 0x{word:08X}, expected 0x{value:08X}")
+    status = regs.read(s.base(s.reset) + PRST_STATUS)
+    check(not status & PRST_BUSY, f"{s.reset} STATUS 0x{status:08X}: BUSY")
+    count = status >> PRST_COUNT_SHIFT
+    if ctx.reset_count is None:
+        record(ctx, f"{s.reset} STATUS.COUNT {count}, no pipeline reset in this run before TC-RS-HW-02")
+    else:
+        check(count == ctx.reset_count, f"{s.reset} STATUS.COUNT {count}, expected {ctx.reset_count}")
 
 
 def tc03_rmap(regs: Registers, ctx: Context) -> None:
@@ -670,15 +727,77 @@ def read_start_counts(regs: Registers, ctx: Context) -> None:
                f"{ctx.output_count[ch.output_apid]}")
 
 
-def load_keys(regs: Registers, ctx: Context) -> None:
+def load_keys(regs: Registers, ctx: Context, counters: dict[int, int] | None = None) -> None:
     """Step of TC-RS-HW-05: the key slot of the framer of every channel holds the key of the channel with generated
-    IVs."""
+    IVs, from the first invocation counter of the channel or from counters (port: counter, the reload after a
+    pipeline reset); the next chunk of the channel carries it (next_counter)."""
     for k, ch in enumerate(ctx.system.channels):
         core = ctx.system.base(ch.core)
-        load_slot(regs, core, ctx.keys[k], ctx.fixed[k], ctx.counter[k], ch.slot)
+        counter = ctx.counter[k] if counters is None else counters[ch.port]
+        load_slot(regs, core, ctx.keys[k], ctx.fixed[k], counter, ch.slot)
         state = query_slot(regs, core, ch.slot)
-        expected = loaded_slot(ctx.fixed[k], ctx.counter[k])
+        expected = loaded_slot(ctx.fixed[k], counter)
         check(state == expected, f"{ch.core} slot {ch.slot} holds {hex_words(state)}, expected {hex_words(expected)}")
+        ctx.next_counter[ch.port] = counter
+
+
+def pipeline_reset(regs: Registers, ctx: Context, label: str = "") -> int:
+    """The pipeline reset: the key to CTRL of the pipeline reset controller with one verified write of a 32-bit word
+    (all four byte enables), its reply OK; STATUS polled until BUSY is 0, COUNT one more than before the command
+    (saturating) and recorded with the number of polls; then the Space Packet node polled until it has initialised
+    its APID tables again (TABLE_STATUS) and, in a system that encrypts, every AES-GCM core until it is idle
+    (STATUS.BUSY). The command reaches the controller as one AXI4-Lite write, and the RMAP target takes the next
+    command only after the reply, so no access of the run meets the reset. Returns COUNT."""
+    s = ctx.system
+    base = s.base(s.reset)
+    before = regs.read(base + PRST_STATUS) >> PRST_COUNT_SHIFT
+    regs.write(base + PRST_CTRL, s.reset_key)
+    status = regs.wait(base + PRST_STATUS, PRST_BUSY, 0)
+    polls = regs.polls
+    count = status >> PRST_COUNT_SHIFT
+    check(count == min(before + 1, PRST_COUNT_MAX), f"{s.reset} STATUS.COUNT {count} after the command, {before} "
+          "before it")
+    ctx.reset_count = count
+    record(ctx, f"pipeline reset{label}: {s.reset} STATUS.COUNT {count}, BUSY 0 at poll {polls}")
+    busy = SPP.field("TABLE_STATUS", "TX_BUSY", 1) | SPP.field("TABLE_STATUS", "RX_BUSY", 1)
+    regs.wait(s.base(s.node) + SPP.TABLE_STATUS, busy, 0)
+    for ch in s.cores():
+        regs.wait(s.base(ch.core) + OCR.STATUS, OCR.field("STATUS", "BUSY", 1), 0)
+    return count
+
+
+def quiet_counters(regs: Registers, ctx: Context) -> dict[int, int]:
+    """Before a pipeline reset with the processing path at rest, in a system that encrypts: the invocation counter of
+    every channel for the reload of its key after the reset (PR-12). The test case has received and checked every
+    chunk of the data sent, the channel of the Space Packets stays quiet for DRAIN_TIMEOUT seconds, and the query of
+    every key slot reads the counter that follows the last chunk received (next_counter): no chunk is in flight,
+    the slot used the counters below it and none above. That counter is the reload counter: every counter used with
+    the key before the reset is smaller. Recorded per channel; {} in a system without AES-GCM cores."""
+    if not ctx.system.cores():
+        return {}
+    packet = regs.transport.receive(ctx.setup.spp_channel, DRAIN_TIMEOUT)
+    check(packet is None, "a Space Packet arrived after the traffic of the test case: the processing path is not at "
+          "rest")
+    counters = {}
+    for k, ch in enumerate(ctx.system.channels):
+        state = query_slot(regs, ctx.system.base(ch.core), ch.slot)
+        expected = loaded_slot(ctx.fixed[k], ctx.next_counter[ch.port])
+        check(state == expected, f"{ch.core} slot {ch.slot} holds {hex_words(state)} before the pipeline reset, "
+              f"expected {hex_words(expected)}: a chunk is in flight or one was lost")
+        counters[ch.port] = ctx.next_counter[ch.port]
+        record(ctx, f"{ch.core} slot {ch.slot}: next invocation counter {counters[ch.port]} before the pipeline reset")
+    return counters
+
+
+def erased_slots(regs: Registers, ctx: Context) -> None:
+    """After a pipeline reset, in a system that encrypts: the key slot of every channel is erased (OpenCrypto
+    KT-MEM-02, the query reads zeros) and the counters of every AES-GCM core read 0."""
+    for ch in ctx.system.cores():
+        core = ctx.system.base(ch.core)
+        state = query_slot(regs, core, ch.slot)
+        check(state == [0, 0, 0, 0], f"{ch.core} slot {ch.slot} holds {hex_words(state)} after the pipeline reset")
+        for name in ("ENCRYPTIONS",) + OCR_ERRORS:
+            regs.expect(core + getattr(OCR, name), 0, f"{ch.core} {name} after the pipeline reset")
 
 
 def clear_counters(regs: Registers, addresses: list[int]) -> None:
@@ -767,13 +886,16 @@ def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again against the same device, without a reset or
     a new device image, with fresh, the context that a second run of the script starts with: the second run finds
     what the first one left in the system (the Packet Sequence Counts of the Space Packet node, the configuration of
-    the compressors, the counters) and must pass all the same. The test cases of the second run make no marks of their
-    own; their records go into the records of the run, with the name of this test case and their own."""
+    the compressors, the counters) and must pass all the same. The second run skips the pipeline reset of
+    TC-RS-HW-01 (session_reset), so that it starts from that state and not from the reset state. The test cases of
+    the second run make no marks of their own; their records go into the records of the run, with the name of this
+    test case and their own."""
     names = [test_name(t) for t in ctx.selected]
     check(ctx.current in names and names.index(ctx.current) > 0, f"{ctx.current} has no test case before it to repeat")
     tests = ctx.selected[:names.index(ctx.current)]
     fresh.selected = tests
     fresh.log = ctx.log
+    fresh.pipeline_reset = False
     second = type(regs)(regs.transport, fresh.setup)
     second.log, second.names = regs.log, regs.names
     try:

@@ -15,7 +15,8 @@ the header that the Composer exports with the top level (hdl/spfi_encrypt_regs.h
 port, framer, AES-GCM core, send port with its APID) and the key slots from the Composer file of the system, the
 register maps from the headers of the cores. The set-up and the procedure are described with the board target. The
 test cases TC-RS-HW-01 to TC-RS-HW-04, the steps of TC-RS-HW-05 and TC-RS-HW-07 that every reference system takes,
-the register access and the run are those of sw/refsys/systest.py.
+the register access and the run are those of sw/refsys/systest.py, the steps of TC-RS-HW-19 (pipeline reset) those
+of sw/refsys/resettest.py.
 
 Before the first test case the script discards the packets that an earlier run left on both channels (drain).
 
@@ -33,7 +34,7 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import chunks, systest  # noqa: E402
+from refsys import chunks, resettest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -114,12 +115,21 @@ def packet_lengths(system: System, packets: int, rng: random.Random) -> list[int
 def tc06_encryption(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-06: Space Packets of the input APIDs come back as authenticated chunks with the APID of their
     channel; every chunk decrypts with the key of its channel and the chunks give the input packets."""
-    s, setup = ctx.system, ctx.setup
     rng = random.Random(ctx.seed)
+    ctx.chunks = send_packets(regs, ctx, packet_lengths(ctx.system, ctx.packets, rng), rng)
+
+
+def send_packets(regs: Registers, ctx: Context, lengths: list[int], rng: random.Random,
+                 first_count: int | None = None) -> int:
+    """Sends Space Packets of these data lengths, the channels in turn, and checks the chunks that come back: the
+    APID of the channel, consecutive Packet Sequence Counts (from first_count, if given), authenticated with the key
+    of the channel, its fixed field, the invocation counters from the next counter of its key slot (next_counter),
+    and the chunks give the packets sent. Returns the number of chunks."""
+    s, setup = ctx.system, ctx.setup
     n = s.chunk_bytes
     sent: list[list[bytes]] = [[] for _ in s.channels]
     packets = []
-    for k, length in enumerate(packet_lengths(s, ctx.packets, rng)):
+    for k, length in enumerate(lengths):
         ch = k % len(s.channels)
         data = rng.randbytes(length)
         sent[ch].append(data)
@@ -133,12 +143,13 @@ def tc06_encryption(regs: Registers, ctx: Context) -> None:
         packet = SpacePacket.decode(payload)
         check(packet.apid in by_apid, f"output packet with APID 0x{packet.apid:03X}")
         by_apid[packet.apid].append(packet)
-    ctx.chunks = expected
     for k, ch in enumerate(s.channels):
         out = by_apid[ch.output_apid]
         counts = [p.sequence_count for p in out]
         check(all(b == (a + 1) & 0x3FFF for a, b in zip(counts, counts[1:])),
               f"APID {ch.output_apid}: Packet Sequence Counts {counts[:8]}")
+        check(first_count is None or not counts or counts[0] == first_count,
+              f"APID {ch.output_apid}: Packet Sequence Counts {counts[:8]}, expected from {first_count}")
         decrypted = []
         for p in out:
             try:
@@ -148,7 +159,9 @@ def tc06_encryption(regs: Registers, ctx: Context) -> None:
             check(chunk.fixed == ctx.fixed[k], f"APID {ch.output_apid}: fixed field 0x{chunk.fixed:08X}")
             decrypted.append(chunk)
         if decrypted:
-            check(min(c.counter for c in decrypted) == ctx.counter[k], f"APID {ch.output_apid}: first counter")
+            check(min(c.counter for c in decrypted) == ctx.next_counter[ch.port], f"APID {ch.output_apid}: first "
+                  f"counter {min(c.counter for c in decrypted)}, expected {ctx.next_counter[ch.port]}")
+            ctx.next_counter[ch.port] += len(decrypted)
         try:
             packets_back = chunks.reassemble(decrypted)
         except chunks.ChunkError as err:
@@ -161,6 +174,7 @@ def tc06_encryption(regs: Registers, ctx: Context) -> None:
                      f"{sum(len(d) for d in sent[k])} bytes equal to those sent", "pass", apid=ch.output_apid,
                      chunks=len(out), counts=[counts[0], counts[-1]] if counts else [],
                      lengths=[len(p.data) for p in out], packets=[len(d) for d in sent[k]])
+    return expected
 
 
 def tc07_counters(regs: Registers, ctx: Context) -> None:
@@ -174,6 +188,51 @@ def tc07_counters(regs: Registers, ctx: Context) -> None:
     systest.ecc_counters(regs, ctx)
 
 
+def after_pipeline_reset(regs: Registers, ctx: Context, counters: dict[int, int]) -> None:
+    """The configuration of TC-RS-HW-05 again after a pipeline reset, which returned it to its reset values: input
+    APID i goes to receive port i, every key is loaded again with the invocation counter of its channel in counters
+    (PR-12), the counters are cleared."""
+    s = ctx.system
+    systest.route_inputs(regs, ctx)
+    systest.load_keys(regs, ctx, counters)
+    systest.clear_counters(regs, [s.base(s.node) + SPP.RX_PACKETS, s.base(s.node) + SPP.TX_PACKETS]
+                           + [s.base(c.core) + OCR.ENCRYPTIONS for c in s.channels])
+
+
+def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-19: pipeline reset at rest (sw/refsys/resettest.py). One Space Packet per channel leaves counts in
+    the Space Packet node and the AES-GCM cores; an entry of each APID table and CONFIG.ROUND_ROBIN are left in the
+    node, the last window of the RMAP target, IRQ_ENA of the ECC monitor and DL_BC_INTERVAL of the SpaceFibre port
+    outside the processing path. The writes that the pipeline reset controller ignores change neither STATUS.COUNT
+    nor the table entry. With the channel of the Space Packets quiet and every key slot at the counter after its last
+    chunk (systest.quiet_counters), the command resets the processing path: the Space Packet node holds its reset
+    values, every key slot is erased and every AES-GCM core counts 0, nothing outside changed; a second command counts
+    once more. After the configuration of TC-RS-HW-05 with every key loaded again at the counter after its last chunk
+    (PR-12), one Space Packet per channel comes back as chunks whose Packet Sequence Counts start at 0 and whose
+    first invocation counter is greater than the last one before the reset."""
+    s = ctx.system
+    rng = random.Random(f"{ctx.seed} TC-RS-HW-19")
+    lengths = [s.chunk_bytes + 1] * len(s.channels)
+    send_packets(regs, ctx, lengths, rng)
+    resettest.leave_in_node(regs, ctx)
+    left = resettest.leave_outside(regs, ctx)
+    resettest.ignored_writes(regs, ctx)
+    counters = systest.quiet_counters(regs, ctx)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-19")
+    resettest.check_node_reset(regs, ctx)
+    systest.erased_slots(regs, ctx)
+    resettest.check_members_errors(regs, ctx)
+    resettest.check_outside(regs, ctx, left)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-19, second command")
+    resettest.check_node_reset(regs, ctx)
+    resettest.restore_outside(regs, ctx, left)
+    after_pipeline_reset(regs, ctx, counters)
+    send_packets(regs, ctx, lengths, rng, first_count=0)
+    for ch in s.channels:
+        systest.record(ctx, f"{ch.core}: first invocation counter after the reload {counters[ch.port]}, last before "
+                       f"the pipeline reset {counters[ch.port] - 1}")
+
+
 def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
     device image, as a second run of the script does (systest.repeat_run): every one passes again; its records go
@@ -182,7 +241,7 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
-         tc07_counters, tc18_repeated_run]
+         tc07_counters, tc19_pipeline_reset, tc18_repeated_run]
 
 # The procedure names no requirement of the cores (it has no coverage section): the test cases carry none.
 REQUIREMENTS: dict = {}
@@ -191,7 +250,7 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_encrypt has no coverage section and 
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption],
-            tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

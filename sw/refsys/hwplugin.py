@@ -22,6 +22,8 @@ end. Python writes its bytecode next to the sources unless it runs with -B; the 
 
 The run stops at the first failure: the later test cases build on the earlier ones and are reported as not run.
 --keep-going runs a later test case when the test cases it builds on passed (diagnosis only; the report says so).
+--no-pipeline-reset skips the pipeline reset at the start of the run (TC-RS-HW-01), so that the run starts from what
+an earlier run left in the processing path (diagnosis only; the report says so).
 --tc selects test cases together with those they build on; -k is refused, since it would drop them.
 """
 
@@ -59,6 +61,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
                 help="run only this test case and those it builds on (repeatable), for example TC-RS-HW-08")
     g.addoption("--keep-going", action="store_true",
                 help="after a failure, run the test cases whose own dependencies passed (diagnosis only)")
+    g.addoption("--no-pipeline-reset", action="store_true",
+                help="skip the pipeline reset at the start of the run in TC-RS-HW-01 (diagnosis only)")
 
 
 def hardware(config: pytest.Config) -> bool:
@@ -113,7 +117,8 @@ def pytest_configure(config: pytest.Config) -> None:
     log.sinks += sinks
     config.stash[LOG_KEY] = log
     config.stash[SINKS_KEY] = sinks
-    config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "keep_going": config.getoption("keep_going")}
+    config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "keep_going": config.getoption("keep_going"),
+                               "no_pipeline_reset": config.getoption("no_pipeline_reset")}
     SESSION["log"] = log
     log.begin("")
     log.emit("env", f"results in {run}", results=str(run))
@@ -214,6 +219,7 @@ class HardwareRun:
         self.ctx = module.context(config.getoption("seed"), self.profile)
         self.ctx.log = self.log
         self.ctx.requirements = getattr(self.ht, "REQUIREMENTS", {})
+        self.ctx.pipeline_reset = not self.state["no_pipeline_reset"]
         if self.target == "model":
             self.transport = module.model(self.ctx)
         else:
@@ -280,7 +286,7 @@ class HardwareRun:
         extra |= {"requirements": getattr(self.ht, "REQUIREMENTS", {}),
                   "requirements_note": getattr(self.ht, "REQUIREMENTS_NOTE", ""),
                   "not_run": [{"test": n, "reason": r} for n, r in self.not_run],
-                  "keep_going": self.state["keep_going"]}
+                  "keep_going": self.state["keep_going"], "no_pipeline_reset": self.state["no_pipeline_reset"]}
         path = systest.write_records(run, self.system, "device" if self.target == "device" else "system model",
                                      self.profile, self.ctx, self.results, self.started, extra)
         render = load_renderer()
@@ -306,7 +312,8 @@ def hw(request: pytest.FixtureRequest, record_testsuite_property):
     for name, value in (("system", run.system), ("target", run.target), ("profile", run.profile),
                         ("seed", request.config.getoption("seed")),
                         ("commit", (git("rev-parse", "HEAD") or "").strip()),
-                        ("keep_going", run.state["keep_going"])):
+                        ("keep_going", run.state["keep_going"]),
+                        ("no_pipeline_reset", run.state["no_pipeline_reset"])):
         record_testsuite_property(name, value)
     yield run
     run.close()
@@ -347,6 +354,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus: int, config: pytest.Co
     tr.section("hardware test")
     if config.stash[STATE_KEY]["keep_going"]:
         tr.write_line("--keep-going: test cases after a failure ran; this run is for diagnosis, not evidence")
+    if config.stash[STATE_KEY]["no_pipeline_reset"]:
+        tr.write_line("--no-pipeline-reset: the run did not start with the pipeline reset; this run is for diagnosis, "
+                      "not evidence")
     for tc, result, duration, reason in rows:
         tr.write_line(f"{tc:<13} {result:<8} {duration:8.1f} s  {reason}")
     tr.write_line(f"outputs: {config.stash[RUN_KEY]}")

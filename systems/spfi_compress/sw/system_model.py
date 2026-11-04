@@ -35,17 +35,30 @@ class SystemModel(sysmodel.SystemModel):
                  corrupt: bool = False, first_word: tuple[bool, bool] = SPECIFIED):
         system = system or ht.System()
         super().__init__(system, system_file or SystemFile(ht.SYSTEM_FILE), setup, corrupt, first_word)
-        self.channels = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
+        self.channels = {}
         # the registers of the runtime configuration of every compressor (OpenCompact register map), by address
         self.runtime = {}
         for c in system.channels:
-            base = system.base(c.compressor)
-            self.regs[base + ht.OCP.ID] = ht.OCP.REGMAP_ID
-            for name, value in ocp.mib_words(ht.OCP, c.generics).items():
-                self.regs[base + getattr(ht.OCP, name)] = value
-            registers = ocp.RuntimeRegisters(ht.OCP, c.generics, self.channels[c.port])
-            self.runtime |= {base + getattr(ht.OCP, name): (registers, name) for name in ocp.CONFIG_REGISTERS}
+            self._compressor(c)
         self.pending: deque[bytes] = deque()
+
+    def _compressor(self, c) -> None:
+        """The compressor of a channel after a reset: the model of the channel without an image or a pending
+        configuration, its status interface with the configuration of its generics and its counters at 0."""
+        self.channels[c.port] = ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics))
+        base = self.system.base(c.compressor)
+        self.regs[base + ht.OCP.ID] = ht.OCP.REGMAP_ID
+        for name, value in ocp.mib_words(ht.OCP, c.generics).items():
+            self.regs[base + getattr(ht.OCP, name)] = value
+        registers = ocp.RuntimeRegisters(ht.OCP, c.generics, self.channels[c.port])
+        self.runtime |= {base + getattr(ht.OCP, name): (registers, name) for name in ocp.CONFIG_REGISTERS}
+
+    def _pipeline_reset(self) -> None:
+        """As the base model, and every compressor of the reset group returns to its state after the reset."""
+        super()._pipeline_reset()
+        for c in self.system.channels:
+            if c.compressor in self.system.pipeline:
+                self._compressor(c)
 
     def _read(self, address):
         if address in self.runtime:

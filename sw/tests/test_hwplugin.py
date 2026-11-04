@@ -61,7 +61,7 @@ def test_a_run_against_the_model_passes_and_writes_its_outputs(passing):
     assert len(list(run.glob("records_spfi_encrypt_*.json"))) == 1
     suite = ET.parse(run / "junit.xml").getroot().find("testsuite")
     names = [case.get("name") for case in suite.iter("testcase")]
-    assert names == [f"test_hardware[TC-RS-HW-{n:02d}]" for n in (1, 2, 3, 4, 5, 6, 7, 18)]
+    assert names == [f"test_hardware[TC-RS-HW-{n:02d}]" for n in (1, 2, 3, 4, 5, 6, 7, 19, 18)]
     properties = {p.get("name"): p.get("value") for p in suite.iter("property")}
     assert properties["system"] == "spfi_encrypt" and properties["target"] == "model" and properties["seed"] == "1"
     assert "hardware test" in done.stdout and "TC-RS-HW-18   Pass" in done.stdout
@@ -82,7 +82,7 @@ def test_the_step_log_holds_the_events_of_the_run(passing):
     assert kinds >= {"env", "step", "read", "write", "expect", "record", "packets", "result"}
     assert all(set(e) == {"time", "test", "n", "kind", "text", "result", "data"} for e in log)
     steps = [e for e in log if e["kind"] == "step" and e["n"] == 1]
-    assert [e["test"] for e in steps][:8] == [f"TC-RS-HW-{n:02d}" for n in (1, 2, 3, 4, 5, 6, 7, 18)]
+    assert [e["test"] for e in steps][:9] == [f"TC-RS-HW-{n:02d}" for n in (1, 2, 3, 4, 5, 6, 7, 19, 18)]
     reads = [e for e in log if e["kind"] == "read" and e["data"]["name"] == "spp0.RX_PACKETS"]
     assert reads and all(e["data"]["address"] == reads[0]["data"]["address"] for e in reads)
     expects = [e for e in log
@@ -90,7 +90,7 @@ def test_the_step_log_holds_the_events_of_the_run(passing):
     assert expects and all(e["result"] == "pass" for e in expects)
     results = [e for e in log if e["kind"] == "result"]
     assert {e["test"]: e["result"] for e in results}["TC-RS-HW-07"] == "pass"
-    assert (run / "run.log").read_text(encoding="utf-8").count(" result PASS: ") == 8
+    assert (run / "run.log").read_text(encoding="utf-8").count(" result PASS: ") == 9
 
 
 def test_the_report_has_the_results_and_the_records(passing):
@@ -128,7 +128,7 @@ def test_after_a_failure_the_later_test_cases_do_not_run(tmp_path):
     run = run_dir(tmp_path)
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
     assert [(r["test"], r["pass"]) for r in records["results"]] == [("TC-RS-HW-01", True), ("TC-RS-HW-02", False)]
-    assert [r["test"] for r in records["not_run"]] == [f"TC-RS-HW-{n:02d}" for n in (3, 4, 5, 6, 7, 18)]
+    assert [r["test"] for r in records["not_run"]] == [f"TC-RS-HW-{n:02d}" for n in (3, 4, 5, 6, 7, 19, 18)]
     assert all(r["reason"] == "not run: TC-RS-HW-02 failed" for r in records["not_run"])
     report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
     assert "| TC-RS-HW-03 | Not run | not run: TC-RS-HW-02 failed |" in report
@@ -141,6 +141,20 @@ def test_keep_going_runs_the_test_cases_whose_dependencies_passed(tmp_path):
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
     assert [r["test"] for r in records["results"]][-1] == "TC-RS-HW-18" and records["keep_going"]
     assert "a run for diagnosis, not evidence" in (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
+
+
+def test_no_pipeline_reset_skips_the_reset_of_the_run_and_marks_it_for_diagnosis(tmp_path):
+    done = session(tmp_path, "--no-pipeline-reset", "--tc", "TC-RS-HW-01", "--tc", "TC-RS-HW-02")
+    assert done.returncode == 0, done.stdout[-3000:]
+    assert "--no-pipeline-reset: the run did not start with the pipeline reset" in done.stdout
+    run = run_dir(tmp_path)
+    records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
+    assert records["no_pipeline_reset"] and not records["keep_going"]
+    texts = [r["text"] for r in records["records"]]
+    assert "pipeline reset at the start of the run: skipped" in texts
+    # TC-RS-HW-02 knows no count of this run and records the one it reads
+    assert "prst0 STATUS.COUNT 0, no pipeline reset in this run before TC-RS-HW-02" in texts
+    assert "(--no-pipeline-reset): a run for diagnosis" in (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
 
 
 def test_a_run_with_bytecode_warns(tmp_path):

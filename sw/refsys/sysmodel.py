@@ -30,14 +30,23 @@ simulation:
   SLOT_COUNT_HI (user guide, programming sequence; register map), the dense output IV, position, ciphertext, tag
   (user guide 4.6), one invocation per chunk, counter ENCRYPTIONS.
 - ECC monitor: INFO with the channel count and the counter width (Open Logic FT, olo_ft_ecc_monitor_axi).
+- Pipeline reset controller (Open Logic FT, olo_ft_reset_ctrl_axi): ID, CTRL and STATUS in a register block that
+  repeats every 2**AxiAddrWidth_g bytes of its window; a write of the key with all four byte enables to CTRL is a
+  command, counted in STATUS.COUNT (saturating), any other write does nothing; BUSY reads 0 (the reset ends before the
+  reply of the command arrives); a read of another offset gets the error response. A command returns every member of
+  the reset group of the Composer file (resetGroups) to its state after the system reset: the registers of its
+  window, the APID tables of the Space Packet node (path defaults), the key slots of the AES-GCM cores (erased,
+  OpenCrypto KT-MEM-02). The SpaceFibre port, the RMAP target, the decoder and the ECC monitor keep their state; so do
+  the packets that the system has already sent to the far end.
 """
 
 from refsys import chunks, errorstate, rmap
 from refsys.composer import SystemFile
 from refsys.rmapmodel import RmapTargetModel
 from refsys.spp import SpacePacket, cptp_decode, cptp_encode
-from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, SPP,
-                            SPP_RX_ERRORS, Setup, System, generic_value, generic_words, loaded_slot)
+from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, PRST_COUNT_MAX,
+                            PRST_COUNT_SHIFT, PRST_CTRL, PRST_ID, PRST_STATUS, SPP, SPP_RX_ERRORS, Setup, System,
+                            generic_value, generic_words, loaded_slot)
 from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
 
 SPECIFIED = (False, False)                    # reads and writes of several words as specified
@@ -135,6 +144,11 @@ class SystemModel(Transport):
         self.error_items = {r.name: r for r in items if isinstance(r, errorstate.Register)}
         # bits that read 0 whatever is written: the VN of VC 0 (OpenFibre register map, VC_CFG, MG-VN-01)
         self.zero_bits = {port + OFB.VC_CFG(0): OFB.field("VC_CFG", "VN", OFB.VC_CFG_VN_MASK)}
+        # the pipeline reset controller: its register block and the commands since the system reset
+        self.reset_block = 1 << system_file.generic(s.reset, "AxiAddrWidth_g")
+        self.reset_count = 0
+        # the registers after the system reset, which a pipeline reset restores in the windows of its members
+        self.initial = dict(self.regs)
 
     # --- link -------------------------------------------------------------------------------------
     def operator(self, step: str) -> None:
@@ -219,16 +233,63 @@ class SystemModel(Transport):
         return reply[len(self.setup.rmap_reply_path):]
 
     def _bus_read(self, address: int) -> int | None:
-        """A read of the AXI master of the RMAP target: None (DECERR) at an address without a register window."""
+        """A read of the AXI master of the RMAP target: None (DECERR) at an address without a register window, or
+        an error response of the pipeline reset controller."""
         decoded = self._decoded(address)
-        return None if decoded is None else self._read(decoded)
+        if decoded is None:
+            return None
+        offset = self._reset_offset(decoded)
+        if offset is not None:
+            return {PRST_ID: self.system.ids[self.system.reset], PRST_CTRL: 0,
+                    PRST_STATUS: self.reset_count << PRST_COUNT_SHIFT}.get(offset)
+        return self._read(decoded)
 
-    def _bus_write(self, address: int, value: int) -> bool:
+    def _bus_write(self, address: int, value: int, strobes: int = 0xF) -> bool:
+        """A write of the AXI master of the RMAP target with the byte enables strobes: False (DECERR) at an address
+        without a register window. A register takes the bytes enabled; the pipeline reset controller takes a command
+        only with all four."""
         decoded = self._decoded(address)
         if decoded is None:
             return False
+        offset = self._reset_offset(decoded)
+        if offset is not None:
+            if offset == PRST_CTRL and strobes == 0xF and value == self.system.reset_key:
+                self.reset_count = min(self.reset_count + 1, PRST_COUNT_MAX)
+                self._pipeline_reset()
+            return True
+        if strobes != 0xF:
+            lanes = sum(0xFF << 8 * n for n in range(4) if strobes >> n & 1)
+            value = self._read(decoded) & ~lanes | value & lanes
         self._write(decoded, value)
         return True
+
+    def _reset_offset(self, address: int) -> int | None:
+        """The offset in the register block of the pipeline reset controller, None outside its window."""
+        base = self.system.base(self.system.reset)
+        if base <= address < base + self.window_bytes:
+            return (address - base) % self.reset_block
+        return None
+
+    def _pipeline_reset(self) -> None:
+        """A command of the pipeline reset controller: every member of the reset group returns to its state after the
+        system reset (the registers of its window, the APID tables of the Space Packet node, the key slots of the
+        AES-GCM cores); a system model adds the state of its own blocks."""
+        s = self.system
+        spans = [(s.base(m), s.base(m) + self.window_bytes) for m in s.pipeline if m in s.windows]
+
+        def member(address: int) -> bool:
+            return any(low <= address < high for low, high in spans)
+
+        for address in [a for a in self.regs if member(a)]:
+            del self.regs[address]
+        self.regs |= {a: v for a, v in self.initial.items() if member(a)}
+        self.ecc = {key: count for key, count in self.ecc.items() if not member(key[0])}
+        if s.node in s.pipeline:
+            self.rx_table.clear()
+            self.tx_table.clear()
+            self.drop_next = False
+        cores = {s.base(c.core) for c in s.cores() if c.core in s.pipeline}
+        self.slots = {key: slot for key, slot in self.slots.items() if key[0] not in cores}
 
     def _decoded(self, address: int) -> int | None:
         """The address in the register window that the decoder selects, None at a port index without a port: the
@@ -405,6 +466,10 @@ class SystemModel(Transport):
             out.append(bytes(chunk))
             self._count(self.system.base(channel.core) + OCR.ENCRYPTIONS)
         return out
+
+    def receive(self, channel, timeout):
+        """Nothing waits: the model gives every packet in the exchange that caused it."""
+        return None
 
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
         assert tx_channel == rx_channel
