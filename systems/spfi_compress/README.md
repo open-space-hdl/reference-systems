@@ -223,6 +223,9 @@ testbench. Channels 1 and 2 must ignore the writes of the runtime registers.
 
 Every run starts with the pipeline reset. TC-RS-HW-19 tests it: the reset values of `spp0` and of the compressors,
 the writes that `prst0` ignores, everything outside the processing path unchanged, and a round of images after it.
+TC-RS-HW-20 resets in the middle of an image, TC-RS-HW-21 with misconfigured compressors and TC-RS-HW-22 during
+traffic; what comes back around a reset is judged per channel against what the data sent can give, at most one Space
+Packet cut by the reset. TC-RS-HW-23 runs TC-RS-HW-02 to 07 again after a reset, as after a new device image.
 
 TC-RS-HW-18 runs the test cases of the run again on the same device without the pipeline reset and without a new
 device image, as a second run of the script does: every run reads the Packet Sequence Counts from which its Space

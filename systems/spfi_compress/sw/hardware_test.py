@@ -1180,6 +1180,12 @@ REQUIREMENTS = {
                     "SPP:CO-SY-01/02/04/08", "SPP:TB-FN-01") + _SPP_MG,
     "TC-RS-HW-17": _OFB_MG,
     "TC-RS-HW-19": ("SPP:CO-RS-01/02/12", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:MB-RS-01") + _SPP_MG + _OCP_MB,
+    "TC-RS-HW-20": ("SPP:CO-RS-01/02/12", "SPP:CO-RS-09..11", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:IA-ER-04",
+                    "OCP:MB-RS-01"),
+    "TC-RS-HW-21": ("OCP:CH-RS-01", "OCP:MB-RS-01") + _OCP_MB,
+    "TC-RS-HW-22": ("SPP:CO-RS-01/02/12", "SPP:CO-RS-09..11", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:IA-ER-04")
+    + _SPP_MG,
+    "TC-RS-HW-23": ("SPP:CO-RS-01/02/12", "OCP:CH-RS-01", "OCP:MB-RS-01") + _OCP_MB,
 }
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
