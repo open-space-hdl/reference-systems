@@ -605,6 +605,54 @@ def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
                        f"the pipeline reset {counters[ch.port] - 1}")
 
 
+def tc21_misconfigured_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-21: pipeline reset with misconfigured compressors (sw/refsys/ocptest.py): every compressor with the
+    runtime configuration holds a pending COMMIT of other valid values and a refused COMMIT with a value out of range
+    (STATUS.CFG_ERROR and CFG_PENDING 1). With the channel of the Space Packets quiet and every key slot at the
+    counter after its last chunk (systest.quiet_counters), the pipeline reset: STATUS reads 0, CONTROL to NEXT_BLOCK
+    their values of the reset and IMAGE_X to LIMITS the generics; after the configuration of TC-RS-HW-05 with every
+    key loaded again at that counter (PR-12), one image on each of these channels equals the model image of the
+    generics, not of the values committed before the reset."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    check(bool(runtime), "no compressor has the runtime configuration (RuntimeConfig_g)")
+    for ch in runtime:
+        ocptest.leave_refused(regs, ctx, ch)
+    counters = systest.quiet_counters(regs, ctx)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-21")
+    ocptest.reset_models(ctx)
+    for ch in runtime:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    after_pipeline_reset(regs, ctx, counters)
+    streams = {}
+    for ch in runtime:
+        streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+        ctx.images += 1
+    send_images(regs, ctx, streams)
+    check_status(regs, ctx)
+
+
+# the state of a run that the test cases of TC-RS-HW-23 continue: the models of the channels, the counts of the input
+# and output APIDs, the losses, the traffic since the counters were cleared and the next invocation counters
+RUN_STATE = ("models", "cleared", "input_count", "output_count", "pending_loss", "traffic", "next_counter")
+
+
+def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-23: fresh after a pipeline reset: with the channel of the Space Packets quiet and every key slot at the
+    counter after its last chunk (systest.quiet_counters), the pipeline reset, then TC-RS-HW-02 to 07 again as a run
+    that starts from the reset values (systest.fresh_run), its keys loaded at these counters (PR-12): the compressors
+    show the values of their generics and take no COMMIT, the Packet Sequence Counts of the output APIDs start at 0,
+    every compressed image equals the model and the counters match, as after a new device image."""
+    counters = systest.quiet_counters(regs, ctx)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-23")
+    fresh = make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes)
+    tests = [tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression, tc07_counters]
+    try:
+        systest.fresh_run(regs, ctx, fresh, tests, counters)
+    finally:
+        for name in RUN_STATE:
+            setattr(ctx, name, getattr(fresh, name))
+
+
 def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
     device image, as a second run of the script does (systest.repeat_run): every one passes again. The second run
@@ -614,7 +662,8 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
-         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc19_pipeline_reset, tc18_repeated_run]
+         tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc19_pipeline_reset, tc21_misconfigured_reset,
+         tc23_fresh_after_reset, tc18_repeated_run]
 
 # Requirements of the cores that the test cases confirm, as far as the procedure names them: it has no coverage
 # section. spfi_compress, whose path of the images up to the chunks is the same, has the full table.
@@ -626,7 +675,8 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage sec
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
             tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
-            tc19_pipeline_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc21_misconfigured_reset: [tc01_link, tc05_configure],
+            tc23_fresh_after_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:

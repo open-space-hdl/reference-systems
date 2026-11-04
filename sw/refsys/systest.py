@@ -387,6 +387,8 @@ class Context:
     # the session step of TC-RS-HW-01 resets the pipeline (False: --no-pipeline-reset, the second run of TC-RS-HW-18)
     pipeline_reset: bool = field(default=True, kw_only=True)
     reset_count: int | None = field(default=None, kw_only=True)           # STATUS.COUNT after the last command
+    # the test cases run on a processing path at its reset values (TC-RS-HW-23): the start values are those of the reset
+    from_reset: bool = field(default=False, kw_only=True)
 
 
 def record(ctx: Context, text: str) -> None:
@@ -725,6 +727,9 @@ def read_start_counts(regs: Registers, ctx: Context) -> None:
         ctx.output_count[ch.output_apid] = SPP.get("TX_TABLE_ENTRY", "COUNT", word)
         record(ctx, f"{s.node} sends the next Space Packet of APID {ch.output_apid} with Packet Sequence Count "
                f"{ctx.output_count[ch.output_apid]}")
+        check(not ctx.from_reset or ctx.output_count[ch.output_apid] == 0,
+              f"APID {ch.output_apid}: Packet Sequence Count {ctx.output_count[ch.output_apid]} after the pipeline "
+              "reset, expected 0")
 
 
 def load_keys(regs: Registers, ctx: Context, counters: dict[int, int] | None = None) -> None:
@@ -892,23 +897,46 @@ def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
     test case and their own."""
     names = [test_name(t) for t in ctx.selected]
     check(ctx.current in names and names.index(ctx.current) > 0, f"{ctx.current} has no test case before it to repeat")
-    tests = ctx.selected[:names.index(ctx.current)]
+    fresh.pipeline_reset = False
+    run_again(regs, ctx, fresh, ctx.selected[:names.index(ctx.current)], "second run")
+
+
+def fresh_run(regs: Registers, ctx: Context, fresh: Context, tests: list,
+              counters: dict[int, int] | None = None) -> None:
+    """TC-RS-HW-23: after a pipeline reset the test cases tests run again with fresh, the context of a run that knows
+    that the processing path is at its reset values (Context.from_reset): the compressors show the values of their
+    generics and take no COMMIT, the Packet Sequence Counts of the output APIDs are 0, STATUS.COUNT of the pipeline
+    reset controller is that of the command. In a system that encrypts the keys are loaded with counters, the
+    invocation counters after the last chunks before the reset (PR-12), in place of the first counters of the seed.
+    The baseline of the error registers is that of the run."""
+    fresh.from_reset = True
+    fresh.pipeline_reset = False
+    fresh.reset_count = ctx.reset_count
+    fresh.baseline = dict(ctx.baseline)
+    if counters:
+        fresh.counter = [counters[ch.port] for ch in fresh.system.channels]
+    run_again(regs, ctx, fresh, tests, "after the pipeline reset")
+
+
+def run_again(regs: Registers, ctx: Context, fresh: Context, tests: list, what: str) -> None:
+    """Runs tests with the context fresh against the same device, inside the test case that runs (TC-RS-HW-18, 23):
+    the test cases make no marks of their own; their records go into the records of the run, with the name of this
+    test case and their own; a failure is the failure of this test case."""
     fresh.selected = tests
     fresh.log = ctx.log
-    fresh.pipeline_reset = False
-    second = type(regs)(regs.transport, fresh.setup)
-    second.log, second.names = regs.log, regs.names
+    again = type(regs)(regs.transport, fresh.setup)
+    again.log, again.names = regs.log, regs.names
     try:
         for test in tests:
             name = test_name(test)
             fresh.current = f"{ctx.current} {name}"
             ctx.log.begin(fresh.current)
-            ctx.log.step(f"second run: {' '.join(test.__doc__.split(':', 1)[1].split())}")
+            ctx.log.step(f"{what}: {' '.join(test.__doc__.split(':', 1)[1].split())}")
             try:
-                test(second, fresh)
-            except Exception as err:  # noqa: BLE001 - the failure of the second run is the failure of this test case
-                raise TestFailed(f"second run, {name}: {err}") from err
-            print(f"PASS {ctx.current}: second run of {name}")
+                test(again, fresh)
+            except Exception as err:  # noqa: BLE001 - the failure of the run is the failure of this test case
+                raise TestFailed(f"{what}, {name}: {err}") from err
+            print(f"PASS {ctx.current}: {what}, {name}")
     finally:
         ctx.records += fresh.records
         ctx.recorded += fresh.recorded

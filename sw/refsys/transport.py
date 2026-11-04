@@ -13,6 +13,24 @@ class TransportError(Exception):
     """A transfer that did not complete."""
 
 
+class Packet(bytes):
+    """A received packet: its bytes (path addresses used by the routing switches removed) and end, the end marker of
+    the packet as the transport reports it: "EOP", "EEP" (an error end of packet), or None when the transport does not
+    report it. The far-end software of the device run does not report it, and the test judges the content."""
+
+    end: str | None
+
+    def __new__(cls, data: bytes = b"", end: str | None = None):
+        packet = super().__new__(cls, data)
+        packet.end = end
+        return packet
+
+
+def end_of(packet: bytes) -> str | None:
+    """The end marker of a received packet (Packet.end); None for plain bytes."""
+    return getattr(packet, "end", None)
+
+
 # Steps of the operator at the far end that a test case asks for, with the text shown to the operator
 FAR_END_LINK_RESET = "far-end link reset"
 OPERATOR_STEPS = {FAR_END_LINK_RESET: "Reset the SpaceFibre link at the port of the test equipment (a link reset of "
@@ -108,7 +126,7 @@ class StarSystemTransport(Transport):
         except BaseException:
             self._cancel([receive, transmit])
             raise
-        return [bytes(item.getPacketData()) for item in receive.getTransferItemList()]
+        return [Packet(bytes(item.getPacketData())) for item in receive.getTransferItemList()]
 
     def transmit(self, channel, packets, timeout=5.0):
         eop = self._enums.STAR_EOP_TYPE.STAR_EOP_TYPE_EOP
@@ -133,7 +151,7 @@ class StarSystemTransport(Transport):
         if status != self._enums.STAR_TRANSFER_STATUS.STAR_TRANSFER_STATUS_COMPLETE:
             self._cancel([receive])
             return None
-        return bytes(receive.getTransferItemList()[0].getPacketData())
+        return Packet(bytes(receive.getTransferItemList()[0].getPacketData()))
 
     @staticmethod
     def _cancel(operations) -> None:

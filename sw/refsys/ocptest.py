@@ -108,6 +108,9 @@ def check_start(regs: Registers, ctx, ch) -> None:
               f"for the values {ocp.describe(values)}")
     ctx.log.emit("config", f"{ch.compressor}: values of the last image that started: {ocp.describe(values)}",
                  compressor=ch.compressor, values=vars(values), generics=values == ocp.build_values(ch.cfg, params))
+    check(not getattr(ctx, "from_reset", False) or values == ocp.build_values(ch.cfg, params),
+          f"{ch.compressor} IMAGE_X to LIMITS show {ocp.describe(values)} after the pipeline reset, expected the "
+          "values of the generics")
     if values == ocp.build_values(ch.cfg, params):
         record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics")
     else:
@@ -124,6 +127,8 @@ def restore(regs: Registers, ctx, ch) -> None:
     got = read_config(regs, ctx, ch)
     if got == reset_words(ch):
         return
+    check(not getattr(ctx, "from_reset", False), f"{ch.compressor} CONTROL to NEXT_BLOCK {hex_words(got)} after the "
+          f"pipeline reset, expected the values of the reset {hex_words(reset_words(ch))}")
     record(ctx, f"{ch.compressor} at the start of the run: CONTROL to NEXT_BLOCK {hex_words(got)} from an earlier "
            "run, the values of the generics are committed")
     commit(regs, ctx, ch, ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics)))
@@ -169,6 +174,25 @@ def check_pipeline_reset(regs: Registers, ctx, ch) -> None:
         regs.expect(base + getattr(OCP, name), value, f"{ch.compressor} {name} after the pipeline reset")
     if ocp.runtime_config(ch.generics):
         check_reset(regs, ctx, ch)
+
+
+def leave_refused(regs: Registers, ctx, ch) -> None:
+    """A compressor with the runtime configuration left misconfigured (TC-RS-HW-21): a COMMIT of valid values other
+    than the generics (other_values), then a COMMIT with the first value out of range of ocp.refused_values, whose
+    CFG_ERROR is not cleared: STATUS shows CFG_ERROR and CFG_PENDING, the valid values stay pending."""
+    valid = other_values(ch)
+    commit(regs, ctx, ch, valid)
+    name, bad = ocp.refused_values(ch.cfg, valid)[0]
+    word = ocp.next_words(OCP, bad)[name]
+    base = ctx.system.base(ch.compressor)
+    regs.write(base + getattr(OCP, name), word)
+    regs.write(base + OCP.CONTROL, COMMIT)
+    check(not ctx.models[ch.port].commit(bad), f"{ch.compressor}: the model takes the values {bad}")
+    status = read_status(regs, ctx, ch)
+    check(status == (True, True), f"{ch.compressor}: COMMIT with {name} 0x{word:08X} gives STATUS (CFG_ERROR, "
+          f"CFG_PENDING) {status}, expected (True, True)")
+    record(ctx, f"{ch.compressor} before the pipeline reset: {ocp.describe(valid)} pending, COMMIT with {name} "
+           f"0x{word:08X} refused (CFG_ERROR)")
 
 
 def check_fixed(regs: Registers, ctx, ch) -> None:

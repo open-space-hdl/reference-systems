@@ -47,7 +47,7 @@ from refsys.spp import SpacePacket, cptp_decode, cptp_encode
 from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, PRST_COUNT_MAX,
                             PRST_COUNT_SHIFT, PRST_CTRL, PRST_ID, PRST_STATUS, SPP, SPP_RX_ERRORS, Setup, System,
                             generic_value, generic_words, loaded_slot)
-from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
+from refsys.transport import FAR_END_LINK_RESET, Packet, Transport, TransportError
 
 SPECIFIED = (False, False)                    # reads and writes of several words as specified
 
@@ -230,7 +230,7 @@ class SystemModel(Transport):
         if reply is None:
             return None
         assert reply.startswith(self.setup.rmap_reply_path), reply[:4].hex()
-        return reply[len(self.setup.rmap_reply_path):]
+        return Packet(reply[len(self.setup.rmap_reply_path):], "EOP")
 
     def _bus_read(self, address: int) -> int | None:
         """A read of the AXI master of the RMAP target: None (DECERR) at an address without a register window, or
@@ -447,7 +447,7 @@ class SystemModel(Transport):
                 count = SPP.field("TX_TABLE_ENTRY", "COUNT", 0x3FFF)
                 self.tx_table[ch.output_apid] = tx & ~count | SPP.field("TX_TABLE_ENTRY", "COUNT", (seq + 1) & 0x3FFF)
                 packet = SpacePacket(apid=ch.output_apid, data=data_field, sequence_count=seq)
-                out.append(cptp_encode(packet.encode(), self.setup.far_end_tla))
+                out.append(Packet(cptp_encode(packet.encode(), self.setup.far_end_tla), "EOP"))
         self._count(node + SPP.TX_PACKETS, len(out))
         return out
 

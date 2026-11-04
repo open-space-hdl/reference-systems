@@ -903,6 +903,52 @@ def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
     traffic_round(regs, ctx)
 
 
+def tc21_misconfigured_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-21: pipeline reset with misconfigured compressors (sw/refsys/ocptest.py): every compressor with the
+    runtime configuration holds a pending COMMIT of other valid values and a refused COMMIT with a value out of range
+    (STATUS.CFG_ERROR and CFG_PENDING 1). After the pipeline reset STATUS reads 0, CONTROL to NEXT_BLOCK their values
+    of the reset and IMAGE_X to LIMITS the generics; after the configuration of TC-RS-HW-05 one image on each of these
+    channels equals the model image of the generics, not of the values committed before the reset."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    check(bool(runtime), "no compressor has the runtime configuration (RuntimeConfig_g)")
+    for ch in runtime:
+        ocptest.leave_refused(regs, ctx, ch)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-21")
+    ocptest.reset_models(ctx)
+    for ch in runtime:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    after_pipeline_reset(regs, ctx)
+    streams = {}
+    for ch in runtime:
+        streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+        ctx.images += 1
+    send_images(regs, ctx, streams)
+    check_status(regs, ctx)
+
+
+# the state of a run that the test cases of TC-RS-HW-23 continue: the models of the channels, the counts of the input
+# and output APIDs, the losses and the traffic since the counters were cleared
+RUN_STATE = ("models", "cleared", "input_count", "output_count", "pending_loss", "traffic")
+
+
+def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-23: fresh after a pipeline reset: the pipeline reset, then TC-RS-HW-02 to 07 again as a run that starts
+    from the reset values (systest.fresh_run): the compressors show the values of their generics and take no COMMIT,
+    the Packet Sequence Counts of the output APIDs start at 0, every image equals the model and the counters match, as
+    after a new device image."""
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-23")
+    fresh = make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes)
+    tests = [tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression, tc07_counters]
+    try:
+        systest.fresh_run(regs, ctx, fresh, tests)
+    finally:
+        ctx.image_records += fresh.image_records
+        ctx.decoded += fresh.decoded
+        ctx.undecoded += fresh.undecoded
+        for name in RUN_STATE:
+            setattr(ctx, name, getattr(fresh, name))
+
+
 def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-17: end of the run: every error and memory error register of the SpaceFibre port, the RMAP target,
     the Space Packet node, the ECC monitor and the compressors still reads 0 since the baseline of TC-RS-HW-01 (the
@@ -930,7 +976,8 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
          tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors,
-         tc19_pipeline_reset, tc13_lane_removal, tc17_end_of_run, tc18_repeated_run]
+         tc19_pipeline_reset, tc21_misconfigured_reset, tc23_fresh_after_reset, tc13_lane_removal, tc17_end_of_run,
+         tc18_repeated_run]
 
 # Requirements of the cores that the test cases confirm on the board, as section 10 of the hardware test procedure
 # lists them (coverage of the cores): <core>:<group>-<ids>, the IDs written as the procedure writes them. Requirements
@@ -1000,7 +1047,8 @@ REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
             tc14_memory_errors: [tc01_link, tc05_configure],
             tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
-            tc19_pipeline_reset: [tc01_link, tc05_configure], tc17_end_of_run: [tc01_link],
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc21_misconfigured_reset: [tc01_link, tc05_configure],
+            tc23_fresh_after_reset: [tc01_link], tc17_end_of_run: [tc01_link],
             tc18_repeated_run: [tc01_link, tc05_configure]}
 
 

@@ -49,7 +49,7 @@ from pathlib import Path
 from types import ModuleType
 
 from refsys import steplog, systest
-from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
+from refsys.transport import FAR_END_LINK_RESET, Packet, Transport, TransportError
 
 STIMULUS = "stimulus.txt"
 VECTORS = "vectors.json"
@@ -371,7 +371,10 @@ class Replay(Transport):
         self.quiet = (channel_, left - 1)
         return self._take(channel, 1)[0]
 
-    def _take(self, rx_channel: int, wanted: int) -> list[bytes]:
+    def _take(self, rx_channel: int, wanted: int) -> list[Packet]:
+        """The next packets of a channel with their end marker. A packet that ended with an EEP is passed on with
+        the end marker "EEP" on the channel of the Space Packets, whose test cases judge it; on a channel with a reply
+        address (RMAP) it is an error."""
         route = self.routes[rx_channel]
         queue = self.rx[route.vc]
         if len(queue) < wanted:
@@ -380,12 +383,12 @@ class Replay(Transport):
         replies = []
         for _ in range(wanted):
             packet = queue.popleft()
-            if packet.eep:
+            if packet.eep and route.rx_path:
                 raise TransportError(f"packet on virtual channel {route.vc} at {packet.ns} ns ended with an EEP")
             if not packet.data.startswith(route.rx_path):
                 raise TransportError(f"packet on virtual channel {route.vc} at {packet.ns} ns without the reply "
                                      f"address {route.rx_path.hex()}: {packet.data[:8].hex()}")
-            replies.append(packet.data[len(route.rx_path):])
+            replies.append(Packet(packet.data[len(route.rx_path):], "EEP" if packet.eep else "EOP"))
         return replies
 
     def leftover(self) -> dict[int, int]:

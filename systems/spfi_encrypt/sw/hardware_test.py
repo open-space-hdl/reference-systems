@@ -233,6 +233,22 @@ def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
                        f"the pipeline reset {counters[ch.port] - 1}")
 
 
+def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-23: fresh after a pipeline reset: with the channel of the Space Packets quiet and every key slot at the
+    counter after its last chunk (systest.quiet_counters), the pipeline reset, then TC-RS-HW-02 to 07 again as a run
+    that starts from the reset values (systest.fresh_run), its keys loaded at these counters (PR-12): the Packet
+    Sequence Counts of the output APIDs start at 0, every Space Packet comes back as its chunks and the counters
+    match, as after a new device image."""
+    counters = systest.quiet_counters(regs, ctx)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-23")
+    fresh = make_context(ctx.seed, ctx.packets, ctx.setup, ctx.system)
+    tests = [tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption, tc07_counters]
+    try:
+        systest.fresh_run(regs, ctx, fresh, tests, counters)
+    finally:
+        ctx.next_counter = fresh.next_counter
+
+
 def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
     device image, as a second run of the script does (systest.repeat_run): every one passes again; its records go
@@ -241,7 +257,7 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
-         tc07_counters, tc19_pipeline_reset, tc18_repeated_run]
+         tc07_counters, tc19_pipeline_reset, tc23_fresh_after_reset, tc18_repeated_run]
 
 # The procedure names no requirement of the cores (it has no coverage section): the test cases carry none.
 REQUIREMENTS: dict = {}
@@ -250,7 +266,8 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_encrypt has no coverage section and 
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption],
-            tc19_pipeline_reset: [tc01_link, tc05_configure], tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc23_fresh_after_reset: [tc01_link, tc05_configure],
+            tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
