@@ -163,3 +163,15 @@ of the lab run in GHDL (above).
   interoperability (spfi_encrypt, sim/README.md, section "Limits").
 - The compressors are compared with the reference model of OpenCompact, which OpenCompact verifies against the CNES
   reference software; the simulation does not decode the compressed images.
+
+## Known issue: the bandwidth flags of OpenFibre v0.1.4 in simulation
+
+In simulation, `VC_BW_OVER` and `VC_BW_UNDER` of `ofb0` hold 'U' until they are cleared, and a read of them leaves the
+RMAP reply on the link without end, while the link stays up (spfi_compress, sim/README.md, section "Known issue: the
+bandwidth flags of OpenFibre v0.1.4 in simulation"). In the `sim` profile TC-RS-HW-19 and 22, the first test cases
+that read the flags, write both with ones before they read them (`clear_bw_flags` of the profile,
+`systest.clear_bw_flags`, once per run).
+
+Every test case that can be the first one of a run to read these flags calls `systest.clear_bw_flags` before it reads
+them. The run against the model does not show the 'U', so a test case without this step fails only in the system
+simulation. The `lab` profile reads the flags as they are: on hardware they start at 0. The hardware is not affected.

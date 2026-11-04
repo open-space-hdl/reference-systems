@@ -196,7 +196,11 @@ before they are cleared puts 'U' into the RMAP reply: the CRCs of the frame at b
 is sent again without end and the reply never arrives, while the link stays up.
 
 In the `sim` profile the hardware test therefore writes both registers with ones (write-one-to-clear) in TC-RS-HW-01,
-before the baseline of the error registers reads them (`clear_bw_flags` of the profile, `BW_FLAGS` of
-`sw/hardware_test.py`). The `lab` profile does not write them: on hardware the flags start at 0, and the baseline
-records their values as they are. The hardware is not affected. OpenFibre corrects this in a later version; this
-system keeps v0.1.4.
+before the baseline of the error registers reads them (`clear_bw_flags` of the profile, `systest.clear_bw_flags`,
+once per run). The `lab` profile does not write them: on hardware the flags start at 0, and the baseline records their
+values as they are. The hardware is not affected. OpenFibre corrects this in a later version; this system keeps
+v0.1.4.
+
+Every test case that can be the first one of a run to read these flags calls `systest.clear_bw_flags` before it reads
+them. The run against the model does not show the 'U', so a test case without this step fails only in the system
+simulation.
