@@ -42,12 +42,18 @@ def test_records_of_the_model_pass(tmp_path):
 
 
 def test_the_procedure_knows_every_space_packet_in_advance(tmp_path):
-    # the model of OpenCompact gives every compressed image, the aborted ones included: the procedure never receives
-    # until the channel of the Space Packets is quiet (the far end waits on the channel of RMAP only during its link
-    # reset in TC-RS-HW-12, which runs twice: TC-RS-HW-18 repeats the run)
+    # the model of OpenCompact gives every compressed image, the aborted ones included: the procedure receives until
+    # the channel of the Space Packets is quiet only around the pipeline resets of TC-RS-HW-20 (before and after) and
+    # 22, where an image in flight gives chunks as far as its samples taken; the far end waits on the channel of RMAP
+    # only during its link reset in TC-RS-HW-12. TC-RS-HW-18 repeats the run
     sysvectors.write(BENCH, tmp_path, "sim", 1, None)
-    quiet = [op for op in operations(tmp_path) if op[0] == "quiet"]
-    assert quiet == [["quiet", str(SYSTEM.rmap_vc), str(sysvectors.QUIET_NS), str(sysvectors.QUIET_LIMIT_NS)]] * 2
+    ops = operations(tmp_path)
+    marks = [i for i, op in enumerate(ops) if op[0] == "mark"]
+    quiet = [(ops[max(m for m in marks if m < i)][1], int(op[1])) for i, op in enumerate(ops) if op[0] == "quiet"]
+    assert all(op[2:] == [str(sysvectors.QUIET_NS), str(sysvectors.QUIET_LIMIT_NS)] for op in ops if op[0] == "quiet")
+    rmap, spp = SYSTEM.rmap_vc, SYSTEM.spp_vc
+    run = [("TC-RS-HW-12", rmap), ("TC-RS-HW-20", spp), ("TC-RS-HW-20", spp), ("TC-RS-HW-22", spp)]
+    assert quiet == run + [("TC-RS-HW-18", vc) for _, vc in run]
 
 
 def append_last_packet(directory: Path) -> None:

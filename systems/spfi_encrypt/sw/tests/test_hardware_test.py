@@ -78,12 +78,12 @@ def test_system_facts_from_the_composer_file():
 def test_procedure_passes_against_the_model():
     ctx = run_all(SystemModel(ht.Setup()))
     assert ctx.chunks >= 24
-    # the pipeline reset at the start of the run and the two commands of TC-RS-HW-19; the second run of TC-RS-HW-18
-    # skips the first and repeats the others
+    # the pipeline reset at the start of the run, the two commands of TC-RS-HW-19 and of TC-RS-HW-22 and the one of
+    # TC-RS-HW-23; the second run of TC-RS-HW-18 skips the first and repeats the others
     texts = [r["text"] for r in ctx.recorded]
     assert texts.count("pipeline reset at the start of the run: prst0 STATUS.COUNT 1, BUSY 0 at poll 1") == 1
     assert "pipeline reset at the start of the run: skipped" in texts
-    assert ctx.reset_count == 3
+    assert ctx.reset_count == 6
 
 
 def test_the_reset_group_comes_from_the_composer_file(tmp_path):

@@ -58,10 +58,12 @@ def test_only_the_images_with_aborted_ones_are_received_until_the_channel_is_qui
         return ops[max(m for m in marks if m < index)][1]
 
     quiet = [i for i, op in enumerate(ops) if op[0] == "quiet"]
-    # TC-RS-HW-19 checks that the channel of the Space Packets is quiet before the pipeline reset
-    # (systest.quiet_counters); the second run of TC-RS-HW-18 repeats it
-    assert len([i for i in quiet if test_of(i) == "TC-RS-HW-19"]) == 1
-    quiet = [i for i in quiet if test_of(i) not in ("TC-RS-HW-19", "TC-RS-HW-18")]
+    # around the pipeline resets the procedure reads the channel of the Space Packets until it is quiet: before the
+    # reset at rest (systest.quiet_counters; TC-RS-HW-19, 21, 23), before and after the reset in the middle of an image
+    # (TC-RS-HW-20) and after the reset during traffic (TC-RS-HW-22); the second run of TC-RS-HW-18 repeats them
+    resets = {"TC-RS-HW-19": 1, "TC-RS-HW-20": 2, "TC-RS-HW-21": 1, "TC-RS-HW-22": 1, "TC-RS-HW-23": 1}
+    assert {name: len([i for i in quiet if test_of(i) == name]) for name in resets} == resets
+    quiet = [i for i in quiet if test_of(i) not in set(resets) | {"TC-RS-HW-18"}]
     if EXACT_ABORT:
         assert quiet == []
         return

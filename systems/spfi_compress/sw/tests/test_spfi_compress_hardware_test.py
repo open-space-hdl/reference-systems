@@ -63,11 +63,12 @@ def test_procedure_passes_against_the_model():
     m, ctx = model(), context()
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
-    # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two), 14 (three), 16 and 19
-    # (two)
-    per_channel = len(LAB.kinds) + 5 + LAB.stream + 9
-    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
-    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2
+    # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two), 14 (three), 16, 19
+    # (two), 20 (two) and 22 (two)
+    per_channel = len(LAB.kinds) + 5 + LAB.stream + 13
+    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel;
+    # TC-RS-HW-21: one image of each channel with the runtime configuration (TC-RS-HW-23 runs with a context of its own)
+    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2 + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
     assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
 

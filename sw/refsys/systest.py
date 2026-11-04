@@ -794,6 +794,26 @@ def quiet_counters(regs: Registers, ctx: Context) -> dict[int, int]:
     return counters
 
 
+def bound_counters(regs: Registers, ctx: Context, chunks_sent: dict[int, int], what: str = "") -> dict[int, int]:
+    """Before a pipeline reset during traffic, in a system that encrypts: the invocation counter of every channel for
+    the reload of its key after the reset (PR-12), R = C + N. C + (chunks before) is the next counter of the slot
+    (next_counter); N (chunks_sent, by port) the largest number of chunks that the data sent to the channel since can
+    give, from the data and not from rate times time: the time from a read of the slot to the command includes the
+    test computer and the far end, which the design does not bound. The query of every slot is recorded and must be at
+    most R: a check of the bound, not its source."""
+    counters = {}
+    for ch in ctx.system.cores():
+        n = chunks_sent.get(ch.port, 0)
+        counters[ch.port] = ctx.next_counter[ch.port] + n
+        state = query_slot(regs, ctx.system.base(ch.core), ch.slot)
+        now = state[2] | state[3] << 32
+        record(ctx, f"{ch.core} slot {ch.slot}: next invocation counter {now}{what}, reload counter "
+                    f"{counters[ch.port]} = {ctx.next_counter[ch.port]} + {n}")
+        check(now <= counters[ch.port], f"{ch.core} slot {ch.slot}: next invocation counter {now} above the bound "
+              f"{counters[ch.port]}")
+    return counters
+
+
 def erased_slots(regs: Registers, ctx: Context) -> None:
     """After a pipeline reset, in a system that encrypts: the key slot of every channel is erased (OpenCrypto
     KT-MEM-02, the query reads zeros) and the counters of every AES-GCM core read 0."""
@@ -940,6 +960,17 @@ def run_again(regs: Registers, ctx: Context, fresh: Context, tests: list, what: 
     finally:
         ctx.records += fresh.records
         ctx.recorded += fresh.recorded
+
+
+def receive_quiet(regs: Registers, ctx: Context, timeout: float = DRAIN_TIMEOUT, limit: int = DRAIN_LIMIT) -> list:
+    """Receives on the channel of the Space Packets until no packet arrives within timeout and returns the packets in
+    the order of their arrival (with their end markers, transport.Packet)."""
+    out = []
+    while (packet := regs.transport.receive(ctx.setup.spp_channel, timeout)) is not None:
+        out.append(packet)
+        if len(out) >= limit:
+            raise TransportError(f"channel {ctx.setup.spp_channel} still delivers packets after {len(out)}")
+    return out
 
 
 def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,

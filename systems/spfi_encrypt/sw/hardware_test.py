@@ -25,16 +25,17 @@ Usage: python systems/spfi_encrypt/sw/hardware_test.py --device <STAR-Ultra devi
 Exit code 0 when every test case passes.
 """
 
+import itertools
 import random
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import chunks, resettest, systest  # noqa: E402
+from refsys import chunks, errorstate, resettest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
@@ -87,6 +88,7 @@ class System(systest.System):
 class Context(systest.Context):
     packets: int
     chunks: int = 0
+    output_count: dict[int, int] = field(default_factory=dict)        # APID: expected next Packet Sequence Count
 
 
 def tc05_configure(regs: Registers, ctx: Context) -> None:
@@ -233,6 +235,68 @@ def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
                        f"the pipeline reset {counters[ch.port] - 1}")
 
 
+def link_packets(ctx: Context, ch: Channel, packets: list[bytes]) -> list[bytes]:
+    """The link packets in which the system sends the chunks of these input Space Packets of a channel: the
+    authenticated chunks of its framer and AES-GCM core, the invocation counters from the next one of its key slot
+    (ctx.next_counter), each in a CPTP packet of a Space Packet with the APID of the channel, the Packet Sequence
+    Counts from the next one of the APID (ctx.output_count), as the model of the system builds them."""
+    apid = ch.output_apid
+    count, counter = ctx.output_count.get(apid, 0), ctx.next_counter[ch.port]
+    out = []
+    for pos, part in itertools.chain.from_iterable(chunks.split(data, ctx.system.chunk_bytes) for data in packets):
+        chunk = chunks.encrypt(ctx.keys[ch.port], ctx.fixed[ch.port], counter, pos, part)
+        out.append(cptp_encode(SpacePacket(apid=apid, data=chunk, sequence_count=count).encode(),
+                               ctx.setup.far_end_tla))
+        count, counter = (count + 1) & 0x3FFF, counter + 1
+    return out
+
+
+def tc22_reset_during_traffic(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-22: pipeline reset during traffic (sw/refsys/resettest.py). The Packet Sequence Counts of the output
+    APIDs are read; of the Space Packets of TC-RS-HW-06 (the channels in turn) the far end sends the first k, k from
+    the seed, the slots are queried and the command follows, while the channels encrypt; the reload counter of every
+    key is the number of chunks of the packets sent (systest.bound_counters, PR-12). The far end then sends nothing
+    until the configuration is written again (PR-11) and reads the channel of the Space Packets until it is quiet:
+    what came back is per APID a prefix of the chunks of the packets sent, the last one possibly cut by the reset
+    (recorded). RMAP answers and the link is up; the counters of the Space Packet node are recorded. A second pipeline
+    reset with the link quiet: the reset values as in TC-RS-HW-19; after the configuration of TC-RS-HW-05 with every
+    key loaded again at its bound, one Space Packet per channel comes back as chunks with Packet Sequence Counts from
+    0 and a first invocation counter greater than every counter before the first reset; every error register outside
+    the processing path holds its value from before the traffic."""
+    s, setup = ctx.system, ctx.setup
+    errors = errorstate.read_state(regs, resettest.outside_items(ctx))
+    systest.read_start_counts(regs, ctx)
+    rng = random.Random(f"{ctx.seed} TC-RS-HW-22")
+    lengths = packet_lengths(s, ctx.packets, rng)
+    k = rng.randrange(1, len(lengths))
+    sent: dict[int, list[bytes]] = {c.port: [] for c in s.channels}
+    packets = []
+    for n, length in enumerate(lengths[:k]):
+        ch = s.channels[n % len(s.channels)]
+        data = rng.randbytes(length)
+        sent[ch.port].append(data)
+        packet = SpacePacket(apid=setup.input_apid_base + ch.port, data=data, sequence_count=n).encode()
+        packets.append(cptp_encode(packet, setup.system_tla))
+    systest.record(ctx, f"TC-RS-HW-22: the pipeline reset after {k} of {len(lengths)} Space Packets")
+    regs.transport.transmit(setup.spp_channel, packets)
+    expected = {ch.output_apid: link_packets(ctx, ch, sent[ch.port]) for ch in s.channels}
+    counters = systest.bound_counters(regs, ctx, {port: sum(len(chunks.split(d, s.chunk_bytes)) for d in datas)
+                                                  for port, datas in sent.items()}, " during the traffic")
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-22, during traffic")
+    resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), expected, "TC-RS-HW-22")
+    systest.check_link_state(regs, ctx)
+    node = s.base(s.node)
+    systest.record(ctx, f"after the pipeline reset during traffic: {s.node} " + ", ".join(
+        f"{name} {regs.read(node + getattr(SPP, name))}" for name in ("RX_PACKETS", "TX_PACKETS", "RX_LOSS")))
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-22, second command")
+    resettest.check_node_reset(regs, ctx)
+    systest.erased_slots(regs, ctx)
+    resettest.check_members_errors(regs, ctx)
+    after_pipeline_reset(regs, ctx, counters)
+    send_packets(regs, ctx, [s.chunk_bytes + 1] * len(s.channels), rng, first_count=0)
+    resettest.check_outside_errors(regs, ctx, errors, "at the end of TC-RS-HW-22")
+
+
 def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-23: fresh after a pipeline reset: with the channel of the Space Packets quiet and every key slot at the
     counter after its last chunk (systest.quiet_counters), the pipeline reset, then TC-RS-HW-02 to 07 again as a run
@@ -257,7 +321,7 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
-         tc07_counters, tc19_pipeline_reset, tc23_fresh_after_reset, tc18_repeated_run]
+         tc07_counters, tc19_pipeline_reset, tc22_reset_during_traffic, tc23_fresh_after_reset, tc18_repeated_run]
 
 # The procedure names no requirement of the cores (it has no coverage section): the test cases carry none.
 REQUIREMENTS: dict = {}
@@ -266,7 +330,8 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_encrypt has no coverage section and 
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
 REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption],
-            tc19_pipeline_reset: [tc01_link, tc05_configure], tc23_fresh_after_reset: [tc01_link, tc05_configure],
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc22_reset_during_traffic: [tc01_link, tc05_configure],
+            tc23_fresh_after_reset: [tc01_link, tc05_configure],
             tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
