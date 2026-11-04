@@ -400,3 +400,40 @@ def test_a_second_run_on_the_same_device_passes():
     assert sum("show the values of an image of an earlier run: NX " in t for t in second) == 2
     assert sum("the values of the generics are committed" in t for t in second) == 2
     assert any(t.startswith("spp0 sends the next Space Packet of APID") and not t.endswith(" 0") for t in second)
+
+
+class BwAccesses(sm.SystemModel):
+    """The system model that notes the writes and reads of the bandwidth flags of the SpaceFibre port."""
+
+    def __init__(self):
+        super().__init__(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+        port = SYSTEM.base(SYSTEM.port)
+        self.flags = {port + getattr(systest.OFB, name): name for name in systest.BW_FLAGS}
+        self.log = []
+
+    def _bus_read(self, address):
+        if address in self.flags:
+            self.log.append(("read", self.flags[address]))
+        return super()._bus_read(address)
+
+    def _bus_write(self, address, value, strobes=0xF):
+        if address in self.flags:
+            self.log.append(("write", self.flags[address], value))
+        return super()._bus_write(address, value, strobes)
+
+
+@pytest.mark.parametrize("profile", ["sim", "lab"])
+@pytest.mark.parametrize("test", ["TC-RS-HW-19", "TC-RS-HW-22"])
+def test_the_sim_profile_clears_the_bandwidth_flags_before_their_first_read(test, profile):
+    """Known issue of OpenFibre v0.1.4 in simulation (systest.BW_FLAGS): TC-RS-HW-19 and 22 are the first test cases
+    of a run that read VC_BW_OVER and VC_BW_UNDER; in the sim profile both are written with ones before the first
+    read, once per run; in the lab profile they are only read."""
+    m = BwAccesses()
+    results = run(m, context(profile=ht.PROFILES[profile]), ht.select_tests([test]))
+    assert list(results)[-1] == test and not any(results.values()), results
+    writes = [("write", name, 0xFFFFFFFF) for name in systest.BW_FLAGS]
+    if profile == "sim":
+        assert m.log[:2] == writes and ("read", "VC_BW_OVER") in m.log[2:]
+        assert [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] == writes
+    else:
+        assert not [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] and m.log[0][0] == "read"

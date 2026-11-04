@@ -767,6 +767,16 @@ def test_the_sim_profile_clears_the_bandwidth_flags_before_their_first_read(prof
         assert not [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] and m.log[0][0] == "read"
 
 
+def test_the_bandwidth_flags_are_cleared_once_per_run():
+    """In the sim profile TC-RS-HW-01 clears the bandwidth flags; TC-RS-HW-19, which reads them again with the error
+    registers outside the processing path, writes them no more (systest.clear_bw_flags)."""
+    m = Accesses()
+    results = run(m, context(profile=ht.PROFILES["sim"]), ht.select_tests(["TC-RS-HW-19"]))
+    assert list(results)[-1] == "TC-RS-HW-19" and not any(results.values()), results
+    ones = [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF]
+    assert ones == [("write", name, 0xFFFFFFFF) for name in ht.BW_FLAGS] and m.log[:2] == ones
+
+
 def second_run_records(ctx) -> list[str]:
     return [r["text"] for r in ctx.recorded if r["test"].startswith("TC-RS-HW-18 ")]
 
