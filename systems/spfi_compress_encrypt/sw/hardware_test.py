@@ -77,8 +77,9 @@ class Profile:
     the channels of even and case (b) on those of odd number; TC-RS-HW-10 sends the full image plan of every channel
     with the runtime configuration and one image of every other channel, or without runtime_full three images of the
     bounds (refsys.ocptest.image_plan). TC-RS-HW-20 and 22 send one image per channel, or with small only one image of
-    at most small samples (NX, NY, NZ) on each channel with the runtime configuration (reset_images). The hardware
-    test runs the lab profile, the system simulation the sim profile."""
+    at most small samples (NX, NY, NZ) on each channel with the runtime configuration (reset_images). With
+    clear_bw_flags TC-RS-HW-19 and 22 clear VC_BW_OVER and VC_BW_UNDER of the SpaceFibre port before their first read
+    (systest.clear_bw_flags). The hardware test runs the lab profile, the system simulation the sim profile."""
 
     name: str
     kinds: tuple[str, ...]
@@ -86,11 +87,12 @@ class Profile:
     split_lost: bool = False
     runtime_full: bool = True
     small: tuple[int, int, int] | None = None
+    clear_bw_flags: bool = False
 
 
 PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
                                 Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
-                                        small=(64, 16, 8)))}
+                                        small=(64, 16, 8), clear_bw_flags=True))}
 
 
 @dataclass
@@ -752,6 +754,7 @@ def tc22_reset_during_traffic(regs: Registers, ctx: Context) -> None:
     the Packet Sequence Counts from 0 and a first invocation counter per channel greater than every counter before
     the first reset; every error register outside the processing path holds its value from before the traffic."""
     s = ctx.system
+    systest.clear_bw_flags(regs, ctx)
     errors = errorstate.read_state(regs, resettest.outside_items(ctx))
     clear_status(regs, ctx)
     channels, images = reset_images(regs, ctx)
@@ -878,6 +881,7 @@ def make_context(seed: int, profile: Profile, setup: Setup = Setup(), system: Sy
     systest.check_apids(system, setup)
     longest = system.rx_buffer_bytes - PRIMARY_HEADER_BYTES
     ctx = Context(system=system, setup=setup, seed=seed, profile=profile, sdu_bytes=min(sdu_bytes or longest, longest),
+                  clear_bw_flags=profile.clear_bw_flags,
                   **systest.key_material(random.Random(seed), len(system.channels)))
     ctx.models = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
     ctx.cleared = {port: ocp.Counts() for port in ctx.models}

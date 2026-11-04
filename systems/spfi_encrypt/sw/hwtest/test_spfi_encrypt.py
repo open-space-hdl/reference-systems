@@ -19,7 +19,7 @@ ht, sm = systest.system_modules(Path(__file__).resolve().parents[1], "hardware_t
 
 
 def context(seed: int, profile: str):
-    return ht.make_context(seed, ht.PROFILES[profile].packets)
+    return ht.make_context(seed, ht.PROFILES[profile].packets, clear_bw_flags=ht.PROFILES[profile].clear_bw_flags)
 
 
 def model(ctx):

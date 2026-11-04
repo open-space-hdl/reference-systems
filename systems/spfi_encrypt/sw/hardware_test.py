@@ -52,13 +52,16 @@ BANKS = RegisterMap(SYSTEM_DIR / "hdl" / "spfi_encrypt_regs.h", "SPFI_ENCRYPT")
 @dataclass(frozen=True)
 class Profile:
     """Size of a test run. The hardware test runs the lab profile; the system simulation runs the sim profile, with
-    fewer Space Packets in TC-RS-HW-06 and the same boundary cases (packet_lengths)."""
+    fewer Space Packets in TC-RS-HW-06 and the same boundary cases (packet_lengths). With clear_bw_flags TC-RS-HW-19
+    and 22 clear VC_BW_OVER and VC_BW_UNDER of the SpaceFibre port before their first read
+    (systest.clear_bw_flags)."""
 
     name: str
     packets: int
+    clear_bw_flags: bool = False
 
 
-PROFILES = {p.name: p for p in (Profile("lab", 40), Profile("sim", 8))}
+PROFILES = {p.name: p for p in (Profile("lab", 40), Profile("sim", 8, clear_bw_flags=True))}
 
 
 @dataclass(frozen=True)
@@ -264,6 +267,7 @@ def tc22_reset_during_traffic(regs: Registers, ctx: Context) -> None:
     0 and a first invocation counter greater than every counter before the first reset; every error register outside
     the processing path holds its value from before the traffic."""
     s, setup = ctx.system, ctx.setup
+    systest.clear_bw_flags(regs, ctx)
     errors = errorstate.read_state(regs, resettest.outside_items(ctx))
     systest.read_start_counts(regs, ctx)
     rng = random.Random(f"{ctx.seed} TC-RS-HW-22")
@@ -305,7 +309,7 @@ def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
     match, as after a new device image."""
     counters = systest.quiet_counters(regs, ctx)
     systest.pipeline_reset(regs, ctx, " of TC-RS-HW-23")
-    fresh = make_context(ctx.seed, ctx.packets, ctx.setup, ctx.system)
+    fresh = make_context(ctx.seed, ctx.packets, ctx.setup, ctx.system, ctx.clear_bw_flags)
     tests = [tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption, tc07_counters]
     try:
         systest.fresh_run(regs, ctx, fresh, tests, counters)
@@ -317,7 +321,7 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-18: the test cases of the run before this one run again on the same device, without a reset or a new
     device image, as a second run of the script does (systest.repeat_run): every one passes again; its records go
     into those of the run."""
-    systest.repeat_run(regs, ctx, make_context(ctx.seed, ctx.packets, ctx.setup, ctx.system))
+    systest.repeat_run(regs, ctx, make_context(ctx.seed, ctx.packets, ctx.setup, ctx.system, ctx.clear_bw_flags))
 
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_encryption,
@@ -340,11 +344,13 @@ def select_tests(names: list[str] | None = None) -> list:
     return systest.select_tests(names, TESTS, REQUIRES)
 
 
-def make_context(seed: int, packets: int, setup: Setup = Setup(), system: System | None = None) -> Context:
+def make_context(seed: int, packets: int, setup: Setup = Setup(), system: System | None = None,
+                 clear_bw_flags: bool = False) -> Context:
+    """clear_bw_flags: that of the profile (Profile)."""
     system = system or System()
     systest.check_apids(system, setup)
     packet_lengths(system, packets, random.Random(seed))
-    return Context(system=system, setup=setup, seed=seed, packets=packets,
+    return Context(system=system, setup=setup, seed=seed, packets=packets, clear_bw_flags=clear_bw_flags,
                    **systest.key_material(random.Random(seed), len(system.channels)))
 
 

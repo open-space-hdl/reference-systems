@@ -95,8 +95,8 @@ class Profile:
     bounds (refsys.ocptest.image_plan). The test cases that check the data path after a provoked event
     (traffic_round) send one image per channel, or with small only one image of at most small samples (NX, NY, NZ)
     on each channel with the runtime configuration. With clear_bw_flags TC-RS-HW-01 clears VC_BW_OVER and VC_BW_UNDER
-    of the SpaceFibre port before their first read (BW_FLAGS). The hardware test runs the lab profile, the system
-    simulation the sim profile."""
+    of the SpaceFibre port before their first read (systest.clear_bw_flags). The hardware test runs the lab profile,
+    the system simulation the sim profile."""
 
     name: str
     kinds: tuple[str, ...]
@@ -111,11 +111,8 @@ PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
                                 Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
                                         small=(64, 16, 8), clear_bw_flags=True))}
 
-# Known issue of OpenFibre v0.1.4 in simulation: VC_BW_OVER and VC_BW_UNDER hold 'U' until the status of the core has
-# crossed into the management clock domain, which happens only after the lane clock of the simulated transceiver
-# starts; a read puts 'U' into the reply and its CRC. Writing ones clears both flags (write-one-to-clear). On hardware
-# the flags start at 0, and the lab profile reads them as they are.
-BW_FLAGS = ("VC_BW_OVER", "VC_BW_UNDER")
+# Known issue of OpenFibre v0.1.4 in simulation: the bandwidth flags of the SpaceFibre port (systest.BW_FLAGS)
+BW_FLAGS = systest.BW_FLAGS
 
 
 @dataclass
@@ -498,12 +495,9 @@ def tc01_link(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP, the lanes are recorded
     (sw/refsys/systest.py); then the baseline of the error and memory error registers of every block: recorded,
     cleared and read again as 0 (refsys.errorstate). In a profile with clear_bw_flags VC_BW_OVER and VC_BW_UNDER are
-    cleared before the baseline reads them (BW_FLAGS)."""
+    cleared before the baseline reads them (systest.clear_bw_flags)."""
     systest.tc01_link(regs, ctx)
-    if ctx.profile.clear_bw_flags:
-        base = ctx.system.base(ctx.system.port)
-        for name in BW_FLAGS:
-            regs.write(base + getattr(OFB, name), 0xFFFFFFFF)
+    systest.clear_bw_flags(regs, ctx)
     systest.baseline(regs, ctx)
 
 
@@ -1219,7 +1213,7 @@ def make_context(seed: int, profile: Profile, setup: Setup = Setup(), system: Sy
     systest.check_apids(system, setup)
     longest = system.rx_buffer_bytes - PRIMARY_HEADER_BYTES
     ctx = Context(system=system, setup=setup, seed=seed, profile=profile, sdu_bytes=min(sdu_bytes or longest, longest),
-                  window_words=window_words(random.Random(seed)))
+                  window_words=window_words(random.Random(seed)), clear_bw_flags=profile.clear_bw_flags)
     ctx.models = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
     ctx.cleared = {port: ocp.Counts() for port in ctx.models}
     return ctx
