@@ -17,6 +17,8 @@ import pytest
 
 from refsys import errorstate, ocp, ocptest, rmap, systest
 from refsys.composer import SystemFile, instance_of
+from refsys.spp import SpacePacket, cptp_encode
+from refsys.transport import Packet
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
 
@@ -627,6 +629,10 @@ class Faulty(sm.SystemModel):
                 self.regs[address] = 0                   # a reset that reaches a window of the RMAP target
         if self.mutation == "pending_kept":
             self.channels, self.runtime = channels, runtime  # compressors that keep a pending configuration
+        if self.mutation == "late_packet" and self.reset_count >= 2:
+            # a Space Packet that the link output stage sends after the reset, not the next one of its APID
+            packet = SpacePacket(apid=SYSTEM.channels[0].output_apid, data=bytes(16), sequence_count=5)
+            self.pending.append(Packet(cptp_encode(packet.encode(), self.setup.far_end_tla), "EOP"))
 
     def _rmap(self, packet):
         cmd = bytes(packet[len(self.setup.rmap_path):])
@@ -644,6 +650,21 @@ class Faulty(sm.SystemModel):
         if self.mutation == "crc_count" and out:
             self._count(PORT + OFB.DL_CRC16_COUNT)       # every round of images counts a CRC error
         return out
+
+
+def test_the_bound_of_an_image_is_that_of_the_throughput_budget():
+    # W of the counter bound after a reset during traffic (ocp.worst_image_bytes): the bound over the ranges of the
+    # runtime parameters on the channels with them, the bound of the generics on the others
+    for ch in LAB_SYSTEM.channels:
+        want = RUNTIME_BOUNDS[ch.compressor][0] if ch.compressor in RUNTIME_BOUNDS else ocp.ocp_model.max_image_bytes(
+            ch.cfg)
+        assert ocp.worst_image_bytes(ch.cfg, ch.generics) == want, ch.compressor
+
+
+def test_tc23_finds_counts_that_the_pipeline_reset_kept():
+    # after traffic the send APID table holds counts above 0; a reset that keeps the tables leaves them
+    results = run(Faulty("tables_kept"), context(), ht.select_tests(["TC-RS-HW-06", "TC-RS-HW-23"]))
+    assert "after the pipeline reset, expected 0" in (results["TC-RS-HW-23"] or ""), results
 
 
 @pytest.mark.parametrize("mutation, test, message", [
@@ -664,6 +685,9 @@ class Faulty(sm.SystemModel):
     ("window_reset", "TC-RS-HW-19", "rmap0 window after the pipeline reset"),
     ("pending_kept", "TC-RS-HW-19", "ocp0 CONTROL to NEXT_LIMITS"),
     ("no_count", "TC-RS-HW-19", "prst0 STATUS.COUNT 1 after the command, 1 before it"),
+    ("late_packet", "TC-RS-HW-20", "after the pipeline reset: Space Packet 0 of 26 bytes (end marker EOP) is not"),
+    ("late_packet", "TC-RS-HW-22", "TC-RS-HW-22: Space Packet 0 of 26 bytes (end marker EOP) is not"),
+    ("pending_kept", "TC-RS-HW-21", "ocp0 CONTROL to NEXT_LIMITS"),
 ])
 def test_the_trl4_test_cases_detect_a_faulty_system(mutation, test, message):
     results = run(Faulty(mutation), context(), ht.select_tests([test]))
