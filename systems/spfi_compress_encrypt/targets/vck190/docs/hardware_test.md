@@ -262,4 +262,6 @@ Keep for every build and every test run, with the date:
 | Test computer | The output of `--check-environment` |
 | Test run | The command line and the directory that the run writes below `--results`: `steps.jsonl`, `run.log`, `junit.xml`, the records file and the report, as for spfi_compress (its procedure, section 9); the records hold the recorded values of TC-RS-HW-01 and the rate of TC-RS-HW-09 |
 
-A failing test case is recorded with its output and the register values it reports.
+A failing test case is recorded with the text of the check that failed, which names the register and its fields, and
+with the state of the system read right after the failure: the link, every lane and the error registers that hold a
+value (snapshot events, section "State after a failure" of the report).

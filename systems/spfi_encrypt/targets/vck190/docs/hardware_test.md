@@ -345,10 +345,13 @@ Keep for every build and every test run, with the date:
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
 | Test computer | The output of `--check-environment` |
 | Test run | The command line and the directory that the run writes below `--results` (one per run, named after its date and time) |
-| `steps.jsonl`, `run.log` | Every event of the run (steps, register accesses, checked values with their expected values, Space Packets, recorded values, environment and the state of the working tree), as JSON lines and as text |
+| `steps.jsonl` | Every event of the run, one JSON object per line: steps, register accesses, waits for a register value (one event with its polls), checked values with their expected values, failed checks, the state of the system after a failure, Space Packets, recorded values, environment and the state of the working tree |
+| `run.log` | The events that a reader follows, as text: all but the register reads and writes. The result of a test case counts its passing checks, which make no event of their own |
 | `junit.xml` | The JUnit XML report of pytest, with the system, profile, seed and commit of the run |
 | `records_spfi_encrypt_<date>_<time>.json`, `report_spfi_encrypt.md` | The records of the run (results, test cases not run, recorded values) and their tables (`tools/render_records.py`) |
 
-A failing test case is recorded with its output and the register values it reports. These files are what a review of
+A failing test case is recorded with the text of the check that failed, which names the register and its fields, and
+with the state of the system read right after the failure: the link, every lane and the error registers that hold a
+value (snapshot events, section "State after a failure" of the report). These files are what a review of
 the hardware test needs: they are brought back from the build computer and the test computer together, the device
 image is not needed for that.
