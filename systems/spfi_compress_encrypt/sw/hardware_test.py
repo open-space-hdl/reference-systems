@@ -862,6 +862,21 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage sec
                      "encryption.")
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
+# The test case that configures the system: after it passed, the recovery after a failure (systest.recover) ends
+# with reconfigure
+CONFIGURE = tc05_configure
+
+
+def reconfigure(regs: Registers, ctx: Context) -> None:
+    """The end of the recovery after a failure (systest.recover), after its pipeline reset: the models of the
+    compressors start again from the reset (ocptest.reset_models), then the configuration of TC-RS-HW-05 with every
+    key loaded again at the counter after the last chunk expected plus systest.RECOVERY_COUNTER_GAP
+    (after_pipeline_reset, PR-12)."""
+    ocptest.reset_models(ctx)
+    after_pipeline_reset(regs, ctx, {ch.port: ctx.next_counter[ch.port] + systest.RECOVERY_COUNTER_GAP
+                                     for ch in ctx.system.channels})
+
+
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
             tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
             tc19_pipeline_reset: [tc01_link, tc05_configure], tc20_reset_mid_image: [tc01_link, tc05_configure],

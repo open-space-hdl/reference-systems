@@ -20,9 +20,12 @@ Nothing is written into the repository: --results must lie outside it, the cache
 the run records `git status --porcelain --ignored` of the repository and of every submodule at its start and at its
 end. Python writes its bytecode next to the sources unless it runs with -B; the run warns when it does.
 
-The run stops at the first failure: the later test cases build on the earlier ones and are reported as not run.
---keep-going runs a later test case when the test cases it builds on passed (diagnosis only; the report says so).
---no-pipeline-reset skips the pipeline reset at the start of the run (TC-RS-HW-01), so that the run starts from what
+After a failure the run goes on: before the next test case the recovery (systest.recover) reads the channels until
+they are quiet, checks the health of the system (RMAP answers, the link is initialised with all lanes; once a far-end
+link reset if not), clears the error registers, resets the pipeline and configures the system again (the hook
+reconfigure of the system, when its test case CONFIGURE has passed). A test case whose prerequisites (REQUIRES) did not
+pass is not run; a system that stays unhealthy stops the run, and the rest is not run. --stop-at-first-failure stops
+at the first failure instead. --no-pipeline-reset skips the pipeline reset at the start of the run (TC-RS-HW-01), so that the run starts from what
 an earlier run left in the processing path (diagnosis only; the report says so).
 --tc selects test cases together with those they build on; -k is refused, since it would drop them.
 """
@@ -62,8 +65,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     g.addoption("--results", help="directory for the outputs of the run, outside the repository (required)")
     g.addoption("--tc", action="append", default=[],
                 help="run only this test case and those it builds on (repeatable), for example TC-RS-HW-08")
-    g.addoption("--keep-going", action="store_true",
-                help="after a failure, run the test cases whose own dependencies passed (diagnosis only)")
+    g.addoption("--stop-at-first-failure", action="store_true",
+                help="stop at the first failure: the later test cases are not run (default: recover and go on)")
     g.addoption("--no-pipeline-reset", action="store_true",
                 help="skip the pipeline reset at the start of the run in TC-RS-HW-01 (diagnosis only)")
 
@@ -120,7 +123,8 @@ def pytest_configure(config: pytest.Config) -> None:
     log.sinks += sinks
     config.stash[LOG_KEY] = log
     config.stash[SINKS_KEY] = sinks
-    config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "keep_going": config.getoption("keep_going"),
+    config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "stop": config.getoption("stop_at_first_failure"),
+                               "recover_after": None, "unhealthy": None,
                                "no_pipeline_reset": config.getoption("no_pipeline_reset")}
     SESSION["log"] = log
     log.begin("")
@@ -236,21 +240,43 @@ class HardwareRun:
     def run(self, test) -> None:
         name = systest.test_name(test)
         failed = self.state["failed"]
-        if failed and not self.state["keep_going"]:
-            self.skip(name, f"not run: {failed} failed")
+        if failed and self.state["stop"]:
+            self.skip(name, f"not run: {failed} failed (--stop-at-first-failure)")
+        if self.state["unhealthy"]:
+            self.skip(name, f"not run: {self.state['unhealthy']}")
         needed = [systest.test_name(t) for t in getattr(self.ht, "REQUIRES", {}).get(test, [])]
         missing = [n for n in needed if self.state["outcomes"].get(n) != "passed"]
         if failed and missing:
             self.skip(name, f"not run: {', '.join(missing)} did not pass")
+        if self.state["recover_after"]:
+            self.recover(name)
         try:
             systest.run_one(self.regs, self.ctx, test)
         except BaseException as err:
             self.results.append((name, str(err) or type(err).__name__))
             self.state["outcomes"][name] = "failed"
             self.state["failed"] = self.state["failed"] or name
+            self.state["recover_after"] = name
             raise
         self.results.append((name, None))
         self.state["outcomes"][name] = "passed"
+
+    def recover(self, name: str) -> None:
+        """The recovery after the last failed test case, before the test case name (systest.recover), in the step log
+        of name; a system that stays unhealthy is not run on: name and every later test case are not run."""
+        failed = self.state["recover_after"]
+        self.state["recover_after"] = None
+        self.ctx.current = name
+        self.log.begin(name)
+        self.log.step(f"recovery after {failed} failed, before {name}")
+        configure = getattr(self.ht, "CONFIGURE", None)
+        reconfigure = getattr(self.ht, "reconfigure", None)
+        configured = configure is not None and self.state["outcomes"].get(systest.test_name(configure)) == "passed"
+        try:
+            systest.recover(self.regs, self.ctx, failed, reconfigure if configured else None)
+        except Exception as err:  # noqa: BLE001 - the run stops with the reason
+            self.state["unhealthy"] = f"the recovery after {failed} failed: {err}"
+            self.skip(name, f"not run: {self.state['unhealthy']}")
 
     def skip(self, name: str, reason: str) -> None:
         self.not_run.append((name, reason))
@@ -267,11 +293,12 @@ class HardwareRun:
             self.transport.close()
         run = self.config.stash[RUN_KEY]
         extra = self.module.records_extra(self.ctx) if hasattr(self.module, "records_extra") else {}
-        extra |= {"snapshots": self.ctx.snapshots,
+        extra |= {"snapshots": self.ctx.snapshots, "recoveries": self.ctx.recoveries,
                   "requirements": getattr(self.ht, "REQUIREMENTS", {}),
                   "requirements_note": getattr(self.ht, "REQUIREMENTS_NOTE", ""),
                   "not_run": [{"test": n, "reason": r} for n, r in self.not_run],
-                  "keep_going": self.state["keep_going"], "no_pipeline_reset": self.state["no_pipeline_reset"]}
+                  "stop_at_first_failure": self.state["stop"],
+                  "no_pipeline_reset": self.state["no_pipeline_reset"]}
         path = systest.write_records(run, self.system, "device" if self.target == "device" else "system model",
                                      self.profile, self.ctx, self.results, self.started, extra)
         render = load_renderer()
@@ -297,7 +324,7 @@ def hw(request: pytest.FixtureRequest, record_testsuite_property):
     for name, value in (("system", run.system), ("target", run.target), ("profile", run.profile),
                         ("seed", request.config.getoption("seed")),
                         ("commit", (git("rev-parse", "HEAD") or "").strip()),
-                        ("keep_going", run.state["keep_going"]),
+                        ("stop_at_first_failure", run.state["stop"]),
                         ("no_pipeline_reset", run.state["no_pipeline_reset"])):
         record_testsuite_property(name, value)
     yield run
@@ -339,8 +366,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus: int, config: pytest.Co
                              report.duration, str(reason).removeprefix("Skipped: ")))
     rows.sort(key=lambda r: r[0])
     tr.section("hardware test")
-    if config.stash[STATE_KEY]["keep_going"]:
-        tr.write_line("--keep-going: test cases after a failure ran; this run is for diagnosis, not evidence")
+    if config.stash[STATE_KEY]["stop"]:
+        tr.write_line("--stop-at-first-failure: the test cases after the first failure did not run")
     if config.stash[STATE_KEY]["no_pipeline_reset"]:
         tr.write_line("--no-pipeline-reset: the run did not start with the pipeline reset; this run is for diagnosis, "
                       "not evidence")

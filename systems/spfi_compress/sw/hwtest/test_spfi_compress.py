@@ -3,7 +3,7 @@
 # Authors: Julian Schneider
 # ---------------------------------------------------------------------------------------------------
 """Hardware test of spfi_compress as pytest tests: one test per test case of hardware_test.py, in its order (the
-plugin sw/refsys/hwplugin.py, options --target, --device, --profile, --seed, --results, --tc, --keep-going).
+plugin sw/refsys/hwplugin.py, options --target, --device, --profile, --seed, --results, --tc, --stop-at-first-failure).
 
     python -B -m pytest systems/spfi_compress/sw/hwtest --target model --profile sim --results <directory>
 """

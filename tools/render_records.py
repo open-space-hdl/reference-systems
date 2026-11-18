@@ -76,6 +76,17 @@ def snapshots_list(data: dict) -> list[str]:
     return out[:-1]
 
 
+def recoveries_list(data: dict) -> list[str]:
+    """The steps of the recovery after every failed test case (systest.recover), before the next test case."""
+    by_test = defaultdict(list)
+    for r in data.get("recoveries", []):
+        by_test[f"After {r['after']}, before {r['test']}"].append(r["text"])
+    out = []
+    for title, texts in by_test.items():
+        out += [f"#### {title}", ""] + [f"- {t}" for t in texts] + [""]
+    return out[:-1]
+
+
 def images_table(data: dict) -> list[str]:
     """Per test case and channel: the images, their samples and compressed bytes, the bits per sample and the
     results of the decoding check."""
@@ -111,14 +122,16 @@ def digests_table(data: dict) -> list[str]:
 
 def render(data: dict, digests: bool = False) -> str:
     lines = ["### Run", ""] + run_table(data)
-    if data.get("keep_going"):
-        lines += ["", "This run continued after a failure (--keep-going): a run for diagnosis, not evidence."]
+    if data.get("stop_at_first_failure"):
+        lines += ["", "This run stopped at its first failure (--stop-at-first-failure)."]
     if data.get("no_pipeline_reset"):
         lines += ["", "This run did not start with the pipeline reset (--no-pipeline-reset): a run for diagnosis, not "
                       "evidence."]
     lines += ["", "### Results per test case", ""] + results_table(data)
     if snapshots_list(data):
         lines += ["", "### State after a failure", ""] + snapshots_list(data)
+    if recoveries_list(data):
+        lines += ["", "### Recovery after a failure", ""] + recoveries_list(data)
     if data.get("requirements_note"):
         lines += ["", data["requirements_note"]]
     if requirements_table(data):

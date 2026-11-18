@@ -333,6 +333,20 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_encrypt has no coverage section and 
                      "test cases carry no requirement IDs.")
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
+# The test case that configures the system: after it passed, the recovery after a failure (systest.recover) ends
+# with reconfigure
+CONFIGURE = tc05_configure
+
+
+def reconfigure(regs: Registers, ctx: Context) -> None:
+    """The end of the recovery after a failure (systest.recover), after its pipeline reset: the Packet Sequence Counts
+    of the output APIDs start again at 0, then the configuration of TC-RS-HW-05 with every key loaded again at the
+    counter after the last chunk expected plus systest.RECOVERY_COUNTER_GAP (after_pipeline_reset, PR-12)."""
+    ctx.output_count.update({ch.output_apid: 0 for ch in ctx.system.channels})
+    after_pipeline_reset(regs, ctx, {ch.port: ctx.next_counter[ch.port] + systest.RECOVERY_COUNTER_GAP
+                                     for ch in ctx.system.channels})
+
+
 REQUIRES = {tc06_encryption: [tc05_configure], tc07_counters: [tc05_configure, tc06_encryption],
             tc19_pipeline_reset: [tc01_link, tc05_configure], tc22_reset_during_traffic: [tc01_link, tc05_configure],
             tc23_fresh_after_reset: [tc01_link, tc05_configure],

@@ -1188,6 +1188,19 @@ REQUIREMENTS = {
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
+# The test case that configures the system: after it passed, the recovery after a failure (systest.recover) ends
+# with reconfigure
+CONFIGURE = tc05_configure
+
+
+def reconfigure(regs: Registers, ctx: Context) -> None:
+    """The end of the recovery after a failure (systest.recover), after its pipeline reset: the models of the
+    compressors start again from the reset (ocptest.reset_models), then the configuration of TC-RS-HW-05
+    (after_pipeline_reset)."""
+    ocptest.reset_models(ctx)
+    after_pipeline_reset(regs, ctx)
+
+
 REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
             tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
