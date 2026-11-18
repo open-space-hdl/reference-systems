@@ -38,7 +38,7 @@ from refsys.rmapmodel import RmapTargetModel
 from refsys.spp import SpacePacket, cptp_decode, cptp_encode
 from refsys.systest import (EDAC_INFO, LANE_ACTIVE, LINK_INITIALISED, OCR, OCR_IV, OCR_SLOT, OFB, OMAP, SPP,
                             SPP_RX_ERRORS, Setup, System, generic_value, generic_words, loaded_slot)
-from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
+from refsys.transport import FarEndReset, Transport, TransportError
 
 SPECIFIED = (False, False)                    # reads and writes of several words as specified
 
@@ -137,13 +137,13 @@ class SystemModel(Transport):
         self.zero_bits = {port + OFB.VC_CFG(0): OFB.field("VC_CFG", "VN", OFB.VC_CFG_VN_MASK)}
 
     # --- link -------------------------------------------------------------------------------------
-    def operator(self, step: str) -> None:
+    def far_end_link_reset(self) -> FarEndReset:
         """The link reset of the far end: the port of the system sets DL_ERRORS.FAR_END_LINK_RESET, its lanes start
         again and the link initialises again (OpenFibre, DL-LR-03)."""
-        assert step == FAR_END_LINK_RESET
         port = self.system.base(self.system.port)
         self.regs[port + OFB.DL_ERRORS] = self.regs.get(port + OFB.DL_ERRORS, 0) | OFB.field(
             "DL_ERRORS", "FAR_END_LINK_RESET", 1)
+        return FarEndReset(True, "far end of the system model: link reset")
 
     def _lane_control(self, lane: int, value: int) -> None:
         """A lane without TX_EN and RX_EN is held in reset and leaves the link, which realigns on the other lanes

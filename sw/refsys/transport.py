@@ -6,17 +6,32 @@ path address is part of the packet: its leading data characters, which the routi
 (ECSS-E-ST-50-12C Rev.1 5.6.8.3). A transport therefore sends the bytes of a packet as they are, path address
 included, and returns received packets as they arrive, with the path addresses already used by the routing
 switches removed.
+
+A transport also resets the link at the far end on request (far_end_link_reset): the hardware test runs without an
+operator.
 """
+
+import time
+from dataclasses import dataclass
 
 
 class TransportError(Exception):
     """A transfer that did not complete."""
 
 
-# Steps of the operator at the far end that a test case asks for, with the text shown to the operator
-FAR_END_LINK_RESET = "far-end link reset"
-OPERATOR_STEPS = {FAR_END_LINK_RESET: "Reset the SpaceFibre link at the port of the test equipment (a link reset of "
-                                      "that port, nothing else), then press Enter."}
+# The far-end link reset of the test equipment: how long its SpaceFibre port is held in link reset, and how long the
+# link of the port may take to be ready again with its lanes afterwards
+FAR_END_RESET_HOLD = 0.1
+FAR_END_LINK_TIMEOUT = 5.0
+
+
+@dataclass(frozen=True)
+class FarEndReset:
+    """What a far-end link reset shows at the far end: down, the link of the far end was not ready while it was held in
+    reset (the reset reached the link); text, what the far end saw, for the records."""
+
+    down: bool
+    text: str
 
 
 class Transport:
@@ -43,10 +58,11 @@ class Transport:
     def begin(self, name: str) -> None:
         """Marks the start of a test case; a simulation records the time at which it starts."""
 
-    def operator(self, step: str) -> None:
-        """A step of the operator at the far end (OPERATOR_STEPS): shown, and the test waits for Enter. A simulation
-        does what the operator does with the far end of its bench."""
-        input(f"OPERATOR: {OPERATOR_STEPS[step]} ")
+    def far_end_link_reset(self) -> FarEndReset:
+        """Resets the link at the far end, as the far end itself does it, and returns when the link of the far end is
+        initialised again; the system sees a far-end link reset. A simulation does it with the far end of its
+        bench."""
+        raise NotImplementedError
 
     def close(self) -> None:
         pass
@@ -59,22 +75,32 @@ class Transport:
 
 
 def far_end_software() -> str:
-    """Imports the Python package of the far-end software that StarSystemTransport uses (--check-environment);
-    raises ImportError when it is not installed or does not import. The messages do not name the package."""
+    """Imports the Python packages of the far-end software that StarSystemTransport uses (--check-environment): the
+    transfers and the link control of the SpaceFibre port (far_end_link_reset); raises ImportError when one is not
+    installed, does not import or does not load its library. The messages do not name the packages."""
     try:
         import STAR_system  # noqa: F401
     except ImportError as err:
         missing = isinstance(err, ModuleNotFoundError) and err.name == "STAR_system"
         raise ImportError("not installed" if missing else
                           f"installed, but its import fails ({type(err).__name__})") from None
+    try:
+        from STAR_Ultra import interface
+    except ImportError as err:
+        raise ImportError("installed, without the link control of the SpaceFibre port "
+                          f"({type(err).__name__})") from None
+    if getattr(interface, "star_ultra_lib", None) is None:
+        raise ImportError("installed, but the library of the link control of the SpaceFibre port does not load")
     return "found"
 
 
 class StarSystemTransport(Transport):
     """STAR-Dundee devices through the STAR-System software, which must be installed on the test computer with its
-    Python package. A channel number is a channel of the device."""
+    Python packages. A channel number is a channel of the device; spfi_port, the SpaceFibre port of the device that is
+    cabled to the system (1 or 2), whose link far_end_link_reset resets through the STAR-Ultra PCIe Interface
+    library."""
 
-    def __init__(self, device_name: str):
+    def __init__(self, device_name: str, spfi_port: int = 1):
         from STAR_system import STAR_enums as enums
         from STAR_system.STAR_system import STARSystem
         from STAR_system.stream_item import StreamItem
@@ -88,6 +114,8 @@ class StarSystemTransport(Transport):
                    for d in STARSystem().getDeviceListForType(enums.STAR_DEVICE_TYPE.STAR_DEVICE_STAR_ULTRA_PCIE)}
         if device_name not in devices:
             raise TransportError(f"device {device_name!r} not found; available: {', '.join(devices) or 'none'}")
+        self._device_id = devices[device_name].deviceID
+        self._spfi_port = spfi_port
         self._channels = devices[device_name].getChannels()
         for channel in self._channels:
             channel.openChannelToDevice(enums.STAR_CHANNEL_DIRECTION.INOUT)
@@ -134,6 +162,37 @@ class StarSystemTransport(Transport):
             self._cancel([receive])
             return None
         return bytes(receive.getTransferItemList()[0].getPacketData())
+
+    def far_end_link_reset(self, hold: float = FAR_END_RESET_HOLD,
+                           timeout: float = FAR_END_LINK_TIMEOUT) -> FarEndReset:
+        """The link reset of the SpaceFibre port of the device: LINK_RESET held for hold seconds, then released, and
+        the link polled until it is ready with at least the active lanes it had before, within timeout seconds. The
+        link state read while LINK_RESET is held shows whether the reset reached the link (FarEndReset.down)."""
+        from STAR_Ultra.interface import StarUltraPCIeInterface
+
+        link = StarUltraPCIeInterface()
+        device, port = self._device_id, self._spfi_port
+        lanes = link.getActiveLanesCount(link.getLinkStatus(device, port))
+        link.enableLinkReset(device, port)
+        try:
+            time.sleep(hold)
+            held = link.getLinkStatus(device, port)
+        finally:
+            link.disableLinkReset(device, port)
+        start = time.monotonic()
+        while True:
+            status = link.getLinkStatus(device, port)
+            if link.isLinkReady(status) and link.getActiveLanesCount(status) >= lanes:
+                break
+            if time.monotonic() - start > timeout:
+                raise TransportError(f"the link of SpaceFibre port {port} of the device is not ready with {lanes} "
+                                     f"lanes {timeout} s after its link reset (link status 0x{status:08X})")
+            time.sleep(0.005)
+        down = not link.isLinkReady(held)
+        return FarEndReset(down, f"SpaceFibre port {port} of the device: {lanes} active lanes before the link reset, "
+                                 f"{link.getActiveLanesCount(held)} and link {'not ' if down else ''}ready while it "
+                                 f"was held for {hold:.3f} s, ready with {link.getActiveLanesCount(status)} lanes "
+                                 f"{time.monotonic() - start:.3f} s after its release")
 
     @staticmethod
     def _cancel(operations) -> None:
