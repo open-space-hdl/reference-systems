@@ -363,13 +363,15 @@ Keep for every build and every test run, with the date:
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
 | Test computer | The output of `--check-environment` |
 | Test run | The command line and the directory that the run writes below `--results` (one per run, named after its date and time) |
-| `steps.jsonl` | Every event of the run, one JSON object per line: the steps of every test case with the requirements they confirm, every register access, every checked value with its expected value, the configuration of the compressors, every image (samples, SDUs, compressed size, bits per sample, ratio, chunks, the comparison with the model and the decoding check with the largest error), the Space Packets of every exchange, the recorded values and the environment (versions, commits, the state of the working tree at the start and at the end) |
-| `run.log` | The same events as text |
+| `steps.jsonl` | Every event of the run, one JSON object per line: the steps of every test case with the requirements they confirm, every register access, every wait for a register value (one event with its polls and the time it took), every checked value with its expected value, every check that failed, the state of the system after a failure, the configuration of the compressors, every image (samples, SDUs, compressed size, bits per sample, ratio, chunks, the comparison with the model and the decoding check with the largest error), the Space Packets of every exchange, the recorded values and the environment (versions, commits, the state of the working tree at the start and at the end) |
+| `run.log` | The events that a reader follows, as text: all but the register reads and writes. The result of a test case counts its passing checks, which make no event of their own |
 | `junit.xml` | The JUnit XML report of pytest, with the requirements of every test case and the system, profile, seed and commit of the run |
 | `records_spfi_compress_<date>_<time>.json` | The records of the run: the date and time of the run, the profile and seed, the result of every test case (and those not run, with the reason), the recorded values (the lanes, the baseline and the values of the error registers, the rate of TC-RS-HW-09, the decoding check), the requirements per test case and per compressed image its test case, channel, dimensions, length, SHA-256 and the result of the decoding check; the bytes of an image only when it fails. It holds no host name |
 | `report_spfi_compress.md` | The tables of the report, rendered from the records (`tools/render_records.py`) |
 
-A failing test case is recorded with its output and the register values it reports.
+A failing test case is recorded with the text of the check that failed, which names the register and its fields, and
+with the state of the system read right after the failure: the link, every lane and the error registers that hold a
+value (snapshot events, section "State after a failure" of the report).
 
 ## 10. Coverage of the cores
 
