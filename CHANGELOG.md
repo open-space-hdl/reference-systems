@@ -51,6 +51,18 @@
   - `--check-environment` checks the Python package of the STAR-Ultra PCIe Interface and its library together with
     the package of STAR-System.
   - The stimuli of the system simulations are unchanged.
+- After a failure the hardware test goes on. Before the next test case the recovery (`systest.recover`) does the
+  following:
+  1. it reads both channels until they are quiet;
+  2. it checks the health of the system: RMAP answers and the link is initialised with all lanes. If the check fails,
+     the far end resets the link once and the check runs again; a system that stays unhealthy stops the run;
+  3. it records and clears the error registers;
+  4. it makes a pipeline reset;
+  5. once TC-RS-HW-05 has passed, it configures the system again (the hook `reconfigure` of every system). The
+     encrypting systems load their keys at a counter `RECOVERY_COUNTER_GAP` above the last one.
+
+  A test case whose prerequisites did not pass is still not run. The report lists every recovery. `--keep-going` is
+  replaced by `--stop-at-first-failure`, which keeps the old behaviour.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the

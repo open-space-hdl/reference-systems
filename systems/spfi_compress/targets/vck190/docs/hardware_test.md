@@ -215,9 +215,16 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <ST
   it runs without `-B`.
 - The console shows every step, every checked value with its expected value, every image and every recorded value
   as it happens. At the end it shows one line per test case with its result and duration.
-- The run stops at the first failure, since the later test cases build on the earlier ones; those are reported as
-  not run. `--keep-going` runs a later test case when the test cases it builds on passed. It is for diagnosis, and
-  the report of such a run says so.
+- After a failure the run goes on. Before the next test case it recovers the system:
+  1. it reads both channels until they are quiet;
+  2. it checks that the RMAP target answers and the link is initialised with all lanes. If not, the STAR-Ultra resets
+     the link once and the check runs again; a system that fails it again stops the run;
+  3. it records and clears the error registers;
+  4. it makes a pipeline reset;
+  5. when TC-RS-HW-05 has passed, it configures the system again as TC-RS-HW-05 does.
+
+  A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of every
+  recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
 - `--profile` (default `lab`, the image size of the lab) sets the size of the run, `--seed` (default 1) the images
   and the words that TC-RS-HW-04 writes. `--tc TC-RS-HW-nn` (repeatable) runs one test case and the test cases it
   builds on. TC-RS-HW-09 also records the measured rate.
