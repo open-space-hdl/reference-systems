@@ -259,9 +259,16 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
   TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would otherwise take for its own.
 - The console shows every step, every checked value with its expected value and the Space Packets of every exchange
   as it happens, and one line per test case at the end.
-- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
-  run. `--keep-going` runs a later test case when the test cases it builds on passed (for diagnosis; the report says
-  so).
+- After a failure the run goes on. Before the next test case it recovers the system:
+  1. it reads both channels until they are quiet;
+  2. it checks that the RMAP target answers and the link is initialised with all lanes. If not, the STAR-Ultra resets
+     the link once and the check runs again; a system that fails it again stops the run;
+  3. it records and clears the error registers.
+
+  The system has no pipeline reset in this release: what a failure leaves in the processing path (an image in a
+  compressor, a configuration) stays and can make the next test case fail as well; a new device image starts it
+  clean. A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of
+  every recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
 - `--profile` (default `lab`: 40 Space Packets in TC-RS-HW-06) sets the size of the run, `--seed` (default 1) the keys
   and the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on.
 - The [system testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`.

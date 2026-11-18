@@ -192,8 +192,17 @@ python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target device --de
 - `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
 - Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
   log how many packets of an earlier run it discarded per channel.
-- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
-  run. TC-RS-HW-09 also records the measured rate.
+- After a failure the run goes on. Before the next test case it recovers the system:
+  1. it reads both channels until they are quiet;
+  2. it checks that the RMAP target answers and the link is initialised with all lanes. If not, the STAR-Ultra resets
+     the link once and the check runs again; a system that fails it again stops the run;
+  3. it records and clears the error registers.
+
+  The system has no pipeline reset in this release: what a failure leaves in the processing path (an image in a
+  compressor, a configuration) stays and can make the next test case fail as well; a new device image starts it
+  clean. A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of
+  every recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
+- TC-RS-HW-09 also records the measured rate.
 - `--seed` (default 1) sets the keys and the images. `--tc TC-RS-HW-nn` runs one test case and the test cases it
   builds on.
 - Before it sends the images of a test case, the test computes their compressed images with the reference model of
