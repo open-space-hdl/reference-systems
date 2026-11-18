@@ -25,10 +25,12 @@ they are quiet, checks the health of the system (RMAP answers, the link is initi
 link reset if not) and clears the error registers. The systems of this release have no pipeline reset: a failure that
 leaves an image in the processing path can make the next test case fail as well. A test case whose prerequisites
 (REQUIRES) did not pass is not run; a system that stays unhealthy stops the run, and the rest is not run.
---stop-at-first-failure stops at the first failure instead.
+--stop-at-first-failure stops at the first failure instead. --image names the programmed device image: its name,
+SHA-256 and the build_info.txt next to it are recorded.
 --tc selects test cases together with those they build on; -k is refused, since it would drop them.
 """
 
+import hashlib
 import importlib.metadata
 import json
 import logging
@@ -56,6 +58,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     g.addoption("--target", choices=("device", "model"),
                 help="run the hardware tests against the device (the test equipment) or the system model")
     g.addoption("--device", help="name of the STAR-Ultra device in STAR-System (with --target device)")
+    g.addoption("--image", help="device image (.pdi) programmed into the board, with build_info.txt of its build "
+                "next to it (with --target device): its name and SHA-256 and the build information are recorded")
     g.addoption("--far-end-port", type=int, default=1, choices=(1, 2),
                 help="SpaceFibre port of the STAR-Ultra that is cabled to the system (default 1), whose link the test "
                      "resets in TC-RS-HW-12")
@@ -95,6 +99,9 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError("--target device needs --device <name of the STAR-Ultra in STAR-System>")
     if not config.getoption("results"):
         raise pytest.UsageError("--results <directory outside the repository> is required with --target")
+    image = config.getoption("image")
+    if image and not Path(image).is_file():
+        raise pytest.UsageError(f"--image {image}: no such file")
     results = Path(config.getoption("results")).resolve()
     if inside(results, ROOT.resolve()):
         raise pytest.UsageError(f"--results {results} lies inside the repository; choose a directory outside it")
@@ -216,6 +223,7 @@ class HardwareRun:
         self.not_run: list[tuple[str, str]] = []
         self.log.begin("")
         environment(self.log, "start")
+        self.image = device_image(self.log, config.getoption("image")) if self.target == "device" else None
         self.ctx = module.context(config.getoption("seed"), self.profile)
         self.ctx.log = self.log
         self.ctx.requirements = getattr(self.ht, "REQUIREMENTS", {})
@@ -285,7 +293,7 @@ class HardwareRun:
             self.transport.close()
         run = self.config.stash[RUN_KEY]
         extra = self.module.records_extra(self.ctx) if hasattr(self.module, "records_extra") else {}
-        extra |= {"snapshots": self.ctx.snapshots, "recoveries": self.ctx.recoveries,
+        extra |= {"device_image": self.image, "snapshots": self.ctx.snapshots, "recoveries": self.ctx.recoveries,
                   "requirements": getattr(self.ht, "REQUIREMENTS", {}),
                   "requirements_note": getattr(self.ht, "REQUIREMENTS_NOTE", ""),
                   "not_run": [{"test": n, "reason": r} for n, r in self.not_run],
@@ -384,6 +392,25 @@ def tree_state() -> dict[str, list[str]] | None:
     return state
 
 
+def device_image(log: steplog.StepLog, path: str | None) -> dict | None:
+    """The device image of a run against the device (--image): its file name, size and SHA-256, and the text of
+    build_info.txt next to it when there is one; an env event either way. None without --image: the report then says
+    that the image is not identified."""
+    if not path:
+        log.emit("env", "device image: not identified (no --image)", level=logging.WARNING, image=None)
+        return None
+    image = Path(path)
+    if not image.is_file():
+        raise pytest.UsageError(f"--image {image}: no such file")
+    digest = hashlib.sha256(image.read_bytes()).hexdigest()
+    info = image.parent / "build_info.txt"
+    build_info = info.read_text(encoding="utf-8") if info.is_file() else None
+    log.emit("env", f"device image {image.name}, {image.stat().st_size} bytes, SHA-256 {digest}"
+             + ("" if build_info else "; no build_info.txt next to it"), image=image.name, sha256=digest,
+             build_info=build_info)
+    return {"name": image.name, "bytes": image.stat().st_size, "sha256": digest, "build_info": build_info}
+
+
 def environment(log: steplog.StepLog, when: str) -> None:
     """The environment of the run as env events: versions and commits at the start, the state of the working tree
     at the start and at the end."""
@@ -404,8 +431,13 @@ def environment(log: steplog.StepLog, when: str) -> None:
                  "repository is no git checkout)", level=logging.WARNING, when=when, git_status=None,
                  git=git("--version") is not None)
         return
-    changed = {path: lines for path, lines in state.items() if lines}
+    # ignored files (!!, for example __pycache__ of a run without -B) are recorded but change no source
+    changed = {path: [line for line in lines if not line.startswith("!! ")] for path, lines in state.items()}
+    changed = {path: lines for path, lines in changed.items() if lines}
+    ignored = sum(line.startswith("!! ") for lines in state.values() for line in lines)
     entries = sum(len(v) for v in changed.values())
     text = f"working tree at the {when} of the run: " + (
-        f"{entries} entries in {', '.join(changed)}" if changed else "clean (git status --porcelain --ignored empty)")
+        f"{entries} changed entries in {', '.join(changed)}" if changed else "clean (git status --porcelain empty)")
+    if ignored:
+        text += f"; {ignored} ignored entries, recorded"
     log.emit("env", text, when=when, git_status=state, git=git("--version") is not None)

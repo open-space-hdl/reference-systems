@@ -499,7 +499,8 @@ def baseline(regs: Registers, ctx: Context) -> None:
     a leaky counter at most its first value, which stays its baseline."""
     items = ctx.system.error_registers()
     first = errorstate.read_state(regs, items)
-    record(ctx, f"error registers after link-up: {errorstate.nonzero(first)}")
+    record(ctx, f"error registers after link-up, before the baseline clears them (no pass criterion): "
+           f"{errorstate.nonzero(first)}")
     errorstate.clear_state(regs, items)
     ctx.baseline = errorstate.read_state(regs, items)
     problems = errorstate.unexpected(items, ctx.baseline, baseline=first)
@@ -516,7 +517,7 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     items = ctx.system.error_registers()
     by_name = {r.name: r for r in items if isinstance(r, errorstate.Register)}
     state = errorstate.read_state(regs, items)
-    record(ctx, f"{label} error registers: {errorstate.nonzero(state)}")
+    record(ctx, f"{label} error registers: {error_record(state, expected or {}, allowed or {})}")
     for name, value in (expected or {}).items():
         got = state[name] & by_name[name].errors
         check(got == value, f"{name} 0x{state[name]:08X}, expected 0x{value:08X} in its error bits")
@@ -525,6 +526,15 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     check(not problems, f"error registers that the test case does not target: {', '.join(problems)}")
     errorstate.clear_state(regs, items)
     return state
+
+
+def error_record(state: dict[str, int], expected: dict[str, int], allowed: dict[str, int]) -> str:
+    """The error registers at the end of a test case that provokes errors (caused), for its record: those it expects
+    to hold a value, those it allows to move that do, and the others that hold a value (none when it passes)."""
+    expects = ", ".join(f"{name} 0x{state.get(name, 0):08X}" for name in expected) or "none"
+    moved = ", ".join(f"{name} 0x{state[name]:08X}" for name in allowed if state.get(name)) or "none"
+    others = errorstate.nonzero({n: v for n, v in state.items() if n not in expected and n not in allowed})
+    return f"expected {expects}; allowed to move: {moved}; others: {others}"
 
 
 def check_link_state(regs: Registers, ctx: Context) -> None:
