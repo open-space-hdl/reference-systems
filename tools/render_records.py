@@ -22,11 +22,24 @@ from pathlib import Path
 
 
 def run_table(data: dict) -> list[str]:
-    return ["| Item | Value |", "| --- | --- |",
+    rows = ["| Item | Value |", "| --- | --- |",
             f"| System | {data['system']} |",
             f"| Run | {data['started']} to {data['finished']} |",
             f"| Target | {data['target']} |",
             f"| Profile, seed | {data['profile']}, {data['seed']} |"]
+    if data["target"] == "device":
+        image = data.get("device_image")
+        rows.append(f"| Device image | {image['name']}, SHA-256 `{image['sha256']}` |" if image
+                    else "| Device image | not identified: the run got no `--image` |")
+    return rows
+
+
+def summary(data: dict) -> str:
+    """The count of the test cases of the run by result."""
+    passed = sum(r["pass"] for r in data["results"])
+    failed = len(data["results"]) - passed
+    not_run = len(data.get("not_run", []))
+    return (f"{passed + failed + not_run} test cases: {passed} passed, {failed} failed, {not_run} not run.")
 
 
 def results_table(data: dict) -> list[str]:
@@ -127,7 +140,7 @@ def render(data: dict, digests: bool = False) -> str:
     if data.get("no_pipeline_reset"):
         lines += ["", "This run did not start with the pipeline reset (--no-pipeline-reset): a run for diagnosis, not "
                       "evidence."]
-    lines += ["", "### Results per test case", ""] + results_table(data)
+    lines += ["", "### Results per test case", "", summary(data), ""] + results_table(data)
     if snapshots_list(data):
         lines += ["", "### State after a failure", ""] + snapshots_list(data)
     if recoveries_list(data):
@@ -135,11 +148,16 @@ def render(data: dict, digests: bool = False) -> str:
     if data.get("requirements_note"):
         lines += ["", data["requirements_note"]]
     if requirements_table(data):
-        lines += ["", "### Requirements per test case", ""] + requirements_table(data)
+        lines += ["", "### Requirements exercised per test case", "",
+                  "A test case exercises these requirements of the cores on the board; its checks are its pass "
+                  "criteria. Every requirement is verified against its own criterion by the regression of its core.",
+                  ""] + requirements_table(data)
     lines += ["", "### Recorded values", ""] + records_list(data)
     lines += ["", "### Compressed images", ""] + images_table(data)
     if data.get("rate"):
         lines += ["", f"Rate of TC-RS-HW-09: {data['rate']}"]
+    if data.get("device_image") and data["device_image"].get("build_info"):
+        lines += ["", "### Device image", "", "```text", data["device_image"]["build_info"].rstrip("\n"), "```"]
     if digests:
         lines += ["", "### Digests of the compressed images", ""] + digests_table(data)
     return "\n".join(lines) + "\n"
