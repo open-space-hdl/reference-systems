@@ -54,7 +54,7 @@ every expected compressed image from the reference model of OpenCompact, for an 
 compressed image of the samples that the channel took (`aborted_image` of `sw/refsys/ocp.py`), and so knows every
 Space Packet in advance: it never waits for a quiet channel of Space Packets.
 
-The operator step of TC-RS-HW-12, the link reset at the port of the test equipment, is a step of the far end of the
+The far-end link reset of TC-RS-HW-12, which the test equipment makes at its port, is a step of the far end of the
 bench: it writes `DL_CTRL.LINK_RESET` (with `DATA_SCRAMBLED` kept) into its own register map, waits 100 us on the
 virtual channel of RMAP, where no packet may arrive, and waits until its link is initialised again (the operations
 `mibw`, `quiet` and `mibp` of `stimulus.txt`, [sim/README.md](../../../sim/README.md)).

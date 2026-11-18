@@ -43,6 +43,14 @@
   - `run.log` holds every event but the register reads and writes; `steps.jsonl` keeps all of them.
   - The packets discarded from a channel and the retries of RMAP after a link reset are notes in the log instead of
     console output.
+- The hardware test needs no operator. In TC-RS-HW-12 the STAR-Ultra resets the link of its SpaceFibre port by itself
+  through the library of the STAR-Ultra PCIe Interface: the port is held in link reset for 0.1 s, then released, and
+  the test waits until its link is ready again. The test records what the port showed and checks that its link was
+  down while held. The operator step, its prompt and the pytest marker `operator` are gone.
+  - `--far-end-port` names the SpaceFibre port of the STAR-Ultra that is cabled to the board (default 1).
+  - `--check-environment` checks the Python package of the STAR-Ultra PCIe Interface and its library together with
+    the package of STAR-System.
+  - The stimuli of the system simulations are unchanged.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the

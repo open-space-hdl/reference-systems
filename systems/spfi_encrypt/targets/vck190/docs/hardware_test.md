@@ -13,7 +13,7 @@ checks the encrypted chunks that come back with AES-GCM. The script
 | Item | Use |
 | --- | --- |
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
-| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
+| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
 | The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
@@ -233,9 +233,10 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
 
 - The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with
   pytest and `pycryptodome` (installed with the Python package openspacehdl), Git, and STAR-System with its Python
-  package.
+  package and the Python package of the STAR-Ultra PCIe Interface.
 - `--check-environment` checks the test computer for a run against the board: Python, pytest, `pycryptodome` and the
-  Python package of STAR-System, one line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
+  Python packages of STAR-System and of the STAR-Ultra PCIe Interface with its library (the far-end software), one
+  line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
   everything installed it prints:
 
   ```text
@@ -252,9 +253,10 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
 - `--results` names a directory outside the repository. Every run writes a new directory into it with its records
   (section 9). `-B` keeps Python from writing bytecode into the repository; the run records the state of the working
   tree at its start and at its end and warns without `-B`.
-- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how many
-  packets of an earlier run it discarded per channel. A run that stopped early, for example in TC-RS-HW-06, leaves
-  chunks and late replies on the channels, which the next run would otherwise take for its own.
+- `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
+  log how many packets of an earlier run it discarded per channel. A run that stopped early, for example in
+  TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would otherwise take for its own.
 - The console shows every step, every checked value with its expected value and the Space Packets of every exchange
   as it happens, and one line per test case at the end.
 - The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not

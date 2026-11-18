@@ -26,7 +26,7 @@ test needs and describes what differs.
 | Item | Use |
 | --- | --- |
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
-| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
+| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
 | The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
@@ -34,9 +34,9 @@ test needs and describes what differs.
 
 The test computer needs nothing else. The reference data come only from the reference model of OpenCompact
 (`cores/opencompact/tools`) and the golden files committed in the repository; the script starts no other program and
-imports only the standard library, the modules of the repository and of OpenCompact, and the Python package of
-STAR-System (`sw/tests/test_lab_software.py` checks the sources). `--check-environment` checks the test computer
-(section 8).
+imports only the standard library, the modules of the repository and of OpenCompact, and the Python packages of
+STAR-System and of the STAR-Ultra PCIe Interface (`sw/tests/test_lab_software.py` checks the sources).
+`--check-environment` checks the test computer (section 8).
 
 ## 3. Installation from the openspacehdl package
 
@@ -187,8 +187,9 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <ST
 ```
 
 - `--check-environment` checks the test computer for a run against the board: Python, pytest, the reference model
-  of OpenCompact (with or without its decoder) and the Python package of STAR-System, one line per item. It ends
-  with exit code 1 when an item is missing (`FAIL`). With everything installed it prints:
+  of OpenCompact (with or without its decoder) and the Python packages of STAR-System and of the STAR-Ultra PCIe
+  Interface with its library (the far-end software), one line per item. It ends with exit code 1 when an item is
+  missing (`FAIL`). With everything installed it prints:
 
   ```text
   OK   Python: <version>
@@ -202,8 +203,11 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <ST
 - `--target model` runs the test cases against the software model of the system (`sw/system_model.py`) instead of
   the board: a dry run of the test software and of the reference model on the test computer.
 - `--target device` runs them against the board through the STAR-Ultra. `<STAR-Ultra>` is its name in STAR-System.
-  Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how
-  many packets of an earlier run it discarded per channel.
+  Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
+  log how many packets of an earlier run it discarded per channel.
+- `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+  The run holds the STAR-Ultra for its whole duration: STAR-System cannot configure the device while it
+  runs, and no step of the run needs it.
 - `--results` names a directory outside the repository. Every run writes a new directory into it with its records
   (section 9) and prints that directory at its end.
 - `-B` keeps Python from writing bytecode into the repository. The run records the state of the working tree of the
@@ -225,10 +229,12 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <ST
   after the check of the link, waits for the end of the reset and records `prst0.STATUS.COUNT`. `--no-pipeline-reset`
   skips it, for diagnosis only; the report of such a run says so.
 
-TC-RS-HW-12 asks the operator for one step: reset the link of port 1 in STAR-System (a link reset of that port,
-nothing else) while no traffic is in flight, then press Enter; the script then waits until the RMAP target answers
-again. The script runs the test cases in the order of the table: TC-RS-HW-13, which takes a lane out of the link,
-runs last before TC-RS-HW-17, so that a stop in it does not cost the results of the other test cases.
+No test case needs an operator. In TC-RS-HW-12 the STAR-Ultra resets the link of its SpaceFibre port by itself
+while no traffic is in flight: the script holds the port in link reset for 0.1 s through the STAR-Ultra PCIe
+Interface library, releases it, waits until the link of the port is ready again with its lanes and records what the
+port showed, then waits until the RMAP target answers again. The script runs the test cases in the order of the
+table: TC-RS-HW-13, which takes a lane out of the link, runs last before TC-RS-HW-17, so that a stop in it does not
+cost the results of the other test cases.
 
 Every complete compressed image is also decoded with the decoder of the reference model of OpenCompact and compared
 with the image sent: equal for the lossless channels, every sample within its maximum error on `ocp3`. With a version
@@ -256,7 +262,7 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 | TC-RS-HW-09 Sustained rate | Counters cleared, then eight images per channel, all channels at once, as fast as the test equipment sends | No loss, every compressed image equals the model, the counters match; the rate of the samples, compressed bytes and images is recorded. It is limited by the test equipment and the host as long as they send less than the system takes (9.6 Gbit/s of samples for compressed images of at most 32 bits per sample, [README](../../../README.md#throughput), section Throughput) |
 | TC-RS-HW-10 Runtime configuration | `ocp0` and `ocp3` have the runtime configuration and the runtime parameters (`RuntimeConfig_g`, `RuntimeParams_g`), `ocp1` and `ocp2` do not. Counters cleared. Read `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3`; write `NEXT_X` to `NEXT_BLOCK` and `CONTROL.COMMIT` of `ocp1` and `ocp2`. Then 22 images on each of channels 0 and 3, every one after its values in `NEXT_X` to `NEXT_LIMITS` (one command), `NEXT_SAMPLES` to `NEXT_BLOCK` (one command) and `CONTROL.COMMIT`: the seeded sequence of the runtime parameter testbench of OpenCompact (first the bounds of every dimension, 1 or 2 to 64 and 48, of the error limit value of channel 3, 0 to 1023, and of every parameter in use, then images at random, then an image of the maximum dimensions with log2 t_inc 4 and vmin = vmax = -6), then the values of the README. After the first COMMIT, COMMITs with one value out of range: NX 1 (channel 0 only), NX 65, NY 0, NZ 49, the absolute error limit value 1024 (channel 3 only), log2 t_inc 3, vmax below vmin, gamma* equal to gamma0, Umax 33, K 15 (channel 0 only) and M above NZ (channel 0, when NZ is below 48), each followed by a write of 1 to `STATUS.CFG_ERROR`. With the first image, one image of the generics on each of channels 1 and 2 | `ocp0` and `ocp3` read the values of the reset (`CONTROL` and `STATUS` 0, `NEXT_X` to `NEXT_Z` 64, 64 and 48, `NEXT_LIMITS` 0 and 12, `NEXT_SAMPLES` to `NEXT_BLOCK` the parameters of the generics; `STATUS.CFG_PENDING` 1 when TC-RS-HW-05 committed the values of the generics and no image has started since); `ocp1` and `ocp2` read 0 in the eleven registers and keep `IMAGE_X` to `LIMITS`. Every valid COMMIT gives `STATUS.CFG_PENDING` 1; every COMMIT with a value out of range gives `STATUS.CFG_ERROR` 1 with `CFG_PENDING` still 1, and the register reads back the value written; every compressed image comes back as its chunks, equals the image of the model for its values, header included, and decodes to the image sent; after every image `IMAGE_X` to `IMAGE_Z`, `SAMPLES`, `ORDER`, `WEIGHTS`, `ADAPTIVE`, `BLOCK` and `LIMITS` show its values and `STATUS` is 0. The counters match: `IMAGES_DONE` 22 on channels 0 and 3 and 1 on channels 1 and 2, no error |
 | TC-RS-HW-11 SpaceFibre port | Write and read back `IRQ_MASK` (its documented fields), `DL_BC_INTERVAL`, `VC_IDLE_LIMIT`, `ECC_SELECT` and `LANE_INIT_TIMEOUT` of `ofb0`, each with a random value, its complement and all ones in its writable bits (`LANE_INIT_TIMEOUT` with bit 23 set, so that a lane never waits shorter than after the reset), then its value of the reset; `VC_CFG.VN` of both virtual channels with a random number, then its value of the reset | Every register reads its value of the reset before and every value written after; `VN` of VC 1 reads back, `VN` of VC 0 reads 0; every register restored |
-| TC-RS-HW-12 Far-end link reset | Operator step: link reset of port 1 in STAR-System, no traffic in flight. The script waits until RMAP answers again, reads `DL_ERRORS`, `DL_STATUS`, `ML_STATUS` and every lane, then sends one image per channel | `DL_ERRORS.FAR_END_LINK_RESET` 1, no other bit of `DL_ERRORS`; link initialised with all lanes; the images equal the model, the counters match; the registers of the lanes (events, timeouts and receiver resets, `RXERR_COUNT`), `ML_MISALIGNED` and `DL_RETRIES` of the restart are recorded, no other error register moved; cleared |
+| TC-RS-HW-12 Far-end link reset | Link reset of port 1 by the STAR-Ultra itself (held for 0.1 s, then released), no traffic in flight; what the port showed is recorded. The script waits until RMAP answers again, reads `DL_ERRORS`, `DL_STATUS`, `ML_STATUS` and every lane, then sends one image per channel | The link of port 1 not ready while it is held in reset; `DL_ERRORS.FAR_END_LINK_RESET` 1, no other bit of `DL_ERRORS`; link initialised with all lanes; the images equal the model, the counters match; the registers of the lanes (events, timeouts and receiver resets, `RXERR_COUNT`), `ML_MISALIGNED` and `DL_RETRIES` of the restart are recorded, no other error register moved; cleared |
 | TC-RS-HW-14 Memory errors | `ECC_INJECT` of `ofb0`, `rmap0` and `spp0` (section 10): single errors into `ofb0` channels 0 to 3 and 6 to 8, `rmap0` channels 0 to 2, and the receive data buffer, descriptor and table and the send data buffer and descriptor of channel 0 and the send table of `spp0`, then one image per channel; double errors into `ofb0` channels 6 and 7, each followed by one image per channel; a double error into the write buffer of `rmap0`, followed by a verified write of `WIN_BASE` of window 3; a double error into the receive descriptor of `spp0`, followed by a Space Packet of APID 0x021 | The images equal the model, the counters match. Single errors: every monitor channel counts its error, `SEC` exactly 1 on `ofb0` channels 2, 6, 7 and 8, `rmap0` channels 0 to 2 and `spp0` monitor channels 0, 1, 4 and 5, 1 or 2 on `ofb0` channels 0 and 3 (one buffer per virtual channel), at least 1 on `ofb0` channel 1 (retry buffer with its scrubber) and on the read or scrubber channel of each table of `spp0`; no uncorrectable error. Double errors: `DED` 1 on `ofb0` channels 6 and 7 with the link up; the verified write ends with the status 1 (`TGT_CNT_ERR1.GENERAL` 1, `DED` 1 on `rmap0` channel 0); the Space Packet is discarded with the code 0x1B (`ERR_RX6.BUFFER` 1, `DED` 1 on monitor channel 5). The retries and the error counters of the data link layer are recorded; no other error register moved; cleared |
 | TC-RS-HW-15 RMAP errors | Commands built byte by byte (`sw/refsys/rmaptest.py`): target logical address 0x55; wrong key on a write; both; command code 0110; data CRC error of a verified and of a non-verified write; early EOP and too much data of a verified write; a verified write of 260 bytes; a read-modify-write of 3 bytes; Extended Address 1. Without a reply: header CRC error, a header that ends early, a reply packet, a reserved packet type, a CPTP packet on virtual channel 0. Executed: a non-verified write, a write without a reply, single-address write and read of two words, write and read of no data, a read-modify-write of `IRQ_ENA` of `edac0`, reads with a Reply Address field of 8 and 12 bytes. A write at 0x90000, after the last register window. Windows: window 3 opened for `rmap0`, window 0 restricted to verified writes, then to no writes, restored through window 3, window 3 closed | The statuses 12, 3 (register unchanged), 12, 2, 4 (unchanged), 5 and 6 (unchanged), 9 (unchanged), 11, 10 and 4 (data written); no reply to the discarded packets; the executed commands as specified; the write at 0x90000 gives the status 1 (the decoder has 9 ports and answers the port indices 9 to 15 with an error response, `TGT_CNT_ERR1.GENERAL`); the non-verified and then the verified write outside window 3 refused with 10, window 0 restored. `TGT_LAST` shows every command with its status, instruction, transaction identifier and address, unchanged by the discarded packets; the counters of `rmap0` equal the sum of the cases, no other error register moved; cleared |
 | TC-RS-HW-16 Space Packet errors | Space Packets on virtual channel 1 that `spp0` discards (`sw/refsys/spptest.py`): Protocol Identifier 3, reserved byte 0x5A, a Space Packet of 6 bytes, version 1, a Packet Data Length that does not match, a Space Packet of 8193 bytes, the idle APID 0x7FF, APID 0x030 with its table entry disabled, Sequence Flags '01'. Then one image per channel with: the input APID of channel 0 preset to `LAST` 16382 and its output APID to the count 16383, the input APID of channel 3 without the continuity check and a skipped count, `CONFIG.ROUND_ROBIN` 1. Tables and `CONFIG` restored | Each discard: `LAST_ERROR` with its code (0x11, 0x12, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A), port and APID, its counter in `ERR_RX1` to `ERR_RX6`; `RX_PACKETS` 0 and the counters of the compressors unchanged. The images equal the model: the sequence counts wrap from 16383 to 0 without the Data Loss Indicator, the skipped count gives none without the check; no other error register moved; cleared |
