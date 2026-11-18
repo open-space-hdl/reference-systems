@@ -6,8 +6,8 @@
 
 The test cases stay the functions TC-RS-HW-nn of systems/<system>/sw/hardware_test.py; the module
 systems/<system>/sw/hwtest/test_<system>.py turns them into one pytest test each, in the order of TESTS, with the
-markers tc, requirement and operator. This plugin adds the options, opens the far end (the device through the
-software of the test equipment, or the system model) once per system, runs every test case through
+markers tc and requirement. This plugin adds the options, opens the far end (the device through the software of the
+test equipment, or the system model) once per system, runs every test case through
 systest.run_one with the step log of the run, and writes the outputs into a new directory below --results:
 
 - steps.jsonl: every event of the step log (refsys/steplog.py), one JSON object per line;
@@ -54,6 +54,9 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     g.addoption("--target", choices=("device", "model"),
                 help="run the hardware tests against the device (the test equipment) or the system model")
     g.addoption("--device", help="name of the STAR-Ultra device in STAR-System (with --target device)")
+    g.addoption("--far-end-port", type=int, default=1, choices=(1, 2),
+                help="SpaceFibre port of the STAR-Ultra that is cabled to the system (default 1), whose link the test "
+                     "resets in TC-RS-HW-12")
     g.addoption("--profile", choices=("lab", "sim"), default="lab", help="size of the run (default lab)")
     g.addoption("--seed", type=int, default=1, help="seed of the images, keys and packets (default 1)")
     g.addoption("--results", help="directory for the outputs of the run, outside the repository (required)")
@@ -143,15 +146,12 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
 # --- test cases as pytest parameters ---------------------------------------------------------------------------------
 def parameters(ht) -> list:
     """One pytest parameter per test case of a hardware test module, in the order of TESTS, with its markers: tc (name
-    and title), requirement (the IDs of REQUIREMENTS) and operator (a step of the operator at the far end)."""
+    and title) and requirement (the IDs of REQUIREMENTS)."""
     out = []
     requirements = getattr(ht, "REQUIREMENTS", {})
-    operator = getattr(ht, "OPERATOR_TESTS", ())
     for test in ht.TESTS:
         name = systest.test_name(test)
         marks = [pytest.mark.tc(name), pytest.mark.requirement(*requirements.get(name, ()))]
-        if name in operator:
-            marks.append(pytest.mark.operator)
         out.append(pytest.param(test, id=name, marks=marks))
     return out
 
@@ -223,31 +223,15 @@ class HardwareRun:
         if self.target == "model":
             self.transport = module.model(self.ctx)
         else:
-            self.transport = systest.open_device(config.getoption("device"), self.ctx)
+            self.transport = systest.open_device(config.getoption("device"), self.ctx,
+                                                 config.getoption("far_end_port"))
         try:
-            self.transport.operator = self.operator_step(self.transport.operator)
             tests = self.ht.select_tests(config.getoption("tc") or None)
             self.regs = systest.prepare(self.transport, self.ctx, tests)
         except BaseException:
             self.transport.close()
             raise
         self.token = systest.ACTIVE_LOG.set(self.log)
-
-    def operator_step(self, step):
-        """The operator step of the far end with the output and the input of pytest released (the operator reads the
-        step on the console and confirms it with Enter)."""
-        capture = self.config.pluginmanager.getplugin("capturemanager")
-
-        def wrapped(name: str) -> None:
-            self.log.emit("step", f"operator step at the far end: {name}", operator=name)
-            if capture is None:
-                return step(name)
-            capture.suspend_global_capture(in_=True)
-            try:
-                return step(name)
-            finally:
-                capture.resume_global_capture()
-        return wrapped
 
     def run(self, test) -> None:
         name = systest.test_name(test)

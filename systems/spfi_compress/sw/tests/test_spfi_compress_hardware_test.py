@@ -18,7 +18,7 @@ import pytest
 from refsys import errorstate, ocp, ocptest, rmap, systest
 from refsys.composer import SystemFile, instance_of
 from refsys.spp import SpacePacket, cptp_encode
-from refsys.transport import Packet
+from refsys.transport import FarEndReset, Packet
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
 
@@ -603,9 +603,12 @@ class Faulty(sm.SystemModel):
             return
         super()._write(address, value)
 
-    def operator(self, step):
-        if self.mutation != "far_end":
-            super().operator(step)
+    def far_end_link_reset(self):
+        if self.mutation == "far_end":                   # the port of the system does not see the reset
+            return FarEndReset(True, "far end of the system model: link reset")
+        if self.mutation == "far_end_held":              # the far end ignores its link reset
+            return FarEndReset(False, "far end of the system model: link ready while held in reset")
+        return super().far_end_link_reset()
 
     def _bus_write(self, address, value, strobes=0xF):
         if self.mutation == "alias" and address % self.decoded_bytes >= 0x90000:
@@ -673,6 +676,7 @@ def test_tc23_finds_counts_that_the_pipeline_reset_kept():
     ("vn", "TC-RS-HW-11", "ofb0 VC_CFG(0).VN"),
     ("irq_mask", "TC-RS-HW-11", "ofb0 IRQ_MASK: wrote"),
     ("far_end", "TC-RS-HW-12", "ofb0.DL_ERRORS.FAR_END_LINK_RESET (0x00030014) = 0x00000000 after"),
+    ("far_end_held", "TC-RS-HW-12", "the link of the far end stayed ready while it was held in link reset"),
     ("lane", "TC-RS-HW-13", "expected 0x00000277 under"),
     ("no_single", "TC-RS-HW-14", "ofb0.ECC_COUNT(2)"),
     ("no_drop", "TC-RS-HW-14", "expected 0x0000001B under"),

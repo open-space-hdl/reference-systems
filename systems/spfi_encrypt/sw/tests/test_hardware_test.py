@@ -50,7 +50,7 @@ def test_the_script_runs_the_pytest_tests_with_its_options(monkeypatch, tmp_path
     assert ht.main() == 0
     suite = str(Path(ht.__file__).resolve().parent / "hwtest")
     assert seen == [[suite, "--target", "device", "--profile", "sim", "--seed", "3", "--results", str(tmp_path),
-                     "--device", "STAR-Ultra", "--tc", "TC-RS-HW-06"]]
+                     "--device", "STAR-Ultra", "--far-end-port", "1", "--tc", "TC-RS-HW-06"]]
     monkeypatch.setattr(sys, "argv", ["hardware_test.py", "--model", "--records", str(tmp_path)])
     assert ht.main() == 0 and seen[-1][:3] == [suite, "--target", "model"] and "--device" not in seen[-1]
 
@@ -336,7 +336,7 @@ def test_a_rerun_with_the_same_seed_without_the_drain_fails_after_the_pipeline_r
 def test_the_script_drains_the_channels_before_the_first_test_case(fault, monkeypatch):
     channels = aborted_run(fault)
     left = {channel: len(queue) for channel, queue in channels.waiting.items()}
-    monkeypatch.setattr(transport, "StarSystemTransport", lambda name: channels)
+    monkeypatch.setattr(transport, "StarSystemTransport", lambda name, port: channels)
     ctx = ht.make_context(seed=1, packets=ht.PROFILES["lab"].packets)
     events = []
     ctx.log.sinks.append(events.append)

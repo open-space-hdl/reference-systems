@@ -1104,6 +1104,8 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
                                  "without it")
     else:
         parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
+    parser.add_argument("--far-end-port", type=int, default=1, choices=(1, 2),
+                        help="SpaceFibre port of the STAR-Ultra that is cabled to the system (default 1)")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
     parser.add_argument("--test", action="append", help="run only this test case and those it builds on")
     return parser
@@ -1121,7 +1123,7 @@ def pytest_main(system_dir: Path, args: argparse.Namespace) -> int:
     argv = [str(system_dir / "sw" / "hwtest"), "--target", "model" if args.model else "device",
             "--profile", args.profile, "--seed", str(args.seed), "--results", str(results)]
     if not args.model:
-        argv += ["--device", args.device]
+        argv += ["--device", args.device, "--far-end-port", str(args.far_end_port)]
     for name in args.test or ():
         argv += ["--tc", name]
     print(f"python -B -m pytest {' '.join(argv)}")
@@ -1196,12 +1198,13 @@ def write_records(directory: Path, system: str, target: str, profile: str, ctx: 
     return path
 
 
-def open_device(device: str, ctx: Context):
+def open_device(device: str, ctx: Context, far_end_port: int = 1):
     """The far end of a run on the device: the test equipment, opened, with both of its channels drained of what an
-    earlier run left on them. The caller closes it (close())."""
+    earlier run left on them; far_end_port, its SpaceFibre port that is cabled to the system. The caller closes it
+    (close())."""
     from refsys.transport import StarSystemTransport
 
-    transport = StarSystemTransport(device).__enter__()
+    transport = StarSystemTransport(device, far_end_port).__enter__()
     drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel), log=ctx.log)
     return transport
 

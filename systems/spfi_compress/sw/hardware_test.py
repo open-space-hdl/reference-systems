@@ -65,7 +65,6 @@ from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_
 from refsys.systest import (  # noqa: E402, F401
     OFB, OMAP, SPP, WIN_CTRL_WRITTEN, WIN_ENABLE, Registers, Setup, TestFailed, check, consecutive, drain, hex_words,
     tc11_port_registers, test_name)
-from refsys.transport import FAR_END_LINK_RESET  # noqa: E402
 
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 SYSTEM_FILE = SYSTEM_DIR / "spfi_compress.composer.json"
@@ -729,15 +728,20 @@ def lane_names(ctx: Context, lanes: list[int], *names: str) -> dict[str, int]:
 
 
 def tc12_far_end_link_reset(regs: Registers, ctx: Context) -> None:
-    """TC-RS-HW-12: link reset from the far end, no traffic in flight. The operator resets the link at the port of the
-    test equipment (operator step); the script waits until the RMAP target answers again. The SpaceFibre port reports
+    """TC-RS-HW-12: link reset from the far end, no traffic in flight. The test equipment resets the link of its
+    SpaceFibre port by itself (transport.far_end_link_reset): it holds the port in link reset, releases it and waits
+    until its link is ready again; what it saw is recorded, and its link must not have been ready while held in reset
+    (the reset reached the link). The script waits until the RMAP target answers again. The SpaceFibre port reports
     the far-end link reset (DL_ERRORS.FAR_END_LINK_RESET, DL-LR-03) and the initialised link with all lanes; the lanes
     are recorded. A round of images (traffic_round) equals the model, the counters match. Before the error registers
     are cleared: DL_ERRORS holds FAR_END_LINK_RESET only; the lane registers (events, timeouts and receiver resets,
     RXERR_COUNT), ML_MISALIGNED and DL_RETRIES of the restart may hold any value and are recorded; every other error
     register is still 0."""
     s = ctx.system
-    regs.transport.operator(FAR_END_LINK_RESET)
+    far_end = regs.transport.far_end_link_reset()
+    systest.record(ctx, f"far-end link reset: {far_end.text}")
+    check(far_end.down, "the link of the far end stayed ready while it was held in link reset: the reset did not reach "
+          "the link")
     systest.await_rmap(regs, ctx)
     port = s.base(s.port)
     reset = OFB.field("DL_ERRORS", "FAR_END_LINK_RESET", 1)
