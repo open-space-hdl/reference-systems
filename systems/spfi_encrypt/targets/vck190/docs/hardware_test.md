@@ -254,6 +254,10 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
   (section 9). `-B` keeps Python from writing bytecode into the repository; the run records the state of the working
   tree at its start and at its end and warns without `-B`.
 - `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+- `--image <device image>` names the device image (`.pdi`) that was programmed into the board, with the
+  `build_info.txt` of its build next to it (`results/` of the build). The run records the name and SHA-256 of the
+  image and the build information, and the report shows them. A run without `--image` says that its device image is
+  not identified.
 - Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
   log how many packets of an earlier run it discarded per channel. A run that stopped early, for example in
   TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would otherwise take for its own.
@@ -348,7 +352,7 @@ Keep for every build and every test run, with the date:
 
 | Item | Source |
 | --- | --- |
-| Commits of the repository and of the submodules | `results/build_info.txt` |
+| Commits of the repository and of the submodules | `results/build_info.txt`, also in the records of a run with `--image` |
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back (section 5, step 2); LEDs after programming (section 5), version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
