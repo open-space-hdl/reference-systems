@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent))
 
 import hardware_test as ht  # noqa: E402
-from refsys import systest, transport  # noqa: E402
+from refsys import steplog, systest, transport  # noqa: E402
 from refsys.composer import SystemFile  # noqa: E402
 from refsys.transport import Transport, TransportError  # noqa: E402
 from system_model import SPECIFIED, SYSTEM, SYSTEM_FILE, SystemModel  # noqa: E402
@@ -285,15 +285,16 @@ def aborted_run(fault: str) -> Channels:
     return channels
 
 
-def test_drain_reads_every_channel_until_it_is_empty(capsys):
+def test_drain_reads_every_channel_until_it_is_empty():
     channels = Channels()
     channels.waiting[0].extend([b"\x01", b"\x02"])
     channels.waiting[1].extend([b"\x03", b"\x04", b"\x05"])
-    assert ht.drain(channels, (0, 1)) == {0: 2, 1: 3}
+    log, events = steplog.StepLog(), []
+    log.sinks.append(events.append)
+    assert ht.drain(channels, (0, 1), log=log) == {0: 2, 1: 3}
     assert not any(channels.waiting.values())
-    out = capsys.readouterr().out
-    assert "channel 0: 2 packets of an earlier run discarded" in out
-    assert "channel 1: 3 packets of an earlier run discarded" in out
+    assert [(e["kind"], e["text"]) for e in events] == [("note", "channel 0: 2 packets discarded"),
+                                                        ("note", "channel 1: 3 packets discarded")]
     assert ht.drain(channels, (0, 1)) == {0: 0, 1: 0}
 
 
@@ -332,17 +333,17 @@ def test_a_rerun_with_the_same_seed_without_the_drain_fails_after_the_pipeline_r
 
 
 @pytest.mark.parametrize("fault", ["chunks", "reply"])
-def test_the_script_drains_the_channels_before_the_first_test_case(fault, monkeypatch, capsys):
+def test_the_script_drains_the_channels_before_the_first_test_case(fault, monkeypatch):
     channels = aborted_run(fault)
     left = {channel: len(queue) for channel, queue in channels.waiting.items()}
-    capsys.readouterr()
     monkeypatch.setattr(transport, "StarSystemTransport", lambda name: channels)
     ctx = ht.make_context(seed=1, packets=ht.PROFILES["lab"].packets)
+    events = []
+    ctx.log.sinks.append(events.append)
     device = systest.open_device("STAR-Ultra", ctx)
     results = ht.run(device, ctx)
-    out = capsys.readouterr().out.splitlines()
-    assert out[:2] == [f"channel {channel}: {count} packets of an earlier run discarded"
-                       for channel, count in left.items()]
+    assert [e["text"] for e in events[:2]] == [f"channel {channel}: {count} packets discarded"
+                                               for channel, count in left.items()]
     assert results == [(ht.test_name(t), None) for t in ht.TESTS]
     # every request of the run got its own reply: nothing is left on the channels
     assert not any(channels.waiting.values())

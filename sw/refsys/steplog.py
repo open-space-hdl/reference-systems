@@ -5,23 +5,27 @@
 """Step log of a hardware test run: what the procedure does and finds, event by event.
 
 Every event has the time, the test case, its number within the test case, a kind, a text, a result (pass, fail or
-none) and its values. The sinks of a log receive every event: the pytest runner writes them as JSON lines into
-steps.jsonl and as text into run.log; every event also goes to the logger "refsys" (INFO for the events that confirm
-something, DEBUG for the register accesses and the passing checks), which pytest shows live on the console.
+none) and its values. The sinks of a log receive every event: the pytest runner writes all of them as JSON lines into
+steps.jsonl and those that a reader follows (without the register reads and writes, READABLE) as text into run.log;
+every event also goes to the logger "refsys" (INFO for the events that confirm something, DEBUG for the register
+accesses), which pytest shows live on the console.
 
 Kinds:
 
 - step: a step of a test case, as the table of the procedure names it, with the requirements it confirms;
-- read, write, wait: a register access over RMAP, with the register name when the address map knows it;
+- read, write: a register access over RMAP, with the register name when the address map knows it;
+- wait: a register polled until it has a value, one event per wait with the polls and the time it took;
 - expect: a value with the value expected (a register, a counter, a quantity), passed or failed;
-- check: a pass criterion of the procedure (systest.check) with the text it fails with; a passing check is shown as
-  "holds (on failure: <text>)";
+- check: a pass criterion of the procedure (systest.check) that failed, with its text. A passing check writes no
+  event: the result of the test case counts them;
 - record: a recorded value that is no pass criterion;
+- note: what the procedure tells the reader that is no value (a retry, packets discarded from a channel);
+- snapshot: the state of the system read after a failure (link, lanes, error registers), for the diagnosis;
 - config: the configuration of a compressor (generics, runtime values, a COMMIT and its result);
 - image: one image through a channel (samples, SDUs, compressed size, ratio, chunks, model and decoder results);
 - packets: the Space Packets of an exchange per APID (counts, lengths, decryption);
 - env: the environment of the run (versions, commits, the state of the working tree);
-- result: the result of a test case (pass, fail, not run) and its duration.
+- result: the result of a test case (pass, fail, not run), its duration and the number of its passing checks.
 
 The log observes only: it makes no request of its own, so a run with the log makes the requests of a run without it.
 """
@@ -34,8 +38,11 @@ from collections.abc import Callable
 LOGGER = logging.getLogger("refsys")
 LOGGER.addHandler(logging.NullHandler())   # no output of its own outside pytest (no last-resort handler)
 
-# Kinds whose events go to the console at INFO; the others at DEBUG (the passing checks as well)
-INFO_KINDS = {"step", "expect", "record", "config", "image", "packets", "env", "result"}
+# Kinds whose events go to the console at INFO; the others at DEBUG
+INFO_KINDS = {"step", "wait", "expect", "record", "note", "snapshot", "config", "image", "packets", "env", "result"}
+
+# Kinds of run.log: every kind but the register reads and writes, which steps.jsonl keeps
+READABLE = INFO_KINDS | {"check"}
 
 
 def now() -> str:
@@ -45,30 +52,32 @@ def now() -> str:
 
 
 def text_of(event: dict) -> str:
-    """The event as one line of text: test case, number, kind, result and text. The text of a check is the text it
-    fails with, so a passing check reads "holds (on failure: <text>)"."""
+    """The event as one line of text: test case, number, kind, result and text."""
     result = f" {event['result'].upper()}" if event.get("result") else ""
-    text = event["text"]
-    if event["kind"] == "check" and event.get("result") == "pass":
-        text = f"holds (on failure: {text})"
-    return f"{event['test'] or '-'} #{event['n']} {event['kind']}{result}: {text}"
+    return f"{event['test'] or '-'} #{event['n']} {event['kind']}{result}: {event['text']}"
 
 
 class StepLog:
     """The events of a run. begin() sets the test case of the next events; the events of a test case (and those of
     the run outside a test case) are numbered from 1, across every begin() of it. Every helper returns the event it
-    made."""
+    made. The passing checks of a test case are counted (passed), not written."""
 
     def __init__(self) -> None:
         self.test = ""
         self.n = 0
         self.counts: dict[str, int] = {}
+        self.passed: dict[str, int] = {}
         self.sinks: list[Callable[[dict], None]] = []
         self.failed = 0
 
     def begin(self, test: str) -> None:
         self.test = test
         self.n = self.counts.get(test, 0)
+
+    def passed_checks(self, test: str) -> int:
+        """The passing checks of a test case, with those of the test cases that it runs again (TC-RS-HW-18, 23 log
+        them as "<test> <name>")."""
+        return sum(n for name, n in self.passed.items() if name == test or name.startswith(f"{test} "))
 
     def emit(self, kind: str, text: str, result: str | None = None, level: int | None = None, **data) -> dict:
         self.n += 1
@@ -96,10 +105,13 @@ class StepLog:
         return self.emit("expect", text, "pass" if ok else "fail", level, what=what, actual=actual, expected=expected,
                          **data)
 
-    def check(self, ok: bool, message: str) -> dict:
-        """A check of the procedure (systest.check): its message is the text it fails with, so a passing check goes to
-        the console only at DEBUG and reads "holds (on failure: <message>)" (text_of)."""
-        return self.emit("check", message, "pass" if ok else "fail", logging.DEBUG if ok else None)
+    def check(self, ok: bool, message: str) -> dict | None:
+        """A check of the procedure (systest.check), whose message is the text it fails with: a failing check is an
+        event, a passing one is counted for its test case (passed) and makes none."""
+        if ok:
+            self.passed[self.test] = self.passed.get(self.test, 0) + 1
+            return None
+        return self.emit("check", message, "fail")
 
     def access(self, kind: str, address: int, words: list[int] | None = None, name: str = "", **data) -> dict:
         where = name or f"0x{address:08X}"
@@ -130,12 +142,15 @@ class JsonLines:
 
 
 class TextLines:
-    """Sink that writes every event as one line of text with its time."""
+    """Sink that writes the events of the given kinds (default: all) as one line of text each, with its time."""
 
-    def __init__(self, path) -> None:
+    def __init__(self, path, kinds: set[str] | None = None) -> None:
         self.file = open(path, "w", encoding="utf-8", newline="\n")  # noqa: SIM115 - closed by close()
+        self.kinds = kinds
 
     def __call__(self, event: dict) -> None:
+        if self.kinds is not None and event["kind"] not in self.kinds:
+            return
         self.file.write(f"{event['time']} {text_of(event)}\n")
         self.file.flush()
 
