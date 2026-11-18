@@ -108,6 +108,62 @@
   one of a run to read the flags needs this step. The `lab` profile reads them as they are; the hardware is not
   affected.
 
+## v0.2.1 (2026-11-18)
+
+A hotfix of the hardware test software, after the lab run of spfi_compress on 2026-11-17. The HDL, the Composer files,
+the cores and their pins are those of v0.2.0. A device image built from v0.2.0 stays valid, and the system
+simulations of v0.2.0 stay the evidence: their stimuli are unchanged.
+
+### Hardware test
+
+- **No operator step.** TC-RS-HW-12 asked the operator to reset the link of the STAR-Ultra in STAR-System. The run
+  holds the device while it goes on, so the configuration software could not reach it. The test equipment now resets
+  the link itself:
+  - the SpaceFibre port of the STAR-Ultra is held in link reset for 0.1 s through the library of the STAR-Ultra PCIe
+    Interface, then released;
+  - the test waits until the link of the port is ready again with its lanes;
+  - it records what the port showed and checks that its link was down while held.
+
+  `--far-end-port` names the port (default 1). `--check-environment` checks the Python package of the STAR-Ultra
+  PCIe Interface and its library together with the package of STAR-System.
+- **Log.**
+  - A passing check makes no event; the result of a test case counts its passing checks.
+  - A wait for a register value is one event with its polls and the time it took. Its failure names the register
+    and its fields, the value read, the time and the polls.
+  - After a failure the test reads the link, every lane and the error registers that hold a value and records them
+    (report section "State after a failure").
+  - `run.log` holds every event but the register reads and writes, which `steps.jsonl` keeps.
+  - Discarded packets and RMAP retries are notes of the log.
+- **After a failure the run goes on.** Before the next test case it recovers:
+  1. it reads both channels until they are quiet;
+  2. it checks that RMAP answers and the link is initialised with all lanes, once with a far-end link reset if not;
+  3. it records and clears the error registers.
+
+  The systems of this release have no pipeline reset: what a failure leaves in the processing path stays and can make
+  the next test case fail as well. A test case whose prerequisites did not pass is not run. A system that stays
+  unhealthy stops the run. `--stop-at-first-failure` replaces `--keep-going` and stops at the first failure.
+- **Rate of TC-RS-HW-09.** It timed the reference model, the transfer and the checks together. The transport now
+  prepares a transfer before it is timed (one transmit operation with every packet, one receive operation) and times
+  from the first submission to the arrival of the last packet. The images, the expected compressed images and the
+  packets are built before; the received packets are converted and checked after. The record gives the rate of the
+  samples and of the link packets in both directions. TC-RS-HW-09 of spfi_compress no longer claims OpenFibre
+  CORE-PF-01: the system takes less than the capacity of the link.
+- **Evidence of a run.**
+  - `--image` records the name, SHA-256 and `build_info.txt` of the programmed device image.
+  - The report counts the test cases by result. Its requirements are headed "Requirements exercised per test case".
+  - A test case that provokes errors records the expected ones, the allowed ones that moved and the others apart.
+  - TC-RS-HW-02 records the values that a compressor at its generics shows.
+  - The working tree counts its changed entries and records the ignored ones apart.
+- **System model.** The base system model gets `receive` (no packet waits), which the recovery reads with.
+
+### Verification
+
+- Host tests: 543 passed, 11 skipped.
+- Stimulus guard (`RS_STIMULUS_GUARD=1`): the stimuli of the system simulations of the evidence are unchanged.
+- The hardware tests of the three systems pass against their system models with the lab profile.
+- The far-end link reset is tested against a stand-in for the library of the STAR-Ultra PCIe Interface; it runs on the
+  device in the next lab run.
+
 ## v0.2.0 (2026-10-31)
 
 The third system, spfi_compress; OpenCompact v0.3.0 with runtime configuration and parameters on two channels;
