@@ -39,7 +39,6 @@ import itertools
 import random
 import re
 import sys
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -297,8 +296,10 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     if busy is not None:
         busy(max((sum(ocp.image_cycles(o.cfg) for o, _ in outs) for outs in images.values()), default=0))
     # every chunk of the images that the model gives, and at least one chunk of every other aborted image
-    received = transport.exchange(setup.spp_channel, packets, setup.spp_channel, known + aborted,
-                                  timeout=10.0 + size / EQUIPMENT_RATE)
+    # the expected images and the packets are built before the transfer, which alone is timed (Context.transfer)
+    prepared = transport.prepare(setup.spp_channel, packets, setup.spp_channel, known + aborted)
+    received, timing = transport.run_prepared(prepared, timeout=10.0 + size / EQUIPMENT_RATE)
+    ctx.transfer = {"timing": timing, "sent": sum(len(p) for p in packets), "received": sum(len(r) for r in received)}
     if aborted:
         # the model gives no length of these aborted images: their chunks arrive until the channel is quiet
         while (packet := transport.receive(setup.spp_channel, DRAIN_TIMEOUT)) is not None:
@@ -487,8 +488,9 @@ def tc08_lost_data(regs: Registers, ctx: Context) -> None:
 
 def tc09_rate(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-09: all channels compress a stream of images at once, as fast as the test equipment sends them; no
-    loss, every image equals the model, the counters match. The rate is recorded; it is limited by the test
-    equipment."""
+    loss, every image equals the model, the counters match. The rate is recorded (systest.rate_text): the images, the
+    expected compressed images and the packets are built before the transfer, which alone is timed, and checked
+    after it."""
     clear_status(regs, ctx)
     streams, raw = {}, 0
     for ch in ctx.system.channels:
@@ -498,14 +500,11 @@ def tc09_rate(regs: Registers, ctx: Context) -> None:
             ctx.images += 1
         streams[ch.port] = sdus
         raw += sum(len(s.data) for s in sdus)
-    start = time.monotonic()
     back = send_images(regs, ctx, streams)
-    seconds = time.monotonic() - start
     compressed = sum(len(d) for images in back.values() for d in images)
     images = sum(len(images) for images in back.values())
-    ctx.rate = (f"{images} images, {raw} bytes of samples and {compressed} bytes compressed in {seconds:.2f} s: "
-                f"{8 * raw / seconds / 1e9:.3f} Gbit/s of samples (limited by the test equipment and the host)")
-    print(ctx.rate)
+    ctx.rate = systest.rate_text(ctx.transfer, raw, compressed, images)
+    systest.record(ctx, f"rate: {ctx.rate}")
     check_status(regs, ctx)
 
 
@@ -862,6 +861,21 @@ REQUIREMENTS_NOTE = ("The procedure of spfi_compress_encrypt has no coverage sec
                      "encryption.")
 
 # Test cases that a test case builds on; they run before it when it is selected on its own
+# The test case that configures the system: after it passed, the recovery after a failure (systest.recover) ends
+# with reconfigure
+CONFIGURE = tc05_configure
+
+
+def reconfigure(regs: Registers, ctx: Context) -> None:
+    """The end of the recovery after a failure (systest.recover), after its pipeline reset: the models of the
+    compressors start again from the reset (ocptest.reset_models), then the configuration of TC-RS-HW-05 with every
+    key loaded again at the counter after the last chunk expected plus systest.RECOVERY_COUNTER_GAP
+    (after_pipeline_reset, PR-12)."""
+    ocptest.reset_models(ctx)
+    after_pipeline_reset(regs, ctx, {ch.port: ctx.next_counter[ch.port] + systest.RECOVERY_COUNTER_GAP
+                                     for ch in ctx.system.channels})
+
+
 REQUIRES = {tc06_compression: [tc05_configure], tc07_counters: [tc05_configure, tc06_compression],
             tc08_lost_data: [tc05_configure], tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
             tc19_pipeline_reset: [tc01_link, tc05_configure], tc20_reset_mid_image: [tc01_link, tc05_configure],

@@ -61,6 +61,11 @@ EDAC_INFO, EDAC_IRQ_ENA, EDAC_CNT = 0x00, 0x0C, 0x10
 # ones clears both flags (write-one-to-clear). On hardware the flags start at 0 (clear_bw_flags).
 BW_FLAGS = ("VC_BW_OVER", "VC_BW_UNDER")
 
+# After the pipeline reset of a recovery (recover) a system that encrypts loads every key again with the counter after
+# the last chunk that the test cases expected plus this gap: more chunks than any test case sends, so that no counter
+# is used twice whatever the failed test case left in flight (PR-12)
+RECOVERY_COUNTER_GAP = 1 << 20
+
 LANE_ACTIVE = 7           # LANE_STATUS.STATE of an active lane (OpenFibre register map)
 LINK_INITIALISED = 3      # DL_STATUS.LINK_STATE of an initialised link
 
@@ -417,6 +422,9 @@ class Context:
     current: str = field(default="", kw_only=True)                        # the test case that runs
     recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
     snapshots: list[dict] = field(default_factory=list, kw_only=True)     # the state read after a failure
+    recoveries: list[dict] = field(default_factory=list, kw_only=True)    # the steps of every recovery (recover)
+    # the last timed exchange of images: its Timing (transport.run_prepared) and the bytes sent and received
+    transfer: dict = field(default_factory=dict, kw_only=True)
     selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
     log: steplog.StepLog = field(default_factory=steplog.StepLog, kw_only=True)  # the step log of the run
     requirements: dict = field(default_factory=dict, kw_only=True)        # test case: requirements it confirms
@@ -429,6 +437,24 @@ class Context:
     # the profile of the system simulation: VC_BW_OVER and VC_BW_UNDER are cleared before their first read (BW_FLAGS)
     clear_bw_flags: bool = field(default=False, kw_only=True)
     bw_flags_cleared: bool = field(default=False, kw_only=True)          # they are cleared in this run
+
+
+def rate_text(transfer: dict, samples: int, compressed: int, images: int) -> str:
+    """The rate of a timed exchange of images (TC-RS-HW-09, Context.transfer): the time of the transfer alone, from the
+    submission of its first operation to the arrival of its last packet, and the rates of the samples and of the link
+    packets in both directions over it. Against the system model the time is that of the model and gives no rate."""
+    t = transfer["timing"]
+    text = (f"{images} images, {samples} bytes of samples, {compressed} bytes compressed; transfer {t.wire_s:.3f} s "
+            "from the first submission to the last packet received")
+    if not t.device:
+        return f"{text}: the far end is the system model, whose time is no rate of the system"
+
+    def gbit(n: int) -> str:
+        return f"{8 * n / t.wire_s / 1e9:.3f} Gbit/s"
+
+    return (f"{text}: {gbit(samples)} of samples, {gbit(transfer['sent'])} of link packets to the system and "
+            f"{gbit(transfer['received'])} from it. Not timed: the images and packets built before, the conversion of "
+            f"the {t.items} packets received ({t.convert_s:.3f} s) and the checks after")
 
 
 def record(ctx: Context, text: str) -> None:
@@ -536,7 +562,8 @@ def baseline(regs: Registers, ctx: Context) -> None:
     a leaky counter at most its first value, which stays its baseline."""
     items = ctx.system.error_registers()
     first = errorstate.read_state(regs, items)
-    record(ctx, f"error registers after link-up: {errorstate.nonzero(first)}")
+    record(ctx, f"error registers after link-up, before the baseline clears them (no pass criterion): "
+           f"{errorstate.nonzero(first)}")
     errorstate.clear_state(regs, items)
     ctx.baseline = errorstate.read_state(regs, items)
     problems = errorstate.unexpected(items, ctx.baseline, baseline=first)
@@ -565,7 +592,7 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     items = ctx.system.error_registers()
     by_name = {r.name: r for r in items if isinstance(r, errorstate.Register)}
     state = errorstate.read_state(regs, items)
-    record(ctx, f"{label} error registers: {errorstate.nonzero(state)}")
+    record(ctx, f"{label} error registers: {error_record(state, expected or {}, allowed or {})}")
     for name, value in (expected or {}).items():
         got = state[name] & by_name[name].errors
         check(got == value, f"{name} 0x{state[name]:08X}, expected 0x{value:08X} in its error bits")
@@ -574,6 +601,15 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     check(not problems, f"error registers that the test case does not target: {', '.join(problems)}")
     errorstate.clear_state(regs, items)
     return state
+
+
+def error_record(state: dict[str, int], expected: dict[str, int], allowed: dict[str, int]) -> str:
+    """The error registers at the end of a test case that provokes errors (caused), for its record: those it expects
+    to hold a value, those it allows to move that do, and the others that hold a value (none when it passes)."""
+    expects = ", ".join(f"{name} 0x{state.get(name, 0):08X}" for name in expected) or "none"
+    moved = ", ".join(f"{name} 0x{state[name]:08X}" for name in allowed if state.get(name)) or "none"
+    others = errorstate.nonzero({n: v for n, v in state.items() if n not in expected and n not in allowed})
+    return f"expected {expects}; allowed to move: {moved}; others: {others}"
 
 
 def check_link_state(regs: Registers, ctx: Context) -> None:
@@ -967,6 +1003,59 @@ def run_one(regs: Registers, ctx: Context, test) -> None:
         raise
 
 
+def health(regs: Registers, ctx: Context) -> str | None:
+    """Whether the system can take the next test case: the RMAP target answers (await_rmap, three requests) and the
+    link is initialised with all lanes (check_link_state). None when it can, otherwise the reason."""
+    try:
+        await_rmap(regs, ctx, attempts=3)
+        check_link_state(regs, ctx)
+    except Exception as err:  # noqa: BLE001 - every reason is reported
+        return f"{type(err).__name__}: {err}"
+    return None
+
+
+def recover(regs: Registers, ctx: Context, failed: str, reconfigure=None) -> None:
+    """The recovery after a failed test case, before the next one runs:
+
+    1. both channels are read until they are quiet, which discards what the failed test case left in flight;
+    2. the health check (health). If the system fails it, the far end resets the link once
+       (transport.far_end_link_reset) and the health check runs again; a system that fails it again stops the run
+       (TestFailed);
+    3. the error registers of every block are recorded and cleared, so that the next test case starts from 0;
+    4. the pipeline reset returns the processing path to its reset state, wherever the failure left it;
+    5. reconfigure(regs, ctx), the configuration of the system after a pipeline reset (the hook of the system, given
+       when the test case that configures the system has passed).
+
+    Every step is written into the step log and kept in ctx.recoveries for the report."""
+    s, setup = ctx.system, ctx.setup
+
+    def note(text: str) -> None:
+        ctx.recoveries.append({"after": failed, "test": ctx.current, "text": text})
+        ctx.log.emit("note", f"recovery after {failed}: {text}", after=failed)
+
+    counts = drain(regs.transport, (setup.rmap_channel, setup.spp_channel), log=ctx.log)
+    note(f"channels read until quiet: {', '.join(f'{n} packets discarded on channel {c}' for c, n in counts.items())}")
+    reason = health(regs, ctx)
+    if reason is not None:
+        note(f"health check failed ({reason}); the far end resets the link")
+        note(regs.transport.far_end_link_reset().text)
+        drain(regs.transport, (setup.rmap_channel, setup.spp_channel), log=ctx.log)
+        reason = health(regs, ctx)
+        if reason is not None:
+            note(f"health check failed again ({reason}): the run stops")
+            raise TestFailed(f"the system is not healthy after {failed} failed: {reason}")
+    note("health check passed: the RMAP target answers, the link is initialised with all lanes")
+    items = s.error_registers()
+    state = errorstate.read_state(regs, items)
+    errorstate.clear_state(regs, items)
+    note(f"error registers cleared: {errorstate.nonzero(state)}")
+    count = pipeline_reset(regs, ctx, f" of the recovery after {failed}")
+    note(f"pipeline reset: {s.reset} STATUS.COUNT {count}")
+    if reconfigure is not None:
+        reconfigure(regs, ctx)
+        note("the system is configured again as after TC-RS-HW-05")
+
+
 def failure_snapshot(regs: Registers, ctx: Context) -> None:
     """After a failure: the state of the link and of the error registers, read and written as snapshot events and
     kept in ctx.snapshots for the report, so that the outputs of the run show what the system looked like when the
@@ -1104,6 +1193,8 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
                                  "without it")
     else:
         parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
+    parser.add_argument("--far-end-port", type=int, default=1, choices=(1, 2),
+                        help="SpaceFibre port of the STAR-Ultra that is cabled to the system (default 1)")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
     parser.add_argument("--test", action="append", help="run only this test case and those it builds on")
     return parser
@@ -1121,7 +1212,7 @@ def pytest_main(system_dir: Path, args: argparse.Namespace) -> int:
     argv = [str(system_dir / "sw" / "hwtest"), "--target", "model" if args.model else "device",
             "--profile", args.profile, "--seed", str(args.seed), "--results", str(results)]
     if not args.model:
-        argv += ["--device", args.device]
+        argv += ["--device", args.device, "--far-end-port", str(args.far_end_port)]
     for name in args.test or ():
         argv += ["--tc", name]
     print(f"python -B -m pytest {' '.join(argv)}")
@@ -1196,12 +1287,13 @@ def write_records(directory: Path, system: str, target: str, profile: str, ctx: 
     return path
 
 
-def open_device(device: str, ctx: Context):
+def open_device(device: str, ctx: Context, far_end_port: int = 1):
     """The far end of a run on the device: the test equipment, opened, with both of its channels drained of what an
-    earlier run left on them. The caller closes it (close())."""
+    earlier run left on them; far_end_port, its SpaceFibre port that is cabled to the system. The caller closes it
+    (close())."""
     from refsys.transport import StarSystemTransport
 
-    transport = StarSystemTransport(device).__enter__()
+    transport = StarSystemTransport(device, far_end_port).__enter__()
     drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel), log=ctx.log)
     return transport
 

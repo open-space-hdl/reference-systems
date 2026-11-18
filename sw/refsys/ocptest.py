@@ -112,7 +112,8 @@ def check_start(regs: Registers, ctx, ch) -> None:
           f"{ch.compressor} IMAGE_X to LIMITS show {ocp.describe(values)} after the pipeline reset, expected the "
           "values of the generics")
     if values == ocp.build_values(ch.cfg, params):
-        record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics")
+        record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics: "
+               f"{ocp.describe(values)}")
     else:
         record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of an image of an "
                f"earlier run: {ocp.describe(values)}")

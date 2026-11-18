@@ -43,6 +43,46 @@
   - `run.log` holds every event but the register reads and writes; `steps.jsonl` keeps all of them.
   - The packets discarded from a channel and the retries of RMAP after a link reset are notes in the log instead of
     console output.
+- The hardware test needs no operator. In TC-RS-HW-12 the STAR-Ultra resets the link of its SpaceFibre port by itself
+  through the library of the STAR-Ultra PCIe Interface: the port is held in link reset for 0.1 s, then released, and
+  the test waits until its link is ready again. The test records what the port showed and checks that its link was
+  down while held. The operator step, its prompt and the pytest marker `operator` are gone.
+  - `--far-end-port` names the SpaceFibre port of the STAR-Ultra that is cabled to the board (default 1).
+  - `--check-environment` checks the Python package of the STAR-Ultra PCIe Interface and its library together with
+    the package of STAR-System.
+  - The stimuli of the system simulations are unchanged.
+- After a failure the hardware test goes on. Before the next test case the recovery (`systest.recover`) does the
+  following:
+  1. it reads both channels until they are quiet;
+  2. it checks the health of the system: RMAP answers and the link is initialised with all lanes. If the check fails,
+     the far end resets the link once and the check runs again; a system that stays unhealthy stops the run;
+  3. it records and clears the error registers;
+  4. it makes a pipeline reset;
+  5. once TC-RS-HW-05 has passed, it configures the system again (the hook `reconfigure` of every system). The
+     encrypting systems load their keys at a counter `RECOVERY_COUNTER_GAP` above the last one.
+
+  A test case whose prerequisites did not pass is still not run. The report lists every recovery. `--keep-going` is
+  replaced by `--stop-at-first-failure`, which keeps the old behaviour.
+- The rate of TC-RS-HW-09 is that of the transfer alone. The transport prepares a transfer before it is timed
+  (`prepare`: one transmit operation with every packet as a stream item, one receive operation) and runs it then
+  (`run_prepared`). The timed part runs from the submission of the first operation to the arrival of the last packet;
+  the received packets are converted after it. The images, the expected compressed images of the reference model and
+  the packets are built before, and the checks come after. The record gives the rate of the samples and of the link
+  packets in both directions, and against the system model it says that the time is that of the model. The earlier
+  rate timed the model, the transfer and the checks together.
+  - TC-RS-HW-09 of spfi_compress no longer claims OpenFibre CORE-PF-01. The system takes less than the capacity of the
+    link, and section 10 of its procedure lists the requirement as not exercised.
+- What a run records as its evidence:
+  - `--image` names the programmed device image. The run records its name and SHA-256 and the `build_info.txt` of its
+    build, and the report shows them. A run against the device without `--image` is reported as having no identified
+    device image.
+  - The report counts the test cases by result. Its table of requirements is headed "Requirements exercised per test
+    case" and says that every requirement is verified against its own criterion by the regression of its core.
+  - A test case that provokes errors records them in three parts: the expected ones, the allowed ones that moved, and
+    the others. The values that TC-RS-HW-01 reads before the baseline clears them are marked as no pass criterion.
+  - TC-RS-HW-02 records the values that a compressor at the values of its generics shows.
+  - The state of the working tree counts the changed entries; the ignored ones (`__pycache__` of a run without `-B`)
+    are recorded and counted apart.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the

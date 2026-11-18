@@ -134,5 +134,28 @@ def test_the_text_log_leaves_out_the_register_accesses(tmp_path):
                                                          "TC-RS-HW-99 #4 check FAIL: a criterion"]
 
 
+def test_the_recovery_reads_the_channels_clears_the_errors_and_resets_the_pipeline(run):
+    regs, ctx = run
+    calls = []
+    systest.recover(regs, ctx, "TC-RS-HW-97", lambda r, c: calls.append(c.current))
+    steps = [r["text"] for r in ctx.recoveries]
+    assert steps[0] == "channels read until quiet: 0 packets discarded on channel 0, 0 packets discarded on channel 1"
+    assert steps[1].startswith("health check passed") and steps[2].startswith("error registers cleared: ")
+    assert steps[3] == "pipeline reset: prst0 STATUS.COUNT 1" and len(calls) == 1
+    assert steps[4] == "the system is configured again as after TC-RS-HW-05"
+    assert all(r["after"] == "TC-RS-HW-97" for r in ctx.recoveries)
+
+
+def test_a_system_that_stays_unhealthy_stops_the_run(run):
+    regs, ctx = run
+    port = ctx.system.base(ctx.system.port)
+    # the link stays down, also after the link reset of the far end
+    regs.transport.regs[port + OFB.DL_STATUS] &= ~OFB.field("DL_STATUS", "LINK_STATE", 3)
+    with pytest.raises(systest.TestFailed, match="the system is not healthy after TC-RS-HW-97 failed"):
+        systest.recover(regs, ctx, "TC-RS-HW-97")
+    steps = [r["text"] for r in ctx.recoveries]
+    assert "; the far end resets the link" in steps[1] and steps[2] == "far end of the system model: link reset"
+    assert steps[-1].startswith("health check failed again") and "DL_STATUS" in steps[-1]
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-q"]))

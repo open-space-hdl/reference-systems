@@ -102,7 +102,7 @@ def test_the_report_has_the_results_and_the_records(passing):
     _, run, _, _ = passing
     report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
     assert "| TC-RS-HW-18 | Pass |  |" in report and "### Recorded values" in report
-    assert "--keep-going" not in report
+    assert "--stop-at-first-failure" not in report and "### Recovery after a failure" not in report
 
 
 def test_a_results_directory_inside_the_repository_is_refused():
@@ -126,26 +126,47 @@ def test_tc_selects_a_test_case_with_those_it_builds_on(tmp_path):
     assert names == ["test_hardware[TC-RS-HW-05]", "test_hardware[TC-RS-HW-06]", "test_hardware[TC-RS-HW-07]"]
 
 
-def test_after_a_failure_the_later_test_cases_do_not_run(tmp_path):
+def test_stop_at_first_failure_runs_no_later_test_case(tmp_path):
     # TC-RS-HW-02 fails (the plugin hwfaults of sw/tests)
-    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02")
+    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02", "--stop-at-first-failure")
     assert done.returncode == 1, done.stdout[-3000:]
     run = run_dir(tmp_path)
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
     assert [(r["test"], r["pass"]) for r in records["results"]] == [("TC-RS-HW-01", True), ("TC-RS-HW-02", False)]
     assert [r["test"] for r in records["not_run"]] == [f"TC-RS-HW-{n:02d}" for n in (3, 4, 5, 6, 7, 19, 22, 23, 18)]
-    assert all(r["reason"] == "not run: TC-RS-HW-02 failed" for r in records["not_run"])
+    reason = "not run: TC-RS-HW-02 failed (--stop-at-first-failure)"
+    assert all(r["reason"] == reason for r in records["not_run"]) and records["stop_at_first_failure"]
     report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
-    assert "| TC-RS-HW-03 | Not run | not run: TC-RS-HW-02 failed |" in report
+    assert f"| TC-RS-HW-03 | Not run | {reason} |" in report
+    assert "This run stopped at its first failure (--stop-at-first-failure)." in report
 
 
-def test_keep_going_runs_the_test_cases_whose_dependencies_passed(tmp_path):
-    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02", "--keep-going")
-    assert done.returncode == 1
+def test_after_a_failure_the_run_recovers_and_goes_on(tmp_path):
+    # TC-RS-HW-06 fails after the configuration of TC-RS-HW-05: TC-RS-HW-07, which builds on it, is not run; the
+    # recovery runs before TC-RS-HW-19 and every later test case passes
+    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-06")
+    assert done.returncode == 1, done.stdout[-3000:]
     run = run_dir(tmp_path)
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
-    assert [r["test"] for r in records["results"]][-1] == "TC-RS-HW-18" and records["keep_going"]
-    assert "a run for diagnosis, not evidence" in (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
+    results = {r["test"]: r["pass"] for r in records["results"]}
+    assert results == {f"TC-RS-HW-{n:02d}": n != 6 for n in (1, 2, 3, 4, 5, 6, 19, 22, 23, 18)}
+    assert records["not_run"] == [{"test": "TC-RS-HW-07", "reason": "not run: TC-RS-HW-06 did not pass"}]
+    steps = [r["text"] for r in records["recoveries"]]
+    assert {(r["after"], r["test"]) for r in records["recoveries"]} == {("TC-RS-HW-06", "TC-RS-HW-19")}
+    assert steps[0].startswith("channels read until quiet: ") and steps[1].startswith("health check passed")
+    assert steps[2].startswith("error registers cleared: ") and steps[3].startswith("pipeline reset: prst0")
+    assert steps[4] == "the system is configured again as after TC-RS-HW-05"
+    report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
+    assert "### Recovery after a failure" in report and "#### After TC-RS-HW-06, before TC-RS-HW-19" in report
+
+
+def test_a_failure_before_the_configuration_recovers_without_configuring(tmp_path):
+    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02", "--tc", "TC-RS-HW-02", "--tc", "TC-RS-HW-03")
+    assert done.returncode == 1, done.stdout[-3000:]
+    records = json.loads(next(run_dir(tmp_path).glob("records_*.json")).read_text(encoding="utf-8"))
+    assert {r["test"]: r["pass"] for r in records["results"]} == {"TC-RS-HW-02": False, "TC-RS-HW-03": True}
+    steps = [r["text"] for r in records["recoveries"]]
+    assert steps[-1].startswith("pipeline reset: prst0") and len(steps) == 4
 
 
 def test_no_pipeline_reset_skips_the_reset_of_the_run_and_marks_it_for_diagnosis(tmp_path):
@@ -154,7 +175,7 @@ def test_no_pipeline_reset_skips_the_reset_of_the_run_and_marks_it_for_diagnosis
     assert "--no-pipeline-reset: the run did not start with the pipeline reset" in done.stdout
     run = run_dir(tmp_path)
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
-    assert records["no_pipeline_reset"] and not records["keep_going"]
+    assert records["no_pipeline_reset"] and not records["stop_at_first_failure"]
     texts = [r["text"] for r in records["records"]]
     assert "pipeline reset at the start of the run: skipped" in texts
     # TC-RS-HW-02 knows no count of this run and records the one it reads

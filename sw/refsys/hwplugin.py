@@ -6,8 +6,8 @@
 
 The test cases stay the functions TC-RS-HW-nn of systems/<system>/sw/hardware_test.py; the module
 systems/<system>/sw/hwtest/test_<system>.py turns them into one pytest test each, in the order of TESTS, with the
-markers tc, requirement and operator. This plugin adds the options, opens the far end (the device through the
-software of the test equipment, or the system model) once per system, runs every test case through
+markers tc and requirement. This plugin adds the options, opens the far end (the device through the software of the
+test equipment, or the system model) once per system, runs every test case through
 systest.run_one with the step log of the run, and writes the outputs into a new directory below --results:
 
 - steps.jsonl: every event of the step log (refsys/steplog.py), one JSON object per line;
@@ -20,13 +20,18 @@ Nothing is written into the repository: --results must lie outside it, the cache
 the run records `git status --porcelain --ignored` of the repository and of every submodule at its start and at its
 end. Python writes its bytecode next to the sources unless it runs with -B; the run warns when it does.
 
-The run stops at the first failure: the later test cases build on the earlier ones and are reported as not run.
---keep-going runs a later test case when the test cases it builds on passed (diagnosis only; the report says so).
---no-pipeline-reset skips the pipeline reset at the start of the run (TC-RS-HW-01), so that the run starts from what
-an earlier run left in the processing path (diagnosis only; the report says so).
+After a failure the run goes on: before the next test case the recovery (systest.recover) reads the channels until
+they are quiet, checks the health of the system (RMAP answers, the link is initialised with all lanes; once a far-end
+link reset if not), clears the error registers, resets the pipeline and configures the system again (the hook
+reconfigure of the system, when its test case CONFIGURE has passed). A test case whose prerequisites (REQUIRES) did not
+pass is not run; a system that stays unhealthy stops the run, and the rest is not run. --stop-at-first-failure stops
+at the first failure instead. --no-pipeline-reset skips the pipeline reset at the start of the run (TC-RS-HW-01), so
+that the run starts from what an earlier run left in the processing path (diagnosis only; the report says so).
+--image names the programmed device image: its name, SHA-256 and the build_info.txt next to it are recorded.
 --tc selects test cases together with those they build on; -k is refused, since it would drop them.
 """
 
+import hashlib
 import importlib.metadata
 import json
 import logging
@@ -54,13 +59,18 @@ def pytest_addoption(parser: pytest.Parser) -> None:
     g.addoption("--target", choices=("device", "model"),
                 help="run the hardware tests against the device (the test equipment) or the system model")
     g.addoption("--device", help="name of the STAR-Ultra device in STAR-System (with --target device)")
+    g.addoption("--image", help="device image (.pdi) programmed into the board, with build_info.txt of its build "
+                "next to it (with --target device): its name and SHA-256 and the build information are recorded")
+    g.addoption("--far-end-port", type=int, default=1, choices=(1, 2),
+                help="SpaceFibre port of the STAR-Ultra that is cabled to the system (default 1), whose link the test "
+                     "resets in TC-RS-HW-12")
     g.addoption("--profile", choices=("lab", "sim"), default="lab", help="size of the run (default lab)")
     g.addoption("--seed", type=int, default=1, help="seed of the images, keys and packets (default 1)")
     g.addoption("--results", help="directory for the outputs of the run, outside the repository (required)")
     g.addoption("--tc", action="append", default=[],
                 help="run only this test case and those it builds on (repeatable), for example TC-RS-HW-08")
-    g.addoption("--keep-going", action="store_true",
-                help="after a failure, run the test cases whose own dependencies passed (diagnosis only)")
+    g.addoption("--stop-at-first-failure", action="store_true",
+                help="stop at the first failure: the later test cases are not run (default: recover and go on)")
     g.addoption("--no-pipeline-reset", action="store_true",
                 help="skip the pipeline reset at the start of the run in TC-RS-HW-01 (diagnosis only)")
 
@@ -92,6 +102,9 @@ def pytest_configure(config: pytest.Config) -> None:
         raise pytest.UsageError("--target device needs --device <name of the STAR-Ultra in STAR-System>")
     if not config.getoption("results"):
         raise pytest.UsageError("--results <directory outside the repository> is required with --target")
+    image = config.getoption("image")
+    if image and not Path(image).is_file():
+        raise pytest.UsageError(f"--image {image}: no such file")
     results = Path(config.getoption("results")).resolve()
     if inside(results, ROOT.resolve()):
         raise pytest.UsageError(f"--results {results} lies inside the repository; choose a directory outside it")
@@ -117,7 +130,8 @@ def pytest_configure(config: pytest.Config) -> None:
     log.sinks += sinks
     config.stash[LOG_KEY] = log
     config.stash[SINKS_KEY] = sinks
-    config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "keep_going": config.getoption("keep_going"),
+    config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "stop": config.getoption("stop_at_first_failure"),
+                               "recover_after": None, "unhealthy": None,
                                "no_pipeline_reset": config.getoption("no_pipeline_reset")}
     SESSION["log"] = log
     log.begin("")
@@ -143,15 +157,12 @@ def pytest_report_header(config: pytest.Config) -> list[str]:
 # --- test cases as pytest parameters ---------------------------------------------------------------------------------
 def parameters(ht) -> list:
     """One pytest parameter per test case of a hardware test module, in the order of TESTS, with its markers: tc (name
-    and title), requirement (the IDs of REQUIREMENTS) and operator (a step of the operator at the far end)."""
+    and title) and requirement (the IDs of REQUIREMENTS)."""
     out = []
     requirements = getattr(ht, "REQUIREMENTS", {})
-    operator = getattr(ht, "OPERATOR_TESTS", ())
     for test in ht.TESTS:
         name = systest.test_name(test)
         marks = [pytest.mark.tc(name), pytest.mark.requirement(*requirements.get(name, ()))]
-        if name in operator:
-            marks.append(pytest.mark.operator)
         out.append(pytest.param(test, id=name, marks=marks))
     return out
 
@@ -216,6 +227,7 @@ class HardwareRun:
         self.not_run: list[tuple[str, str]] = []
         self.log.begin("")
         environment(self.log, "start")
+        self.image = device_image(self.log, config.getoption("image")) if self.target == "device" else None
         self.ctx = module.context(config.getoption("seed"), self.profile)
         self.ctx.log = self.log
         self.ctx.requirements = getattr(self.ht, "REQUIREMENTS", {})
@@ -223,9 +235,9 @@ class HardwareRun:
         if self.target == "model":
             self.transport = module.model(self.ctx)
         else:
-            self.transport = systest.open_device(config.getoption("device"), self.ctx)
+            self.transport = systest.open_device(config.getoption("device"), self.ctx,
+                                                 config.getoption("far_end_port"))
         try:
-            self.transport.operator = self.operator_step(self.transport.operator)
             tests = self.ht.select_tests(config.getoption("tc") or None)
             self.regs = systest.prepare(self.transport, self.ctx, tests)
         except BaseException:
@@ -233,40 +245,46 @@ class HardwareRun:
             raise
         self.token = systest.ACTIVE_LOG.set(self.log)
 
-    def operator_step(self, step):
-        """The operator step of the far end with the output and the input of pytest released (the operator reads the
-        step on the console and confirms it with Enter)."""
-        capture = self.config.pluginmanager.getplugin("capturemanager")
-
-        def wrapped(name: str) -> None:
-            self.log.emit("step", f"operator step at the far end: {name}", operator=name)
-            if capture is None:
-                return step(name)
-            capture.suspend_global_capture(in_=True)
-            try:
-                return step(name)
-            finally:
-                capture.resume_global_capture()
-        return wrapped
-
     def run(self, test) -> None:
         name = systest.test_name(test)
         failed = self.state["failed"]
-        if failed and not self.state["keep_going"]:
-            self.skip(name, f"not run: {failed} failed")
+        if failed and self.state["stop"]:
+            self.skip(name, f"not run: {failed} failed (--stop-at-first-failure)")
+        if self.state["unhealthy"]:
+            self.skip(name, f"not run: {self.state['unhealthy']}")
         needed = [systest.test_name(t) for t in getattr(self.ht, "REQUIRES", {}).get(test, [])]
         missing = [n for n in needed if self.state["outcomes"].get(n) != "passed"]
         if failed and missing:
             self.skip(name, f"not run: {', '.join(missing)} did not pass")
+        if self.state["recover_after"]:
+            self.recover(name)
         try:
             systest.run_one(self.regs, self.ctx, test)
         except BaseException as err:
             self.results.append((name, str(err) or type(err).__name__))
             self.state["outcomes"][name] = "failed"
             self.state["failed"] = self.state["failed"] or name
+            self.state["recover_after"] = name
             raise
         self.results.append((name, None))
         self.state["outcomes"][name] = "passed"
+
+    def recover(self, name: str) -> None:
+        """The recovery after the last failed test case, before the test case name (systest.recover), in the step log
+        of name; a system that stays unhealthy is not run on: name and every later test case are not run."""
+        failed = self.state["recover_after"]
+        self.state["recover_after"] = None
+        self.ctx.current = name
+        self.log.begin(name)
+        self.log.step(f"recovery after {failed} failed, before {name}")
+        configure = getattr(self.ht, "CONFIGURE", None)
+        reconfigure = getattr(self.ht, "reconfigure", None)
+        configured = configure is not None and self.state["outcomes"].get(systest.test_name(configure)) == "passed"
+        try:
+            systest.recover(self.regs, self.ctx, failed, reconfigure if configured else None)
+        except Exception as err:  # noqa: BLE001 - the run stops with the reason
+            self.state["unhealthy"] = f"the recovery after {failed} failed: {err}"
+            self.skip(name, f"not run: {self.state['unhealthy']}")
 
     def skip(self, name: str, reason: str) -> None:
         self.not_run.append((name, reason))
@@ -283,11 +301,12 @@ class HardwareRun:
             self.transport.close()
         run = self.config.stash[RUN_KEY]
         extra = self.module.records_extra(self.ctx) if hasattr(self.module, "records_extra") else {}
-        extra |= {"snapshots": self.ctx.snapshots,
+        extra |= {"device_image": self.image, "snapshots": self.ctx.snapshots, "recoveries": self.ctx.recoveries,
                   "requirements": getattr(self.ht, "REQUIREMENTS", {}),
                   "requirements_note": getattr(self.ht, "REQUIREMENTS_NOTE", ""),
                   "not_run": [{"test": n, "reason": r} for n, r in self.not_run],
-                  "keep_going": self.state["keep_going"], "no_pipeline_reset": self.state["no_pipeline_reset"]}
+                  "stop_at_first_failure": self.state["stop"],
+                  "no_pipeline_reset": self.state["no_pipeline_reset"]}
         path = systest.write_records(run, self.system, "device" if self.target == "device" else "system model",
                                      self.profile, self.ctx, self.results, self.started, extra)
         render = load_renderer()
@@ -313,7 +332,7 @@ def hw(request: pytest.FixtureRequest, record_testsuite_property):
     for name, value in (("system", run.system), ("target", run.target), ("profile", run.profile),
                         ("seed", request.config.getoption("seed")),
                         ("commit", (git("rev-parse", "HEAD") or "").strip()),
-                        ("keep_going", run.state["keep_going"]),
+                        ("stop_at_first_failure", run.state["stop"]),
                         ("no_pipeline_reset", run.state["no_pipeline_reset"])):
         record_testsuite_property(name, value)
     yield run
@@ -355,8 +374,8 @@ def pytest_terminal_summary(terminalreporter, exitstatus: int, config: pytest.Co
                              report.duration, str(reason).removeprefix("Skipped: ")))
     rows.sort(key=lambda r: r[0])
     tr.section("hardware test")
-    if config.stash[STATE_KEY]["keep_going"]:
-        tr.write_line("--keep-going: test cases after a failure ran; this run is for diagnosis, not evidence")
+    if config.stash[STATE_KEY]["stop"]:
+        tr.write_line("--stop-at-first-failure: the test cases after the first failure did not run")
     if config.stash[STATE_KEY]["no_pipeline_reset"]:
         tr.write_line("--no-pipeline-reset: the run did not start with the pipeline reset; this run is for diagnosis, "
                       "not evidence")
@@ -386,6 +405,25 @@ def tree_state() -> dict[str, list[str]] | None:
     return state
 
 
+def device_image(log: steplog.StepLog, path: str | None) -> dict | None:
+    """The device image of a run against the device (--image): its file name, size and SHA-256, and the text of
+    build_info.txt next to it when there is one; an env event either way. None without --image: the report then says
+    that the image is not identified."""
+    if not path:
+        log.emit("env", "device image: not identified (no --image)", level=logging.WARNING, image=None)
+        return None
+    image = Path(path)
+    if not image.is_file():
+        raise pytest.UsageError(f"--image {image}: no such file")
+    digest = hashlib.sha256(image.read_bytes()).hexdigest()
+    info = image.parent / "build_info.txt"
+    build_info = info.read_text(encoding="utf-8") if info.is_file() else None
+    log.emit("env", f"device image {image.name}, {image.stat().st_size} bytes, SHA-256 {digest}"
+             + ("" if build_info else "; no build_info.txt next to it"), image=image.name, sha256=digest,
+             build_info=build_info)
+    return {"name": image.name, "bytes": image.stat().st_size, "sha256": digest, "build_info": build_info}
+
+
 def environment(log: steplog.StepLog, when: str) -> None:
     """The environment of the run as env events: versions and commits at the start, the state of the working tree
     at the start and at the end."""
@@ -406,8 +444,13 @@ def environment(log: steplog.StepLog, when: str) -> None:
                  "repository is no git checkout)", level=logging.WARNING, when=when, git_status=None,
                  git=git("--version") is not None)
         return
-    changed = {path: lines for path, lines in state.items() if lines}
+    # ignored files (!!, for example __pycache__ of a run without -B) are recorded but change no source
+    changed = {path: [line for line in lines if not line.startswith("!! ")] for path, lines in state.items()}
+    changed = {path: lines for path, lines in changed.items() if lines}
+    ignored = sum(line.startswith("!! ") for lines in state.values() for line in lines)
     entries = sum(len(v) for v in changed.values())
     text = f"working tree at the {when} of the run: " + (
-        f"{entries} entries in {', '.join(changed)}" if changed else "clean (git status --porcelain --ignored empty)")
+        f"{entries} changed entries in {', '.join(changed)}" if changed else "clean (git status --porcelain empty)")
+    if ignored:
+        text += f"; {ignored} ignored entries, recorded"
     log.emit("env", text, when=when, git_status=state, git=git("--version") is not None)

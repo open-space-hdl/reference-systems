@@ -13,7 +13,7 @@ checks the encrypted chunks that come back with AES-GCM. The script
 | Item | Use |
 | --- | --- |
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
-| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
+| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
 | The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
@@ -233,9 +233,10 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
 
 - The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with
   pytest and `pycryptodome` (installed with the Python package openspacehdl), Git, and STAR-System with its Python
-  package.
+  package and the Python package of the STAR-Ultra PCIe Interface.
 - `--check-environment` checks the test computer for a run against the board: Python, pytest, `pycryptodome` and the
-  Python package of STAR-System, one line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
+  Python packages of STAR-System and of the STAR-Ultra PCIe Interface with its library (the far-end software), one
+  line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
   everything installed it prints:
 
   ```text
@@ -252,14 +253,27 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
 - `--results` names a directory outside the repository. Every run writes a new directory into it with its records
   (section 9). `-B` keeps Python from writing bytecode into the repository; the run records the state of the working
   tree at its start and at its end and warns without `-B`.
-- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how many
-  packets of an earlier run it discarded per channel. A run that stopped early, for example in TC-RS-HW-06, leaves
-  chunks and late replies on the channels, which the next run would otherwise take for its own.
+- `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+- `--image <device image>` names the device image (`.pdi`) that was programmed into the board, with the
+  `build_info.txt` of its build next to it (`results/` of the build). The run records the name and SHA-256 of the
+  image and the build information, and the report shows them. A run without `--image` says that its device image is
+  not identified.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
+  log how many packets of an earlier run it discarded per channel. A run that stopped early, for example in
+  TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would otherwise take for its own.
 - The console shows every step, every checked value with its expected value and the Space Packets of every exchange
   as it happens, and one line per test case at the end.
-- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
-  run. `--keep-going` runs a later test case when the test cases it builds on passed (for diagnosis; the report says
-  so).
+- After a failure the run goes on. Before the next test case it recovers the system:
+  1. it reads both channels until they are quiet;
+  2. it checks that the RMAP target answers and the link is initialised with all lanes. If not, the STAR-Ultra resets
+     the link once and the check runs again; a system that fails it again stops the run;
+  3. it records and clears the error registers;
+  4. it makes a pipeline reset;
+  5. when TC-RS-HW-05 has passed, it configures the system again as TC-RS-HW-05 does, with every key loaded again at
+     a counter above every counter used.
+
+  A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of every
+  recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
 - `--profile` (default `lab`: 40 Space Packets in TC-RS-HW-06) sets the size of the run, `--seed` (default 1) the keys
   and the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on.
 - The [system testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`.
@@ -404,7 +418,7 @@ Keep for every build and every test run, with the date:
 
 | Item | Source |
 | --- | --- |
-| Commits of the repository and of the submodules | `results/build_info.txt` |
+| Commits of the repository and of the submodules | `results/build_info.txt`, also in the records of a run with `--image` |
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back (section 5, step 2); LEDs after programming (section 5), version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
