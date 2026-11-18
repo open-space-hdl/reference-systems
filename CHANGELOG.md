@@ -63,6 +63,15 @@
 
   A test case whose prerequisites did not pass is still not run. The report lists every recovery. `--keep-going` is
   replaced by `--stop-at-first-failure`, which keeps the old behaviour.
+- The rate of TC-RS-HW-09 is that of the transfer alone. The transport prepares a transfer before it is timed
+  (`prepare`: one transmit operation with every packet as a stream item, one receive operation) and runs it then
+  (`run_prepared`). The timed part runs from the submission of the first operation to the arrival of the last packet;
+  the received packets are converted after it. The images, the expected compressed images of the reference model and
+  the packets are built before, and the checks come after. The record gives the rate of the samples and of the link
+  packets in both directions, and against the system model it says that the time is that of the model. The earlier
+  rate timed the model, the transfer and the checks together.
+  - TC-RS-HW-09 of spfi_compress no longer claims OpenFibre CORE-PF-01. The system takes less than the capacity of the
+    link, and section 10 of its procedure lists the requirement as not exercised.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the
