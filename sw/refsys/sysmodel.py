@@ -406,6 +406,10 @@ class SystemModel(Transport):
             self._count(self.system.base(channel.core) + OCR.ENCRYPTIONS)
         return out
 
+    def receive(self, channel, timeout):
+        """Nothing waits: the model gives every packet in the exchange that caused it."""
+        return None
+
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
         assert tx_channel == rx_channel
         if tx_channel == self.setup.rmap_channel:

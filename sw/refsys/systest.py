@@ -381,6 +381,7 @@ class Context:
     current: str = field(default="", kw_only=True)                        # the test case that runs
     recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
     snapshots: list[dict] = field(default_factory=list, kw_only=True)     # the state read after a failure
+    recoveries: list[dict] = field(default_factory=list, kw_only=True)    # the steps of every recovery (recover)
     selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
     log: steplog.StepLog = field(default_factory=steplog.StepLog, kw_only=True)  # the step log of the run
     requirements: dict = field(default_factory=dict, kw_only=True)        # test case: requirements it confirms
@@ -801,6 +802,53 @@ def run_one(regs: Registers, ctx: Context, test) -> None:
     except Exception:
         failure_snapshot(regs, ctx)
         raise
+
+
+def health(regs: Registers, ctx: Context) -> str | None:
+    """Whether the system can take the next test case: the RMAP target answers (await_rmap, three requests) and the
+    link is initialised with all lanes (check_link_state). None when it can, otherwise the reason."""
+    try:
+        await_rmap(regs, ctx, attempts=3)
+        check_link_state(regs, ctx)
+    except Exception as err:  # noqa: BLE001 - every reason is reported
+        return f"{type(err).__name__}: {err}"
+    return None
+
+
+def recover(regs: Registers, ctx: Context, failed: str) -> None:
+    """The recovery after a failed test case, before the next one runs:
+
+    1. both channels are read until they are quiet, which discards what the failed test case left in flight;
+    2. the health check (health). If the system fails it, the far end resets the link once
+       (transport.far_end_link_reset) and the health check runs again; a system that fails it again stops the run
+       (TestFailed);
+    3. the error registers of every block are recorded and cleared, so that the next test case starts from 0.
+
+    The systems of this release have no pipeline reset: what a failure leaves in the processing path (an image in a
+    compressor, a configuration) stays, and can make the next test case fail as well. Every step is written into the
+    step log and kept in ctx.recoveries for the report."""
+    s, setup = ctx.system, ctx.setup
+
+    def note(text: str) -> None:
+        ctx.recoveries.append({"after": failed, "test": ctx.current, "text": text})
+        ctx.log.emit("note", f"recovery after {failed}: {text}", after=failed)
+
+    counts = drain(regs.transport, (setup.rmap_channel, setup.spp_channel), log=ctx.log)
+    note(f"channels read until quiet: {', '.join(f'{n} packets discarded on channel {c}' for c, n in counts.items())}")
+    reason = health(regs, ctx)
+    if reason is not None:
+        note(f"health check failed ({reason}); the far end resets the link")
+        note(regs.transport.far_end_link_reset().text)
+        drain(regs.transport, (setup.rmap_channel, setup.spp_channel), log=ctx.log)
+        reason = health(regs, ctx)
+        if reason is not None:
+            note(f"health check failed again ({reason}): the run stops")
+            raise TestFailed(f"the system is not healthy after {failed} failed: {reason}")
+    note("health check passed: the RMAP target answers, the link is initialised with all lanes")
+    items = s.error_registers()
+    state = errorstate.read_state(regs, items)
+    errorstate.clear_state(regs, items)
+    note(f"error registers cleared: {errorstate.nonzero(state)}")
 
 
 def failure_snapshot(regs: Registers, ctx: Context) -> None:
