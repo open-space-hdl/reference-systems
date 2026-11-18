@@ -72,6 +72,17 @@
   rate timed the model, the transfer and the checks together.
   - TC-RS-HW-09 of spfi_compress no longer claims OpenFibre CORE-PF-01. The system takes less than the capacity of the
     link, and section 10 of its procedure lists the requirement as not exercised.
+- What a run records as its evidence:
+  - `--image` names the programmed device image. The run records its name and SHA-256 and the `build_info.txt` of its
+    build, and the report shows them. A run against the device without `--image` is reported as having no identified
+    device image.
+  - The report counts the test cases by result. Its table of requirements is headed "Requirements exercised per test
+    case" and says that every requirement is verified against its own criterion by the regression of its core.
+  - A test case that provokes errors records them in three parts: the expected ones, the allowed ones that moved, and
+    the others. The values that TC-RS-HW-01 reads before the baseline clears them are marked as no pass criterion.
+  - TC-RS-HW-02 records the values that a compressor at the values of its generics shows.
+  - The state of the working tree counts the changed entries; the ignored ones (`__pycache__` of a run without `-B`)
+    are recorded and counted apart.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the

@@ -206,6 +206,10 @@ python -B -m pytest systems/spfi_compress/sw/hwtest --target device --device <ST
   Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
   log how many packets of an earlier run it discarded per channel.
 - `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+- `--image <device image>` names the device image (`.pdi`) that was programmed into the board, with the
+  `build_info.txt` of its build next to it (`results/` of the build). The run records the name and SHA-256 of the
+  image and the build information, and the report shows them. A run without `--image` says that its device image is
+  not identified.
   The run holds the STAR-Ultra for its whole duration: STAR-System cannot configure the device while it
   runs, and no step of the run needs it.
 - `--results` names a directory outside the repository. Every run writes a new directory into it with its records
@@ -370,7 +374,7 @@ Keep for every build and every test run, with the date:
 
 | Item | Source |
 | --- | --- |
-| Commits of the repository and of the submodules | `results/build_info.txt` |
+| Commits of the repository and of the submodules | `results/build_info.txt`, also in the records of a run with `--image` |
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back; LEDs after programming, version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System |
