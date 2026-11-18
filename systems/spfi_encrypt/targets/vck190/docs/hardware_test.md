@@ -13,21 +13,22 @@ checks the encrypted chunks that come back with AES-GCM. The script
 | Item | Use |
 | --- | --- |
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
-| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
+| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
-| The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
+| The repository at v0.2.1 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.1, or cloned from GitHub (section 3) | Sources of the build and of the test script |
 | Python 3.10 or later with pytest and `pycryptodome` (installed with openspacehdl), and Git, on the test computer | Export (section 3) and test script |
 
 ## 3. Installation from the openspacehdl package
 
-The release 0.1.0 of the Python package openspacehdl carries this repository at v0.2.0, with every core it pins, as
-Git bundles with their history. On the build computer and on the test computer (Python 3.10 or later, Git on the
-`PATH`), in PowerShell or cmd:
+The release 0.1.1 of the Python package openspacehdl carries this repository at v0.2.1, with every core it pins, as
+Git bundles with their history. v0.2.1 changes the test software only: its HDL, Composer files and cores are those of
+v0.2.0, and a device image built from v0.2.0 stays valid. On the build computer and on the test computer (Python 3.10
+or later, Git on the `PATH`), in PowerShell or cmd:
 
 ```shell
 python -m venv --system-site-packages C:\osh\venv
-C:\osh\venv\Scripts\python -m pip install openspacehdl==0.1.0
+C:\osh\venv\Scripts\python -m pip install openspacehdl==0.1.1
 C:\osh\venv\Scripts\openspacehdl export --git C:\osh\src
 ```
 
@@ -48,24 +49,24 @@ records, outside the exported tree.
 
 A computer without network access takes the package and its dependencies from a computer with network access, the
 same version of Windows and the same version of Python: the set of files depends on the version of Python, and
-`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.1.0 -d <dir>` (with
+`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.1.1 -d <dir>` (with
 the version of Python of the offline computer) writes the wheels to `<dir>`. Compare the SHA-256 of
-`openspacehdl-0.1.0-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
-with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.1.0`. The export is
+`openspacehdl-0.1.1-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
+with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.1.1`. The export is
 the same. The SHA-256 of the file:
 
 ```shell
 # PowerShell
-Get-FileHash <dir>\openspacehdl-0.1.0-py3-none-any.whl -Algorithm SHA256
+Get-FileHash <dir>\openspacehdl-0.1.1-py3-none-any.whl -Algorithm SHA256
 # cmd
-certutil -hashfile <dir>\openspacehdl-0.1.0-py3-none-any.whl SHA256
+certutil -hashfile <dir>\openspacehdl-0.1.1-py3-none-any.whl SHA256
 ```
 
 With network access, a clone of the release from GitHub serves as well, with pytest and `pycryptodome` installed in
 the Python of the test computer (`python -m pip install "pytest>=9.0,<10" "pycryptodome>=3.23,<5"`):
 
 ```shell
-git clone -b v0.2.0 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
+git clone -b v0.2.1 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
 cd C:\osh\src\reference-systems
 git submodule update --init
 git -C cores/open-logic-ft submodule update --init 3rdParty/en_cl_fix
@@ -233,9 +234,10 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
 
 - The test computer needs the repository with the submodules of the cores (section 3), Python 3.10 or later with
   pytest and `pycryptodome` (installed with the Python package openspacehdl), Git, and STAR-System with its Python
-  package.
+  package and the Python package of the STAR-Ultra PCIe Interface.
 - `--check-environment` checks the test computer for a run against the board: Python, pytest, `pycryptodome` and the
-  Python package of STAR-System, one line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
+  Python packages of STAR-System and of the STAR-Ultra PCIe Interface with its library (the far-end software), one
+  line per item. It ends with exit code 1 when an item is missing (`FAIL`). With
   everything installed it prints:
 
   ```text
@@ -252,14 +254,26 @@ python -B -m pytest systems/spfi_encrypt/sw/hwtest --target device --device <STA
 - `--results` names a directory outside the repository. Every run writes a new directory into it with its records
   (section 9). `-B` keeps Python from writing bytecode into the repository; the run records the state of the working
   tree at its start and at its end and warns without `-B`.
-- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how many
-  packets of an earlier run it discarded per channel. A run that stopped early, for example in TC-RS-HW-06, leaves
-  chunks and late replies on the channels, which the next run would otherwise take for its own.
+- `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+- `--image <device image>` names the device image (`.pdi`) that was programmed into the board, with the
+  `build_info.txt` of its build next to it (`results/` of the build). The run records the name and SHA-256 of the
+  image and the build information, and the report shows them. A run without `--image` says that its device image is
+  not identified.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
+  log how many packets of an earlier run it discarded per channel. A run that stopped early, for example in
+  TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would otherwise take for its own.
 - The console shows every step, every checked value with its expected value and the Space Packets of every exchange
   as it happens, and one line per test case at the end.
-- The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
-  run. `--keep-going` runs a later test case when the test cases it builds on passed (for diagnosis; the report says
-  so).
+- After a failure the run goes on. Before the next test case it recovers the system:
+  1. it reads both channels until they are quiet;
+  2. it checks that the RMAP target answers and the link is initialised with all lanes. If not, the STAR-Ultra resets
+     the link once and the check runs again; a system that fails it again stops the run;
+  3. it records and clears the error registers.
+
+  The system has no pipeline reset in this release: what a failure leaves in the processing path (an image in a
+  compressor, a configuration) stays and can make the next test case fail as well; a new device image starts it
+  clean. A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of
+  every recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
 - `--profile` (default `lab`: 40 Space Packets in TC-RS-HW-06) sets the size of the run, `--seed` (default 1) the keys
   and the packets. `--tc TC-RS-HW-nn` runs one test case and the test cases it builds on.
 - The [system testbench](../../../sim/README.md) runs the same test cases in simulation with the profile `sim`.
@@ -339,16 +353,19 @@ Keep for every build and every test run, with the date:
 
 | Item | Source |
 | --- | --- |
-| Commits of the repository and of the submodules | `results/build_info.txt` |
+| Commits of the repository and of the submodules | `results/build_info.txt`, also in the records of a run with `--image` |
 | Build results | `results/timing_summary.rpt`, `results/utilization.rpt`, `results/utilization_hierarchical.rpt`, `results/methodology.rpt`, `results/drc.rpt`, `results/invalid_constraints.xdc` |
 | Board state | Reference clock: option and the value read back (section 5, step 2); LEDs after programming (section 5), version of the STAR-System software |
 | Link state | When the link did not come up: the link and lane states of port 1 in STAR-System (section 8) |
 | Test computer | The output of `--check-environment` |
 | Test run | The command line and the directory that the run writes below `--results` (one per run, named after its date and time) |
-| `steps.jsonl`, `run.log` | Every event of the run (steps, register accesses, checked values with their expected values, Space Packets, recorded values, environment and the state of the working tree), as JSON lines and as text |
+| `steps.jsonl` | Every event of the run, one JSON object per line: steps, register accesses, waits for a register value (one event with its polls), checked values with their expected values, failed checks, the state of the system after a failure, Space Packets, recorded values, environment and the state of the working tree |
+| `run.log` | The events that a reader follows, as text: all but the register reads and writes. The result of a test case counts its passing checks, which make no event of their own |
 | `junit.xml` | The JUnit XML report of pytest, with the system, profile, seed and commit of the run |
 | `records_spfi_encrypt_<date>_<time>.json`, `report_spfi_encrypt.md` | The records of the run (results, test cases not run, recorded values) and their tables (`tools/render_records.py`) |
 
-A failing test case is recorded with its output and the register values it reports. These files are what a review of
+A failing test case is recorded with the text of the check that failed, which names the register and its fields, and
+with the state of the system read right after the failure: the link, every lane and the error registers that hold a
+value (snapshot events, section "State after a failure" of the report). These files are what a review of
 the hardware test needs: they are brought back from the build computer and the test computer together, the device
 image is not needed for that.

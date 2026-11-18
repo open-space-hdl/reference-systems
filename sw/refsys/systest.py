@@ -250,6 +250,19 @@ def register_names(system: "System") -> dict[int, str]:
     return names
 
 
+def register_map_of(name: str) -> tuple[RegisterMap | None, str]:
+    """The register map and the register of a register name of register_names (ofb0.LANE_STATUS(2): OFB and
+    LANE_STATUS); (None, register) for a block without a header."""
+    instance, _, register = name.partition(".")
+    return WINDOW_MAPS.get(instance.rstrip("0123456789")), register.split("(")[0]
+
+
+def register_fields(name: str, mask: int) -> list[str]:
+    """The fields of the register of a register name (register_names) that the bits of mask touch."""
+    regmap, register = register_map_of(name)
+    return regmap.covering(register, mask) if regmap else []
+
+
 def hex_words(words: list[int]) -> str:
     return " ".join(f"{w:08X}" for w in words)
 
@@ -285,15 +298,25 @@ class Registers:
     def read(self, address: int) -> int:
         return self.read_block(address, 1)[0]
 
-    def read_block(self, address: int, words: int) -> list[int]:
-        """Reads consecutive registers with one command (incrementing address)."""
+    def read_block(self, address: int, words: int, quiet: bool = False) -> list[int]:
+        """Reads consecutive registers with one command (incrementing address). quiet: no read event (the polls of
+        wait, which writes one event for all of them)."""
         tid = self.next_tid()
         reply = self.command(rmap.read_command(self.target, address, 4 * words, tid), tid, read=True)
-        check(reply.ok, f"read of {4 * words} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
+        check(reply.ok, f"read of {4 * words} bytes at {self.where(address)}: {rmap.status_text(reply.status)}")
         # the first byte of the data is the lowest address: little-endian byte lanes of the AXI4 bus
         values = [int.from_bytes(reply.data[i:i + 4], "little") for i in range(0, 4 * words, 4)]
-        self.log.access("read", address, values, self.names.get(address, ""))
+        if not quiet:
+            self.log.access("read", address, values, self.names.get(address, ""))
         return values
+
+    def where(self, address: int, mask: int = 0) -> str:
+        """An address for a text: the register name with the address, and the fields that mask touches."""
+        name = self.names.get(address)
+        if name is None:
+            return f"0x{address:08X}"
+        fields = register_fields(name, mask) if mask else []
+        return f"{name}{'.' + '/'.join(fields) if fields else ''} (0x{address:08X})"
 
     def expect(self, address: int, expected: int, what: str = "", mask: int = 0xFFFFFFFF, quiet: bool = False) -> int:
         """Reads a register (one read, as read) and checks it under mask against the value expected; logged with
@@ -314,20 +337,28 @@ class Registers:
         data = b"".join(w.to_bytes(4, "little") for w in words)
         tid = self.next_tid()
         reply = self.command(rmap.write_command(self.target, address, data, tid), tid, read=False)
-        check(reply.ok, f"write of {len(data)} bytes at 0x{address:08X}: {rmap.status_text(reply.status)}")
+        check(reply.ok, f"write of {len(data)} bytes at {self.where(address)}: {rmap.status_text(reply.status)}")
         self.log.access("write", address, list(words), self.names.get(address, ""))
 
     def wait(self, address: int, mask: int, value: int, timeout: float = 1.0) -> int:
-        end = time.monotonic() + timeout
+        """Reads a register until it has value under mask, for at most timeout seconds. One wait event with the word,
+        the polls and the time; the reads of the polls make no events of their own. On a timeout the check fails with
+        the register and the fields of mask, the last word, the time and the polls. Returns the word."""
+        start = time.monotonic()
+        end = start + timeout
         polls = 0
         while True:
-            word = self.read(address)
+            word = self.read_block(address, 1, quiet=True)[0]
             polls += 1
+            self.polls = polls
             if word & mask == value:
-                self.log.access("wait", address, [word], self.names.get(address, ""), mask=mask, value=value,
-                                polls=polls)
+                seconds = time.monotonic() - start
+                self.log.emit("wait", f"{self.where(address, mask)} = 0x{word:08X}, 0x{value:08X} under "
+                              f"0x{mask:08X} after {polls} polls in {seconds:.3f} s", address=address, words=[word],
+                              name=self.names.get(address, ""), mask=mask, value=value, polls=polls, seconds=seconds)
                 return word
-            check(time.monotonic() < end, f"0x{address:08X} = 0x{word:08X}, waited for 0x{value:X} under 0x{mask:X}")
+            check(time.monotonic() < end, f"{self.where(address, mask)} = 0x{word:08X} after {polls} polls in "
+                  f"{time.monotonic() - start:.3f} s, expected 0x{value:08X} under 0x{mask:08X}")
 
 
 @dataclass
@@ -349,9 +380,31 @@ class Context:
     baseline: dict[str, int] = field(default_factory=dict, kw_only=True)   # error registers after link-up
     current: str = field(default="", kw_only=True)                        # the test case that runs
     recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
+    snapshots: list[dict] = field(default_factory=list, kw_only=True)     # the state read after a failure
+    recoveries: list[dict] = field(default_factory=list, kw_only=True)    # the steps of every recovery (recover)
+    # the last timed exchange of images: its Timing (transport.run_prepared) and the bytes sent and received
+    transfer: dict = field(default_factory=dict, kw_only=True)
     selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
     log: steplog.StepLog = field(default_factory=steplog.StepLog, kw_only=True)  # the step log of the run
     requirements: dict = field(default_factory=dict, kw_only=True)        # test case: requirements it confirms
+
+
+def rate_text(transfer: dict, samples: int, compressed: int, images: int) -> str:
+    """The rate of a timed exchange of images (TC-RS-HW-09, Context.transfer): the time of the transfer alone, from the
+    submission of its first operation to the arrival of its last packet, and the rates of the samples and of the link
+    packets in both directions over it. Against the system model the time is that of the model and gives no rate."""
+    t = transfer["timing"]
+    text = (f"{images} images, {samples} bytes of samples, {compressed} bytes compressed; transfer {t.wire_s:.3f} s "
+            "from the first submission to the last packet received")
+    if not t.device:
+        return f"{text}: the far end is the system model, whose time is no rate of the system"
+
+    def gbit(n: int) -> str:
+        return f"{8 * n / t.wire_s / 1e9:.3f} Gbit/s"
+
+    return (f"{text}: {gbit(samples)} of samples, {gbit(transfer['sent'])} of link packets to the system and "
+            f"{gbit(transfer['received'])} from it. Not timed: the images and packets built before, the conversion of "
+            f"the {t.items} packets received ({t.convert_s:.3f} s) and the checks after")
 
 
 def record(ctx: Context, text: str) -> None:
@@ -446,7 +499,8 @@ def baseline(regs: Registers, ctx: Context) -> None:
     a leaky counter at most its first value, which stays its baseline."""
     items = ctx.system.error_registers()
     first = errorstate.read_state(regs, items)
-    record(ctx, f"error registers after link-up: {errorstate.nonzero(first)}")
+    record(ctx, f"error registers after link-up, before the baseline clears them (no pass criterion): "
+           f"{errorstate.nonzero(first)}")
     errorstate.clear_state(regs, items)
     ctx.baseline = errorstate.read_state(regs, items)
     problems = errorstate.unexpected(items, ctx.baseline, baseline=first)
@@ -463,7 +517,7 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     items = ctx.system.error_registers()
     by_name = {r.name: r for r in items if isinstance(r, errorstate.Register)}
     state = errorstate.read_state(regs, items)
-    record(ctx, f"{label} error registers: {errorstate.nonzero(state)}")
+    record(ctx, f"{label} error registers: {error_record(state, expected or {}, allowed or {})}")
     for name, value in (expected or {}).items():
         got = state[name] & by_name[name].errors
         check(got == value, f"{name} 0x{state[name]:08X}, expected 0x{value:08X} in its error bits")
@@ -472,6 +526,15 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     check(not problems, f"error registers that the test case does not target: {', '.join(problems)}")
     errorstate.clear_state(regs, items)
     return state
+
+
+def error_record(state: dict[str, int], expected: dict[str, int], allowed: dict[str, int]) -> str:
+    """The error registers at the end of a test case that provokes errors (caused), for its record: those it expects
+    to hold a value, those it allows to move that do, and the others that hold a value (none when it passes)."""
+    expects = ", ".join(f"{name} 0x{state.get(name, 0):08X}" for name in expected) or "none"
+    moved = ", ".join(f"{name} 0x{state[name]:08X}" for name in allowed if state.get(name)) or "none"
+    others = errorstate.nonzero({n: v for n, v in state.items() if n not in expected and n not in allowed})
+    return f"expected {expects}; allowed to move: {moved}; others: {others}"
 
 
 def check_link_state(regs: Registers, ctx: Context) -> None:
@@ -499,10 +562,13 @@ def await_rmap(regs: Registers, ctx: Context, attempts: int = 10) -> None:
     for attempt in range(attempts):
         try:
             regs.read(ctx.system.base(ctx.system.port) + OFB.DL_STATUS)
+            if attempt:
+                ctx.log.emit("note", f"the RMAP target answers again at request {attempt + 1} after the link reset",
+                             attempts=attempt + 1)
             return
         except (TransportError, rmap.RmapError, TestFailed) as err:
-            print(f"RMAP request {attempt + 1} after the link reset: {err}")
-            drain(regs.transport, (ctx.setup.rmap_channel,))
+            ctx.log.emit("note", f"RMAP request {attempt + 1} after the link reset: {err}", attempt=attempt + 1)
+            drain(regs.transport, (ctx.setup.rmap_channel,), log=ctx.log)
     raise TestFailed(f"the RMAP target does not answer after {attempts} requests")
 
 
@@ -754,13 +820,97 @@ def prepare(transport, ctx: Context, tests: list, registers: type[Registers] = R
 
 def run_one(regs: Registers, ctx: Context, test) -> None:
     """Runs one test case: its mark for the transport, its name in the context and in the step log, and a step
-    event with the description of the test case and the requirements it confirms (ctx.requirements)."""
+    event with the description of the test case and the requirements it confirms (ctx.requirements). After a failure
+    the state of the system is read for the diagnosis (failure_snapshot) before the failure goes on."""
     name = test_name(test)
     regs.transport.begin(name)
     ctx.current = name
     ctx.log.begin(name)
     ctx.log.step(" ".join(test.__doc__.split(":", 1)[1].split()), tuple(ctx.requirements.get(name, ())))
-    test(regs, ctx)
+    try:
+        test(regs, ctx)
+    except Exception:
+        failure_snapshot(regs, ctx)
+        raise
+
+
+def health(regs: Registers, ctx: Context) -> str | None:
+    """Whether the system can take the next test case: the RMAP target answers (await_rmap, three requests) and the
+    link is initialised with all lanes (check_link_state). None when it can, otherwise the reason."""
+    try:
+        await_rmap(regs, ctx, attempts=3)
+        check_link_state(regs, ctx)
+    except Exception as err:  # noqa: BLE001 - every reason is reported
+        return f"{type(err).__name__}: {err}"
+    return None
+
+
+def recover(regs: Registers, ctx: Context, failed: str) -> None:
+    """The recovery after a failed test case, before the next one runs:
+
+    1. both channels are read until they are quiet, which discards what the failed test case left in flight;
+    2. the health check (health). If the system fails it, the far end resets the link once
+       (transport.far_end_link_reset) and the health check runs again; a system that fails it again stops the run
+       (TestFailed);
+    3. the error registers of every block are recorded and cleared, so that the next test case starts from 0.
+
+    The systems of this release have no pipeline reset: what a failure leaves in the processing path (an image in a
+    compressor, a configuration) stays, and can make the next test case fail as well. Every step is written into the
+    step log and kept in ctx.recoveries for the report."""
+    s, setup = ctx.system, ctx.setup
+
+    def note(text: str) -> None:
+        ctx.recoveries.append({"after": failed, "test": ctx.current, "text": text})
+        ctx.log.emit("note", f"recovery after {failed}: {text}", after=failed)
+
+    counts = drain(regs.transport, (setup.rmap_channel, setup.spp_channel), log=ctx.log)
+    note(f"channels read until quiet: {', '.join(f'{n} packets discarded on channel {c}' for c, n in counts.items())}")
+    reason = health(regs, ctx)
+    if reason is not None:
+        note(f"health check failed ({reason}); the far end resets the link")
+        note(regs.transport.far_end_link_reset().text)
+        drain(regs.transport, (setup.rmap_channel, setup.spp_channel), log=ctx.log)
+        reason = health(regs, ctx)
+        if reason is not None:
+            note(f"health check failed again ({reason}): the run stops")
+            raise TestFailed(f"the system is not healthy after {failed} failed: {reason}")
+    note("health check passed: the RMAP target answers, the link is initialised with all lanes")
+    items = s.error_registers()
+    state = errorstate.read_state(regs, items)
+    errorstate.clear_state(regs, items)
+    note(f"error registers cleared: {errorstate.nonzero(state)}")
+
+
+def failure_snapshot(regs: Registers, ctx: Context) -> None:
+    """After a failure: the state of the link and of the error registers, read and written as snapshot events and
+    kept in ctx.snapshots for the report, so that the outputs of the run show what the system looked like when the
+    test case failed. DL_STATUS, DL_ERRORS and ML_STATUS of the SpaceFibre port with their fields; per lane
+    LANE_STATUS, LANE_TIMEOUT_COUNT and LANE_EVENTS; every error register that holds a value (refsys.errorstate). It
+    clears no register. A request that fails (a link that is down, an RMAP target that does not answer) ends the
+    snapshot with the reason; the failure of the test case stays the one reported."""
+    s = ctx.system
+
+    def snap(text: str, **data) -> None:
+        ctx.snapshots.append({"test": ctx.current, "text": text})
+        ctx.log.emit("snapshot", text, **data)
+
+    try:
+        base = s.base(s.port)
+        words = {name: regs.read(base + getattr(OFB, name)) for name in ("DL_STATUS", "DL_ERRORS", "ML_STATUS")}
+        snap(f"{s.port} " + "; ".join(f"{name} 0x{word:08X} ({OFB.decode(name, word, nonzero=name == 'DL_ERRORS')})"
+                                     for name, word in words.items()), words=words)
+        for lane in range(s.lanes):
+            status = regs.read(base + OFB.LANE_STATUS(lane))
+            count = regs.read(base + OFB.LANE_TIMEOUT_COUNT(lane))
+            events = regs.read(base + OFB.LANE_EVENTS(lane))
+            snap(f"{s.port} lane {lane}: LANE_STATUS 0x{status:08X} ({OFB.decode('LANE_STATUS', status)}); "
+                 f"LANE_TIMEOUT_COUNT 0x{count:08X} ({OFB.decode('LANE_TIMEOUT_COUNT', count)}); LANE_EVENTS "
+                 f"0x{events:08X} ({OFB.decode('LANE_EVENTS', events, nonzero=True) or 'none'})", lane=lane,
+                 words=[status, count, events])
+        state = errorstate.read_state(regs, s.error_registers())
+        snap(f"error registers: {errorstate.nonzero(state)}", state=state)
+    except Exception as err:  # noqa: BLE001 - the snapshot must not hide the failure of the test case
+        snap(f"snapshot ends: {type(err).__name__}: {err}")
 
 
 def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
@@ -793,10 +943,11 @@ def repeat_run(regs: Registers, ctx: Context, fresh: Context) -> None:
 
 
 def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,
-          limit: int = DRAIN_LIMIT) -> dict[int, int]:
+          limit: int = DRAIN_LIMIT, log: steplog.StepLog | None = None) -> dict[int, int]:
     """Reads every channel until no packet arrives within timeout and discards what it reads: a run that stopped
     early, for example in TC-RS-HW-06, leaves chunks and late replies on the channels, which the next run would
-    otherwise take for its own. Prints and returns the number of discarded packets per channel."""
+    otherwise take for its own. Returns the number of discarded packets per channel and writes it as a note into log
+    (default: the step log of the run)."""
     counts = {}
     for channel in channels:
         count = 0
@@ -804,7 +955,8 @@ def drain(transport, channels: tuple[int, ...], timeout: float = DRAIN_TIMEOUT,
             count += 1
             if count >= limit:
                 raise TransportError(f"channel {channel} still delivers packets after {count} discarded ones")
-        print(f"channel {channel}: {count} packets of an earlier run discarded")
+        (log or ACTIVE_LOG.get()).emit("note", f"channel {channel}: {count} packets discarded", channel=channel,
+                                       discarded=count)
         counts[channel] = count
     return counts
 
@@ -829,6 +981,8 @@ def arguments(description: str, model: bool = False) -> argparse.ArgumentParser:
                                  "without it")
     else:
         parser.add_argument("--device", required=True, help="name of the STAR-Ultra device in STAR-System")
+    parser.add_argument("--far-end-port", type=int, default=1, choices=(1, 2),
+                        help="SpaceFibre port of the STAR-Ultra that is cabled to the system (default 1)")
     parser.add_argument("--seed", type=int, default=1, help="seed of keys and packets")
     parser.add_argument("--test", action="append", help="run only this test case and those it builds on")
     return parser
@@ -846,7 +1000,7 @@ def pytest_main(system_dir: Path, args: argparse.Namespace) -> int:
     argv = [str(system_dir / "sw" / "hwtest"), "--target", "model" if args.model else "device",
             "--profile", args.profile, "--seed", str(args.seed), "--results", str(results)]
     if not args.model:
-        argv += ["--device", args.device]
+        argv += ["--device", args.device, "--far-end-port", str(args.far_end_port)]
     for name in args.test or ():
         argv += ["--tc", name]
     print(f"python -B -m pytest {' '.join(argv)}")
@@ -921,13 +1075,14 @@ def write_records(directory: Path, system: str, target: str, profile: str, ctx: 
     return path
 
 
-def open_device(device: str, ctx: Context):
+def open_device(device: str, ctx: Context, far_end_port: int = 1):
     """The far end of a run on the device: the test equipment, opened, with both of its channels drained of what an
-    earlier run left on them. The caller closes it (close())."""
+    earlier run left on them; far_end_port, its SpaceFibre port that is cabled to the system. The caller closes it
+    (close())."""
     from refsys.transport import StarSystemTransport
 
-    transport = StarSystemTransport(device).__enter__()
-    drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel))
+    transport = StarSystemTransport(device, far_end_port).__enter__()
+    drain(transport, (ctx.setup.rmap_channel, ctx.setup.spp_channel), log=ctx.log)
     return transport
 
 

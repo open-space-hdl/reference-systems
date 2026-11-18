@@ -90,14 +90,18 @@ def test_the_step_log_holds_the_events_of_the_run(passing):
     assert expects and all(e["result"] == "pass" for e in expects)
     results = [e for e in log if e["kind"] == "result"]
     assert {e["test"]: e["result"] for e in results}["TC-RS-HW-07"] == "pass"
-    assert (run / "run.log").read_text(encoding="utf-8").count(" result PASS: ") == 8
+    text = (run / "run.log").read_text(encoding="utf-8")
+    assert text.count(" result PASS: ") == 8 and " read: " not in text and " write: " not in text
+    # a passing check makes no event; the result counts them
+    assert not [e for e in log if e["kind"] == "check"]
+    assert all(e["data"]["checks_passed"] > 0 for e in results) and " checks passed" in text
 
 
 def test_the_report_has_the_results_and_the_records(passing):
     _, run, _, _ = passing
     report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
     assert "| TC-RS-HW-18 | Pass |  |" in report and "### Recorded values" in report
-    assert "--keep-going" not in report
+    assert "--stop-at-first-failure" not in report and "### Recovery after a failure" not in report
 
 
 def test_a_results_directory_inside_the_repository_is_refused():
@@ -121,26 +125,46 @@ def test_tc_selects_a_test_case_with_those_it_builds_on(tmp_path):
     assert names == ["test_hardware[TC-RS-HW-05]", "test_hardware[TC-RS-HW-06]", "test_hardware[TC-RS-HW-07]"]
 
 
-def test_after_a_failure_the_later_test_cases_do_not_run(tmp_path):
+def test_stop_at_first_failure_runs_no_later_test_case(tmp_path):
     # TC-RS-HW-02 fails (the plugin hwfaults of sw/tests)
-    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02")
+    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02", "--stop-at-first-failure")
     assert done.returncode == 1, done.stdout[-3000:]
     run = run_dir(tmp_path)
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
     assert [(r["test"], r["pass"]) for r in records["results"]] == [("TC-RS-HW-01", True), ("TC-RS-HW-02", False)]
     assert [r["test"] for r in records["not_run"]] == [f"TC-RS-HW-{n:02d}" for n in (3, 4, 5, 6, 7, 18)]
-    assert all(r["reason"] == "not run: TC-RS-HW-02 failed" for r in records["not_run"])
+    reason = "not run: TC-RS-HW-02 failed (--stop-at-first-failure)"
+    assert all(r["reason"] == reason for r in records["not_run"]) and records["stop_at_first_failure"]
     report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
-    assert "| TC-RS-HW-03 | Not run | not run: TC-RS-HW-02 failed |" in report
+    assert f"| TC-RS-HW-03 | Not run | {reason} |" in report
+    assert "This run stopped at its first failure (--stop-at-first-failure)." in report
 
 
-def test_keep_going_runs_the_test_cases_whose_dependencies_passed(tmp_path):
-    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02", "--keep-going")
-    assert done.returncode == 1
+def test_after_a_failure_the_run_recovers_and_goes_on(tmp_path):
+    # TC-RS-HW-06 fails after the configuration of TC-RS-HW-05: TC-RS-HW-07, which builds on it, is not run; the
+    # recovery runs before TC-RS-HW-18, which passes
+    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-06")
+    assert done.returncode == 1, done.stdout[-3000:]
     run = run_dir(tmp_path)
     records = json.loads(next(run.glob("records_*.json")).read_text(encoding="utf-8"))
-    assert [r["test"] for r in records["results"]][-1] == "TC-RS-HW-18" and records["keep_going"]
-    assert "a run for diagnosis, not evidence" in (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
+    results = {r["test"]: r["pass"] for r in records["results"]}
+    assert results == {f"TC-RS-HW-{n:02d}": n != 6 for n in (1, 2, 3, 4, 5, 6, 18)}
+    assert records["not_run"] == [{"test": "TC-RS-HW-07", "reason": "not run: TC-RS-HW-06 did not pass"}]
+    steps = [r["text"] for r in records["recoveries"]]
+    assert {(r["after"], r["test"]) for r in records["recoveries"]} == {("TC-RS-HW-06", "TC-RS-HW-18")}
+    assert steps[0].startswith("channels read until quiet: ") and steps[1].startswith("health check passed")
+    assert steps[2].startswith("error registers cleared: ") and len(steps) == 3
+    report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
+    assert "### Recovery after a failure" in report and "#### After TC-RS-HW-06, before TC-RS-HW-18" in report
+
+
+def test_a_failure_early_in_the_run_recovers_before_the_next_test_case(tmp_path):
+    done = session(tmp_path, "-p", "hwfaults", "--fault", "TC-RS-HW-02", "--tc", "TC-RS-HW-02", "--tc", "TC-RS-HW-03")
+    assert done.returncode == 1, done.stdout[-3000:]
+    records = json.loads(next(run_dir(tmp_path).glob("records_*.json")).read_text(encoding="utf-8"))
+    assert {r["test"]: r["pass"] for r in records["results"]} == {"TC-RS-HW-02": False, "TC-RS-HW-03": True}
+    steps = [r["text"] for r in records["recoveries"]]
+    assert steps[-1].startswith("error registers cleared: ") and len(steps) == 3
 
 
 def test_a_run_with_bytecode_warns(tmp_path):
@@ -167,15 +191,15 @@ def test_the_step_log_writes_json_lines_and_text(tmp_path):
         sink.close()
     lines = [json.loads(t) for t in (tmp_path / "s.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [(e["n"], e["kind"], e["result"]) for e in lines] == [(1, "step", None), (2, "expect", "pass"),
-                                                                  (3, "expect", "fail"), (4, "check", "pass"),
-                                                                  (5, "check", "fail"), (6, "result", None)]
+                                                                  (3, "expect", "fail"), (4, "check", "fail"),
+                                                                  (5, "result", None)]
     assert lines[0]["data"]["requirements"] == ["OFB:LN-IF-01"] and log.failed == 2
-    assert lines[3]["text"] == "window 3 is not restored"
+    # a passing check is counted, not written; a failing one is written with the text it fails with
+    assert log.passed_checks("TC-RS-HW-99") == 1
     text = (tmp_path / "s.log").read_text(encoding="utf-8")
     assert "TC-RS-HW-99 #3 expect FAIL: another: 4, expected 5" in text
-    # the text of a check is the text it fails with
-    assert "TC-RS-HW-99 #4 check PASS: holds (on failure: window 3 is not restored)" in text
-    assert "TC-RS-HW-99 #5 check FAIL: lane 3 is still Active" in text
+    assert "window 3 is not restored" not in text
+    assert "TC-RS-HW-99 #4 check FAIL: lane 3 is still Active" in text
 
 
 @pytest.mark.parametrize("how", ["git missing", "no git checkout"])

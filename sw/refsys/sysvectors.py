@@ -26,8 +26,8 @@ reply is checked and removed.
 Operations of stimulus.txt, one per line, numbered from 0 without the comments:
 
   mark <name>                                  start of a test case
-  mibw <address> <data>                        write of a register of the far end (a link reset of the far end: the
-                                               operator step of TC-RS-HW-12)
+  mibw <address> <data>                        write of a register of the far end (a link reset of the far end:
+                                               far_end_link_reset of TC-RS-HW-12)
   mibp <address> <mask> <value> <limit ns>     reads a register of the far end until it has the value
   send <vc> <bytes> <packet>                   sends a packet on a virtual channel
   recv <vc> <count> <limit ns>                 waits for count more packets on a virtual channel
@@ -49,7 +49,7 @@ from pathlib import Path
 from types import ModuleType
 
 from refsys import steplog, systest
-from refsys.transport import FAR_END_LINK_RESET, Transport, TransportError
+from refsys.transport import FarEndReset, Transport, TransportError
 
 STIMULUS = "stimulus.txt"
 VECTORS = "vectors.json"
@@ -58,6 +58,9 @@ WALL = "wall.txt"
 REPORT = "report.txt"
 STEPS = "steps.jsonl"                  # the step log of the check (refsys/steplog.py), as JSON lines
 STEPS_TEXT = "steps.log"               # the same as text
+# The far-end link reset in the operations of vectors.json: its kind and step are those of the operator step that it
+# replaces, so that the stimuli of the evidence keep their digests (sw/tests/data/stimulus_sha256.json)
+FAR_END_OP = {"kind": "operator", "step": "far-end link reset"}
 
 # Simulated time limits of the far end (ns). The link initialises in about 100 us; a command and its reply take a
 # few microseconds; the Space Packets of an exchange cross the link at several Gbit/s.
@@ -203,12 +206,12 @@ class Recorder(Transport):
     def end_poll(self) -> None:
         self.polled = False
 
-    def operator(self, step: str) -> None:
-        """The operator step as operations of the far end: its link reset (DL_CTRL.LINK_RESET with DATA_SCRAMBLED
-        kept, OpenFibre register map), a wait of QUIET_NS on the virtual channel of RMAP, during which no packet may
-        arrive, and the wait until the link of the far end is initialised again."""
-        assert step == FAR_END_LINK_RESET
-        self.model.operator(step)
+    def far_end_link_reset(self) -> FarEndReset:
+        """The link reset as operations of the far end: its link reset (DL_CTRL.LINK_RESET with DATA_SCRAMBLED kept,
+        OpenFibre register map), a wait of QUIET_NS on the virtual channel of RMAP, during which no packet may arrive,
+        and the wait until the link of the far end is initialised again. The operation keeps the kind and step of
+        FAR_END_OP, so that vectors.json keeps its digest (sw/tests/test_stimulus_guard.py)."""
+        result = self.model.far_end_link_reset()
         self.quiet = None
         ofb = systest.OFB
         reset = ofb.field("DL_CTRL", "LINK_RESET", 1) | ofb.field("DL_CTRL", "DATA_SCRAMBLED", 1)
@@ -218,7 +221,8 @@ class Recorder(Transport):
         lines = [self.line(f"mibw {ofb.DL_CTRL:08x} {reset:08x}"),
                  self.line(f"quiet {vc} {QUIET_NS} {QUIET_LIMIT_NS}"),
                  self.line(f"mibp {ofb.DL_STATUS:08x} {mask:08x} {value:08x} {LINK_TIMEOUT_NS}")]
-        self.ops.append({"kind": "operator", "step": step, "lines": lines})
+        self.ops.append(FAR_END_OP | {"lines": lines})
+        return result
 
 
 class RecordingRegisters(PollingRegisters):
@@ -340,17 +344,19 @@ class Replay(Transport):
             return self._take(rx_channel, 1)
         return self._take(rx_channel, count)
 
-    def operator(self, step: str) -> None:
+    def far_end_link_reset(self) -> FarEndReset:
         op = self._next()
-        if op["kind"] != "operator" or op["step"] != step:
-            raise TransportError(f"operator step {step} where the recording has {op}")
+        if {k: op.get(k) for k in FAR_END_OP} != FAR_END_OP:
+            raise TransportError(f"far-end link reset where the recording has {op}")
         _, quiet, link = op["lines"]
         if self.quiet_counts.get(quiet) != 0:
-            raise TransportError(f"operator step {step}: {self.quiet_counts.get(quiet)} packets arrived during the "
+            raise TransportError(f"far-end link reset: {self.quiet_counts.get(quiet)} packets arrived during the "
                                  f"link reset of the far end (operation {quiet})")
         if link not in self.mibp:
-            raise TransportError(f"operator step {step}: the link of the far end did not initialise again within "
+            raise TransportError(f"far-end link reset: the link of the far end did not initialise again within "
                                  f"{LINK_TIMEOUT_NS} ns of simulated time (operation {link})")
+        return FarEndReset(True, f"far end of the bench: link reset, no packet on the channel of RMAP until its link "
+                                 f"was initialised again (operations {op['lines'][0]} to {link})")
 
     def receive(self, channel, timeout):
         if self.quiet is None or self.quiet[0] != channel:
@@ -531,7 +537,7 @@ def play(directory: Path, model: Transport, system, setup, drop_last: bool = Fal
         else:
             assert f[0] == "mibw" and len(f) == 3
             if int(f[1], 16) == systest.OFB.DL_CTRL and int(f[2], 16) & systest.OFB.field("DL_CTRL", "LINK_RESET", 1):
-                model.operator(FAR_END_LINK_RESET)
+                model.far_end_link_reset()
     (directory / EVENTS).write_text("\n".join(events) + "\n", encoding="utf-8")
     for vc, lines in rx.items():
         (directory / rx_file(vc)).write_text("".join(f"{t}\n" for t in lines), encoding="utf-8")

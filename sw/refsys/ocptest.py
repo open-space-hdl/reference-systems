@@ -109,7 +109,8 @@ def check_start(regs: Registers, ctx, ch) -> None:
     ctx.log.emit("config", f"{ch.compressor}: values of the last image that started: {ocp.describe(values)}",
                  compressor=ch.compressor, values=vars(values), generics=values == ocp.build_values(ch.cfg, params))
     if values == ocp.build_values(ch.cfg, params):
-        record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics")
+        record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of the generics: "
+               f"{ocp.describe(values)}")
     else:
         record(ctx, f"{ch.compressor} at the start of the run: IMAGE_X to LIMITS show the values of an image of an "
                f"earlier run: {ocp.describe(values)}")

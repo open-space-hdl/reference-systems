@@ -3,7 +3,8 @@
 # Authors: Julian Schneider
 # ---------------------------------------------------------------------------------------------------
 """Hardware test of spfi_encrypt as pytest tests: one test per test case of hardware_test.py, in its order (the
-plugin sw/refsys/hwplugin.py, options --target, --device, --profile, --seed, --results, --tc, --keep-going).
+plugin sw/refsys/hwplugin.py, options --target, --device, --image, --far-end-port, --profile, --seed, --results, --tc,
+--stop-at-first-failure).
 
     python -B -m pytest systems/spfi_encrypt/sw/hwtest --target model --profile sim --results <directory>
 """
