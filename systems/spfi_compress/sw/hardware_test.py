@@ -50,7 +50,6 @@ import itertools
 import random
 import re
 import sys
-import time
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -350,8 +349,10 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
     busy = getattr(regs.transport, "expect_busy", None)
     if busy is not None:
         busy(max((sum(ocp.image_cycles(o.cfg) for o, _ in outs) for outs in images.values()), default=0))
-    received = regs.transport.exchange(setup.spp_channel, packets, setup.spp_channel, expected,
-                                       timeout=10.0 + size / EQUIPMENT_RATE)
+    # the expected images and the packets are built before the transfer, which alone is timed (Context.transfer)
+    prepared = regs.transport.prepare(setup.spp_channel, packets, setup.spp_channel, expected)
+    received, timing = regs.transport.run_prepared(prepared, timeout=10.0 + size / EQUIPMENT_RATE)
+    ctx.transfer = {"timing": timing, "sent": sum(len(p) for p in packets), "received": sum(len(r) for r in received)}
     return check_images(ctx, received, images)
 
 
@@ -625,8 +626,9 @@ def tc08_lost_data(regs: Registers, ctx: Context) -> None:
 
 def tc09_rate(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-09: all channels compress a stream of images at once, as fast as the test equipment sends them; no
-    loss, every image equals the model, the counters match. The rate is recorded; it is limited by the test
-    equipment."""
+    loss, every image equals the model, the counters match. The rate is recorded (systest.rate_text): the images, the
+    expected compressed images and the packets are built before the transfer, which alone is timed, and checked
+    after it."""
     clear_status(regs, ctx)
     streams, raw = {}, 0
     for ch in ctx.system.channels:
@@ -636,14 +638,11 @@ def tc09_rate(regs: Registers, ctx: Context) -> None:
             ctx.images += 1
         streams[ch.port] = sdus
         raw += sum(len(s.data) for s in sdus)
-    start = time.monotonic()
     back = send_images(regs, ctx, streams)
-    seconds = time.monotonic() - start
     compressed = sum(len(d) for images in back.values() for d in images)
     images = sum(len(images) for images in back.values())
-    ctx.rate = (f"{images} images, {raw} bytes of samples and {compressed} bytes compressed in {seconds:.2f} s: "
-                f"{8 * raw / seconds / 1e9:.3f} Gbit/s of samples (limited by the test equipment and the host)")
-    print(ctx.rate)
+    ctx.rate = systest.rate_text(ctx.transfer, raw, compressed, images)
+    systest.record(ctx, f"rate: {ctx.rate}")
     check_status(regs, ctx)
 
 
@@ -937,7 +936,7 @@ REQUIREMENTS = {
     "TC-RS-HW-06": _OFB_TRAFFIC + _SPP_TRAFFIC + _OCP_IMAGES + _OCP_CORE + _OCP_IA,
     "TC-RS-HW-07": _OCP_IMAGES + _OCP_MB,
     "TC-RS-HW-08": _SPP_RE + _OCP_IMAGES + _OCP_CORE + _OCP_IA,
-    "TC-RS-HW-09": ("OFB:CORE-PF-01",) + _OCP_IMAGES,
+    "TC-RS-HW-09": _OCP_IMAGES,
     "TC-RS-HW-10": _OCP_IMAGES + ("OCP:PR-RP-01", "OCP:PR-RP-02", "OCP:EC-RP-01") + _OCP_CORE + (
         "OCP:CH-IF-01..04", "OCP:CH-FN-01..03", "OCP:CH-RC-01", "OCP:CH-RP-01") + _OCP_MB,
     "TC-RS-HW-11": _OFB_MG,

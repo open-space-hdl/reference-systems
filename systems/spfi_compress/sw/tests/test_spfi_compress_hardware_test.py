@@ -69,7 +69,8 @@ def test_procedure_passes_against_the_model():
     # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
     runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
-    assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
+    assert ctx.rate.endswith("from the first submission to the last packet received: the far end is the system model, "
+                             "whose time is no rate of the system")
 
 
 def test_the_compressed_images_take_several_chunks_in_the_tests():
