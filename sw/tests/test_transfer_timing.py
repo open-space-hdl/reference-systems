@@ -82,10 +82,10 @@ def test_a_model_times_its_exchange_and_says_so():
 def test_the_rate_of_the_device_counts_the_samples_and_the_link_packets_over_the_transfer():
     transfer = {"timing": Timing(0.5, 0.25, 98, True), "sent": 500_000_000, "received": 125_000_000}
     text = systest.rate_text(transfer, 250_000_000, 100_000_000, 32)
-    assert text == ("32 images, 250000000 bytes of samples, 100000000 bytes compressed; transfer 0.500 s from the first "
-                    "submission to the last packet received: 4.000 Gbit/s of samples, 8.000 Gbit/s of link packets to "
-                    "the system and 2.000 Gbit/s from it. Not timed: the images and packets built before, the "
-                    "conversion of the 98 packets received (0.250 s) and the checks after")
+    assert text == ("32 images, 250000000 bytes of samples, 100000000 bytes compressed; transfer 0.500 s from the "
+                    "first submission to the last packet received: 4.000 Gbit/s of samples, 8.000 Gbit/s of link "
+                    "packets to the system and 2.000 Gbit/s from it. Not timed: the images and packets built before, "
+                    "the conversion of the 98 packets received (0.250 s) and the checks after")
 
 
 def test_against_the_model_the_rate_is_no_rate_of_the_system():
