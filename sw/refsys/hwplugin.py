@@ -11,7 +11,7 @@ software of the test equipment, or the system model) once per system, runs every
 systest.run_one with the step log of the run, and writes the outputs into a new directory below --results:
 
 - steps.jsonl: every event of the step log (refsys/steplog.py), one JSON object per line;
-- run.log: the same as text;
+- run.log: the events that a reader follows as text, without the register reads and writes (steplog.READABLE);
 - junit.xml: the JUnit XML report of pytest, with the requirements of every test case as properties;
 - records_<system>_<time>.json and report_<system>.md: the records of the run (results, recorded values, compressed
   images, requirements) and their tables (tools/render_records.py).
@@ -109,7 +109,7 @@ def pytest_configure(config: pytest.Config) -> None:
     if not config.option.xmlpath:
         config.option.xmlpath = str(run / "junit.xml")
     log = steplog.StepLog()
-    sinks = [steplog.JsonLines(run / "steps.jsonl"), steplog.TextLines(run / "run.log")]
+    sinks = [steplog.JsonLines(run / "steps.jsonl"), steplog.TextLines(run / "run.log", steplog.READABLE)]
     log.sinks += sinks
     config.stash[LOG_KEY] = log
     config.stash[SINKS_KEY] = sinks
@@ -277,7 +277,8 @@ class HardwareRun:
             self.transport.close()
         run = self.config.stash[RUN_KEY]
         extra = self.module.records_extra(self.ctx) if hasattr(self.module, "records_extra") else {}
-        extra |= {"requirements": getattr(self.ht, "REQUIREMENTS", {}),
+        extra |= {"snapshots": self.ctx.snapshots,
+                  "requirements": getattr(self.ht, "REQUIREMENTS", {}),
                   "requirements_note": getattr(self.ht, "REQUIREMENTS_NOTE", ""),
                   "not_run": [{"test": n, "reason": r} for n, r in self.not_run],
                   "keep_going": self.state["keep_going"]}
@@ -324,7 +325,9 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     outcome = {"passed": "pass", "failed": "fail", "skipped": "not run"}[report.outcome]
     if log.test != tc:
         log.begin(tc)
-    log.emit("result", f"{tc} {outcome.upper()} {report.duration:.1f} s", outcome, duration=report.duration)
+    checks = log.passed_checks(tc)
+    log.emit("result", f"{tc} {outcome.upper()} {report.duration:.1f} s, {checks} checks passed", outcome,
+             duration=report.duration, checks_passed=checks)
 
 
 # the step log of the hardware test session (pytest_runtest_logreport has no access to the configuration)

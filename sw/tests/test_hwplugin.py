@@ -90,7 +90,11 @@ def test_the_step_log_holds_the_events_of_the_run(passing):
     assert expects and all(e["result"] == "pass" for e in expects)
     results = [e for e in log if e["kind"] == "result"]
     assert {e["test"]: e["result"] for e in results}["TC-RS-HW-07"] == "pass"
-    assert (run / "run.log").read_text(encoding="utf-8").count(" result PASS: ") == 8
+    text = (run / "run.log").read_text(encoding="utf-8")
+    assert text.count(" result PASS: ") == 8 and " read: " not in text and " write: " not in text
+    # a passing check makes no event; the result counts them
+    assert not [e for e in log if e["kind"] == "check"]
+    assert all(e["data"]["checks_passed"] > 0 for e in results) and " checks passed" in text
 
 
 def test_the_report_has_the_results_and_the_records(passing):
@@ -167,15 +171,15 @@ def test_the_step_log_writes_json_lines_and_text(tmp_path):
         sink.close()
     lines = [json.loads(t) for t in (tmp_path / "s.jsonl").read_text(encoding="utf-8").splitlines()]
     assert [(e["n"], e["kind"], e["result"]) for e in lines] == [(1, "step", None), (2, "expect", "pass"),
-                                                                  (3, "expect", "fail"), (4, "check", "pass"),
-                                                                  (5, "check", "fail"), (6, "result", None)]
+                                                                  (3, "expect", "fail"), (4, "check", "fail"),
+                                                                  (5, "result", None)]
     assert lines[0]["data"]["requirements"] == ["OFB:LN-IF-01"] and log.failed == 2
-    assert lines[3]["text"] == "window 3 is not restored"
+    # a passing check is counted, not written; a failing one is written with the text it fails with
+    assert log.passed_checks("TC-RS-HW-99") == 1
     text = (tmp_path / "s.log").read_text(encoding="utf-8")
     assert "TC-RS-HW-99 #3 expect FAIL: another: 4, expected 5" in text
-    # the text of a check is the text it fails with
-    assert "TC-RS-HW-99 #4 check PASS: holds (on failure: window 3 is not restored)" in text
-    assert "TC-RS-HW-99 #5 check FAIL: lane 3 is still Active" in text
+    assert "window 3 is not restored" not in text
+    assert "TC-RS-HW-99 #4 check FAIL: lane 3 is still Active" in text
 
 
 @pytest.mark.parametrize("how", ["git missing", "no git checkout"])

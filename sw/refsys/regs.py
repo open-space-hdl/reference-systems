@@ -78,3 +78,34 @@ class RegisterMap:
     def get(self, register: str, field: str, word: int) -> int:
         """A field of a register value."""
         return (word >> self._const[f"{register}_{field}_SHIFT"]) & self._const[f"{register}_{field}_MASK"]
+
+    def fields(self, register: str) -> dict[str, tuple[int, int]]:
+        """The fields of a register (an array register by its name without the index): {field: (shift, mask)} in the
+        order of their bits. A field of a longer register whose name starts with this one is not one of them."""
+        prefix = f"{register}_"
+        # registers whose names start with this one (VC_CFG for VC): their fields are not fields of this register
+        longer = [r for r in [*self._const, *self._array] if r.startswith(prefix)
+                  and not r.endswith(("_MASK", "_SHIFT", "_RESET"))]
+        out = {}
+        for name, mask in self._const.items():
+            if not (name.startswith(prefix) and name.endswith("_MASK")):
+                continue
+            field = name[len(prefix):-len("_MASK")]
+            shift = self._const.get(f"{prefix}{field}_SHIFT")
+            if shift is not None and not any(f"{prefix}{field}".startswith(f"{r}_") for r in longer):
+                out[field] = (shift, mask)
+        return dict(sorted(out.items(), key=lambda item: item[1][0]))
+
+    def decode(self, register: str, word: int, nonzero: bool = False) -> str:
+        """The fields of a register value as text, "FIELD value, ..." (values above 9 in hexadecimal); nonzero: only
+        the fields that are not 0. Empty for a register without fields."""
+        parts = []
+        for field, (shift, mask) in self.fields(register).items():
+            value = (word >> shift) & mask
+            if value or not nonzero:
+                parts.append(f"{field} {value if value < 10 else hex(value)}")
+        return ", ".join(parts)
+
+    def covering(self, register: str, mask: int) -> list[str]:
+        """The fields of a register that the bits of mask touch, in the order of their bits."""
+        return [f for f, (shift, m) in self.fields(register).items() if (m << shift) & mask]

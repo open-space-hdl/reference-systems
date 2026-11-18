@@ -188,9 +188,9 @@ def test_the_step_log_names_every_register_that_the_procedure_accesses():
     accesses = set()
 
     class Recording(ht.Registers):
-        def read_block(self, address, words):
+        def read_block(self, address, words, quiet=False):
             accesses.add(address)
-            return super().read_block(address, words)
+            return super().read_block(address, words, quiet)
 
         def write_block(self, address, words):
             accesses.add(address)
@@ -631,10 +631,10 @@ class Faulty(sm.SystemModel):
     ("generics", "TC-RS-HW-02", "rmap0 GENERICS"),
     ("vn", "TC-RS-HW-11", "ofb0 VC_CFG(0).VN"),
     ("irq_mask", "TC-RS-HW-11", "ofb0 IRQ_MASK: wrote"),
-    ("far_end", "TC-RS-HW-12", "waited for 0x20"),
-    ("lane", "TC-RS-HW-13", "waited for 0x277"),
+    ("far_end", "TC-RS-HW-12", "ofb0.DL_ERRORS.FAR_END_LINK_RESET (0x00030014) = 0x00000000 after"),
+    ("lane", "TC-RS-HW-13", "expected 0x00000277 under"),
     ("no_single", "TC-RS-HW-14", "ofb0.ECC_COUNT(2)"),
-    ("no_drop", "TC-RS-HW-14", "waited for 0x1B"),
+    ("no_drop", "TC-RS-HW-14", "expected 0x0000001B under"),
     ("header_crc", "TC-RS-HW-15", "header CRC error: TGT_LAST"),
     ("no_alias", "TC-RS-HW-15", "a read with an AXI error ends its reply with an EEP"),
     ("oversize", "TC-RS-HW-16", "Space Packet of 8193 bytes: LAST_ERROR"),

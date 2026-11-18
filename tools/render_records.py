@@ -65,6 +65,17 @@ def records_list(data: dict) -> list[str]:
     return out[:-1] if out else ["None."]
 
 
+def snapshots_list(data: dict) -> list[str]:
+    """The state of the system read after every failure (systest.failure_snapshot), by test case."""
+    by_test = defaultdict(list)
+    for r in data.get("snapshots", []):
+        by_test[r["test"]].append(r["text"])
+    out = []
+    for test, texts in by_test.items():
+        out += [f"#### {test}", ""] + [f"- {t}" for t in texts] + [""]
+    return out[:-1]
+
+
 def images_table(data: dict) -> list[str]:
     """Per test case and channel: the images, their samples and compressed bytes, the bits per sample and the
     results of the decoding check."""
@@ -103,6 +114,8 @@ def render(data: dict, digests: bool = False) -> str:
     if data.get("keep_going"):
         lines += ["", "This run continued after a failure (--keep-going): a run for diagnosis, not evidence."]
     lines += ["", "### Results per test case", ""] + results_table(data)
+    if snapshots_list(data):
+        lines += ["", "### State after a failure", ""] + snapshots_list(data)
     if data.get("requirements_note"):
         lines += ["", data["requirements_note"]]
     if requirements_table(data):
