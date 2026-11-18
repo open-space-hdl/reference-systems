@@ -9,6 +9,10 @@ switches removed.
 
 A transport also resets the link at the far end on request (far_end_link_reset): the hardware test runs without an
 operator.
+
+A transfer whose duration counts is prepared first and run then (prepare, run_prepared): everything that does not need
+the far end (the operations of the device, the packets as stream items) is built before the timed part, and the
+received packets are converted after it, so that the time is that of the transfer alone (Timing).
 """
 
 import time
@@ -44,6 +48,19 @@ FAR_END_LINK_TIMEOUT = 5.0
 
 
 @dataclass(frozen=True)
+class Timing:
+    """The time of a transfer that run_prepared ran: wire_s from the submission of its first operation to the arrival
+    of its last packet; convert_s, the conversion of the received packets on the host after it; items, the packets
+    received; device, whether the far end is the device (False: the far end is a model on the host, and wire_s is the
+    time of the model)."""
+
+    wire_s: float
+    convert_s: float
+    items: int
+    device: bool
+
+
+@dataclass(frozen=True)
 class FarEndReset:
     """What a far-end link reset shows at the far end: down, the link of the far end was not ready while it was held in
     reset (the reset reached the link); text, what the far end saw, for the records."""
@@ -72,6 +89,19 @@ class Transport:
     def transmit(self, channel: int, packets: list[bytes], timeout: float = 5.0) -> None:
         """Sends packets on a channel without waiting for a packet in return (a packet that the system discards)."""
         self.exchange(channel, packets, channel, 0, timeout)
+
+    def prepare(self, tx_channel: int, packets: list[bytes], rx_channel: int, count: int):
+        """Everything of an exchange that does not need the far end, done before it is timed (run_prepared). A model
+        keeps the arguments; a device builds its transfer operations here."""
+        return tx_channel, list(packets), rx_channel, count
+
+    def run_prepared(self, prepared, timeout: float = 5.0) -> tuple[list[bytes], Timing]:
+        """Runs a prepared exchange: the received packets and the timing of the transfer. A model times its exchange
+        (Timing.device False)."""
+        tx_channel, packets, rx_channel, count = prepared
+        start = time.monotonic()
+        received = self.exchange(tx_channel, packets, rx_channel, count, timeout)
+        return received, Timing(time.monotonic() - start, 0.0, len(received), False)
 
     def begin(self, name: str) -> None:
         """Marks the start of a test case; a simulation records the time at which it starts."""
@@ -139,10 +169,23 @@ class StarSystemTransport(Transport):
             channel.openChannelToDevice(enums.STAR_CHANNEL_DIRECTION.INOUT)
 
     def exchange(self, tx_channel, packets, rx_channel, count, timeout=5.0):
+        return self.run_prepared(self.prepare(tx_channel, packets, rx_channel, count), timeout)[0]
+
+    def prepare(self, tx_channel, packets, rx_channel, count):
+        """The transfer operations of an exchange: one transmit operation with every packet as a stream item (the whole
+        packet is the content of the item, path address included, no separate address) and one receive operation for
+        count packets."""
         eop = self._enums.STAR_EOP_TYPE.STAR_EOP_TYPE_EOP
-        receive = self._receive(count, receivePackets=True)
-        # the whole packet is the content of the stream item, path address included (no separate address)
         transmit = self._transmit([self._stream_item.createPacket([], list(p), eop) for p in packets])
+        return tx_channel, transmit, rx_channel, self._receive(count, receivePackets=True)
+
+    def run_prepared(self, prepared, timeout=5.0):
+        """Submits the receive operation, then the transmit operation, and waits for both. wire_s runs from the first
+        submission until the receive operation completes, that is until its last packet has arrived (the completion of
+        a transmit operation only means that the device took its packets); the received packets are converted after
+        it."""
+        tx_channel, transmit, rx_channel, receive = prepared
+        start = time.monotonic()
         try:
             self._channels[rx_channel].submitTransferOperation(receive)
             self._channels[tx_channel].submitTransferOperation(transmit)
@@ -154,7 +197,9 @@ class StarSystemTransport(Transport):
         except BaseException:
             self._cancel([receive, transmit])
             raise
-        return [Packet(bytes(item.getPacketData())) for item in receive.getTransferItemList()]
+        wire = time.monotonic() - start
+        received = [Packet(bytes(item.getPacketData())) for item in receive.getTransferItemList()]
+        return received, Timing(wire, time.monotonic() - start - wire, len(received), True)
 
     def transmit(self, channel, packets, timeout=5.0):
         eop = self._enums.STAR_EOP_TYPE.STAR_EOP_TYPE_EOP

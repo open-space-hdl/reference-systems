@@ -60,7 +60,8 @@ def test_procedure_passes_against_the_model():
     # TC-RS-HW-21: one image of each channel with the runtime configuration (TC-RS-HW-23 runs with a context of its own)
     runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2 + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
-    assert "Gbit/s of samples (limited by the test equipment" in ctx.rate
+    assert ctx.rate.endswith("from the first submission to the last packet received: the far end is the system model, "
+                             "whose time is no rate of the system")
 
 
 def test_the_compressors_have_the_configurations_of_opencompact():

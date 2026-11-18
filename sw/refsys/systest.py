@@ -423,6 +423,8 @@ class Context:
     recorded: list[dict] = field(default_factory=list, kw_only=True)      # the records with their test case
     snapshots: list[dict] = field(default_factory=list, kw_only=True)     # the state read after a failure
     recoveries: list[dict] = field(default_factory=list, kw_only=True)    # the steps of every recovery (recover)
+    # the last timed exchange of images: its Timing (transport.run_prepared) and the bytes sent and received
+    transfer: dict = field(default_factory=dict, kw_only=True)
     selected: list = field(default_factory=list, kw_only=True)            # the test cases of the run, in order
     log: steplog.StepLog = field(default_factory=steplog.StepLog, kw_only=True)  # the step log of the run
     requirements: dict = field(default_factory=dict, kw_only=True)        # test case: requirements it confirms
@@ -435,6 +437,24 @@ class Context:
     # the profile of the system simulation: VC_BW_OVER and VC_BW_UNDER are cleared before their first read (BW_FLAGS)
     clear_bw_flags: bool = field(default=False, kw_only=True)
     bw_flags_cleared: bool = field(default=False, kw_only=True)          # they are cleared in this run
+
+
+def rate_text(transfer: dict, samples: int, compressed: int, images: int) -> str:
+    """The rate of a timed exchange of images (TC-RS-HW-09, Context.transfer): the time of the transfer alone, from the
+    submission of its first operation to the arrival of its last packet, and the rates of the samples and of the link
+    packets in both directions over it. Against the system model the time is that of the model and gives no rate."""
+    t = transfer["timing"]
+    text = (f"{images} images, {samples} bytes of samples, {compressed} bytes compressed; transfer {t.wire_s:.3f} s "
+            "from the first submission to the last packet received")
+    if not t.device:
+        return f"{text}: the far end is the system model, whose time is no rate of the system"
+
+    def gbit(n: int) -> str:
+        return f"{8 * n / t.wire_s / 1e9:.3f} Gbit/s"
+
+    return (f"{text}: {gbit(samples)} of samples, {gbit(transfer['sent'])} of link packets to the system and "
+            f"{gbit(transfer['received'])} from it. Not timed: the images and packets built before, the conversion of "
+            f"the {t.items} packets received ({t.convert_s:.3f} s) and the checks after")
 
 
 def record(ctx: Context, text: str) -> None:
