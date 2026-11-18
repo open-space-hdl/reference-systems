@@ -34,6 +34,15 @@
 
 ### Changed
 
+- Log of the hardware test:
+  - A passing check makes no event; the result of a test case counts its passing checks.
+  - A wait for a register value is one event with its polls and the time it took. Its failure names the register and
+    its fields, the value read, the time and the polls, in place of a raw address.
+  - After a failure the test reads the state of the system and records it: the link, every lane and the error
+    registers that hold a value (section "State after a failure" of the report).
+  - `run.log` holds every event but the register reads and writes; `steps.jsonl` keeps all of them.
+  - The packets discarded from a channel and the retries of RMAP after a link reset are notes in the log instead of
+    console output.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the
