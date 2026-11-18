@@ -19,7 +19,7 @@ test needs and describes what differs.
 | Item | Use |
 | --- | --- |
 | VCK190 evaluation board (production silicon), power supply, USB cable to the JTAG and UART port | Device under test |
-| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package | Far end, test computer |
+| STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
 | The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
@@ -189,8 +189,9 @@ python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target device --de
 
   `--check-environment --target model` checks what a run against the model needs: the same lines without the
   last one, and `SKIP Python package of the far-end software: not needed for --target model`.
-- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and prints how
-  many packets of an earlier run it discarded per channel.
+- `--far-end-port` (1 or 2, default 1) names the SpaceFibre port of the STAR-Ultra that is cabled to the board.
+- Before the first test case, the run reads channels 0 and 1 until no packet arrives within 0.5 s, and notes in its
+  log how many packets of an earlier run it discarded per channel.
 - The run stops at the first failure, since the later test cases build on the earlier ones, and reports those as not
   run. TC-RS-HW-09 also records the measured rate.
 - `--seed` (default 1) sets the keys and the images. `--tc TC-RS-HW-nn` runs one test case and the test cases it
