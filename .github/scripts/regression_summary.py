@@ -6,7 +6,8 @@
 
 Usage: python -B .github/scripts/regression_summary.py <artifact directory> <groups as JSON list>
 
-<artifact directory> holds one directory regression-<group> per group (results.xml in it). Prints a Markdown table
+<artifact directory> holds the results.xml of every group at any depth (one directory per artifact, or the files of a
+single artifact directly); the name of its test suite names the group. Prints a Markdown table
 (group, system, exit code, test cases passed of all, failures, errors, simulated time, wall-clock time) and appends it
 to $GITHUB_STEP_SUMMARY when set. Exit code 1 when a group has no results.xml, a failure, an error or a non-zero exit
 code of its run.
@@ -24,13 +25,16 @@ def main() -> int:
     rows = ["| Group | System | Exit code | Passed | Failures | Errors | Simulated | Wall clock |",
             "| --- | --- | --- | --- | --- | --- | --- | --- |"]
     bad = []
+    suites = {}
+    for xml in sorted(root.rglob("results.xml")):
+        suite = ET.parse(xml).getroot()
+        suites[suite.get("name", "").removeprefix("reference-systems.")] = suite
     for group in groups:
-        xml = root / f"regression-{group}" / "results.xml"
-        if not xml.exists():
+        suite = suites.get(group)
+        if suite is None:
             rows.append(f"| {group} | | no results.xml | | | | | |")
             bad.append(group)
             continue
-        suite = ET.parse(xml).getroot()
         props = {p.get("name"): p.get("value") for p in suite.iter("property")}
         tests, failures, errors = (int(suite.get(k, "0")) for k in ("tests", "failures", "errors"))
         code = int(props.get("exit_code", "1"))

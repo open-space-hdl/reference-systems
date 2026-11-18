@@ -19,7 +19,7 @@ on:
         default: ""
 
 env:
-  REGRESSION_GROUPS: "se_01_07"
+  REGRESSION_GROUPS: "sce_23,sc_23,sc_01_07,sc_10_17,sc_21,sce_21,sc_repeat,sce_repeat,sc_19,sce_20,sce_22,sc_22,sc_20,se_repeat,se_19,se_22,se_23,se_01_07"
   EVIDENCE_CODE: 48d2d232c22e8092a2b1ff1b6b0de9a0d27fe6c3
 
 concurrency:
