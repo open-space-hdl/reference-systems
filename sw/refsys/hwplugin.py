@@ -134,6 +134,7 @@ def pytest_configure(config: pytest.Config) -> None:
                                "recover_after": None, "unhealthy": None,
                                "no_pipeline_reset": config.getoption("no_pipeline_reset")}
     SESSION["log"] = log
+    SESSION["errors"] = {}
     log.begin("")
     log.emit("env", f"results in {run}", results=str(run))
     if not sys.flags.dont_write_bytecode:
@@ -143,6 +144,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     SESSION.pop("log", None)
+    SESSION.pop("errors", None)
     for sink in config.stash.get(SINKS_KEY, []):
         sink.close()
 
@@ -261,7 +263,9 @@ class HardwareRun:
         try:
             systest.run_one(self.regs, self.ctx, test)
         except BaseException as err:
-            self.results.append((name, str(err) or type(err).__name__))
+            reason = str(err) or type(err).__name__
+            self.results.append((name, reason))
+            SESSION.setdefault("errors", {})[name] = reason
             self.state["outcomes"][name] = "failed"
             self.state["failed"] = self.state["failed"] or name
             self.state["recover_after"] = name
@@ -341,7 +345,8 @@ def hw(request: pytest.FixtureRequest, record_testsuite_property):
 
 # --- results ---------------------------------------------------------------------------------------------------------
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    """One result line per test case in the step log, with its duration."""
+    """One result line per test case in the step log, with its duration; a failed test case with its reason, the
+    error of the report."""
     tc = next((k for k in report.keywords if k.startswith("TC-RS-HW-")), None)
     if tc is None or not (report.when == "call" or (report.when == "setup" and not report.passed)):
         return
@@ -352,8 +357,10 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     if log.test != tc:
         log.begin(tc)
     checks = log.passed_checks(tc)
-    log.emit("result", f"{tc} {outcome.upper()} {report.duration:.1f} s, {checks} checks passed", outcome,
-             duration=report.duration, checks_passed=checks)
+    error = SESSION.get("errors", {}).get(tc) if outcome == "fail" else None
+    text = f"{tc} {outcome.upper()} {report.duration:.1f} s, {checks} checks passed" + (f": {error}" if error else "")
+    log.emit("result", text, outcome, duration=report.duration, checks_passed=checks,
+             **({"error": error} if error else {}))
 
 
 # the step log of the hardware test session (pytest_runtest_logreport has no access to the configuration)

@@ -22,18 +22,18 @@ test needs and describes what differs.
 | STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
-| The repository at v0.2.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
+| The repository at v0.3.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.2.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
 | Python 3.10 or later with pytest and `pycryptodome` (installed with openspacehdl), and Git, on the test computer | Export (section 3), test script and the reference model of OpenCompact |
 
 ## 3. Installation from the openspacehdl package
 
-The release 0.1.0 of the Python package openspacehdl carries this repository at v0.2.0, with every core it pins, as
+The release 0.2.0 of the Python package openspacehdl carries this repository at v0.3.0, with every core it pins, as
 Git bundles with their history. On the build computer and on the test computer (Python 3.10 or later, Git on the
 `PATH`), in PowerShell or cmd:
 
 ```shell
 python -m venv --system-site-packages C:\osh\venv
-C:\osh\venv\Scripts\python -m pip install openspacehdl==0.1.0
+C:\osh\venv\Scripts\python -m pip install openspacehdl==0.2.0
 C:\osh\venv\Scripts\openspacehdl export --git C:\osh\src
 ```
 
@@ -54,24 +54,24 @@ records, outside the exported tree.
 
 A computer without network access takes the package and its dependencies from a computer with network access, the
 same version of Windows and the same version of Python: the set of files depends on the version of Python, and
-`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.1.0 -d <dir>` (with
+`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.2.0 -d <dir>` (with
 the version of Python of the offline computer) writes the wheels to `<dir>`. Compare the SHA-256 of
-`openspacehdl-0.1.0-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
-with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.1.0`. The export is
+`openspacehdl-0.2.0-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
+with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.2.0`. The export is
 the same. The SHA-256 of the file:
 
 ```shell
 # PowerShell
-Get-FileHash <dir>\openspacehdl-0.1.0-py3-none-any.whl -Algorithm SHA256
+Get-FileHash <dir>\openspacehdl-0.2.0-py3-none-any.whl -Algorithm SHA256
 # cmd
-certutil -hashfile <dir>\openspacehdl-0.1.0-py3-none-any.whl SHA256
+certutil -hashfile <dir>\openspacehdl-0.2.0-py3-none-any.whl SHA256
 ```
 
 With network access, a clone of the release from GitHub serves as well, with pytest and `pycryptodome` installed in
 the Python of the test computer (`python -m pip install "pytest>=9.0,<10" "pycryptodome>=3.23,<5"`):
 
 ```shell
-git clone -b v0.2.0 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
+git clone -b v0.3.0 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
 cd C:\osh\src\reference-systems
 git submodule update --init
 git -C cores/open-logic-ft submodule update --init 3rdParty/en_cl_fix
