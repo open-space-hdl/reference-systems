@@ -7,10 +7,13 @@ reference data come from the reference model of OpenCompact and the committed go
 program. These tests check the sources: no module of sw/refsys and of the software of the systems starts an external
 program, and the hardware test of spfi_compress with its system model imports, at module level, only the standard
 library, the modules of the repository and the tools of OpenCompact; the Python package of the far-end software is
-imported only inside sw/refsys/transport.py, and pycryptodome only where a system with OpenCrypto needs it.
+imported only inside sw/refsys/transport.py and its child process sw/refsys/far_end_link.py, and pycryptodome only
+where a system with OpenCrypto needs it.
 
-One exception: the pytest plugin of the hardware tests (sw/refsys/hwplugin.py) runs git, and only git, to record the
-commit and the state of the working tree of a run (evidence of the run, not reference data)."""
+Two exceptions: the pytest plugin of the hardware tests (sw/refsys/hwplugin.py) runs git, and only git, to record the
+commit and the state of the working tree of a run (evidence of the run, not reference data); the transport
+(sw/refsys/transport.py) runs the Python interpreter of the run, and only it, with refsys.far_end_link: the link
+control of the far end needs a process of its own (channel 0 of the device)."""
 
 import ast
 import importlib.abc
@@ -59,7 +62,7 @@ def external_programs(source: str) -> list[str]:
 
 
 # modules that may start a program, and the only program they may start
-RECORDS_GIT = {REFSYS / "hwplugin.py": "git"}
+RECORDS_GIT = {REFSYS / "hwplugin.py": "git", REFSYS / "transport.py": "python"}
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda p: str(p.relative_to(ROOT)))
@@ -86,7 +89,13 @@ def programs_started(path: Path) -> set[str]:
                 and isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess"):
             first = node.args[0] if node.args else None
             head = first.elts[0] if isinstance(first, ast.List) and first.elts else None
-            programs.add(head.value if isinstance(head, ast.Constant) else "*")
+            if isinstance(head, ast.Constant):
+                programs.add(head.value)
+            elif (isinstance(head, ast.Attribute) and isinstance(head.value, ast.Name) and head.value.id == "sys"
+                  and head.attr == "executable"):
+                programs.add("python")
+            else:
+                programs.add("*")
     return programs
 
 
@@ -164,7 +173,7 @@ def test_the_closure_check_finds_a_third_party_import(tmp_path):
 
 def test_the_far_end_software_is_imported_by_the_transport_only():
     users = [p for p in SOURCES if far_end_package() in {n.split(".")[0] for n, _ in all_imports(p)}]
-    assert users == [REFSYS / "transport.py"]
+    assert users == [REFSYS / "far_end_link.py", REFSYS / "transport.py"]
 
 
 def all_imports(path: Path) -> list[tuple[str, int]]:

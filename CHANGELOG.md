@@ -48,6 +48,15 @@ software of v0.2.1 is part of this release. The HDL changes, so a device image o
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the
   members of the reset group.
 
+### Fixed
+
+- The far-end link reset of TC-RS-HW-12 and of the recovery after a failure: on the test equipment the link control of
+  the STAR-Ultra PCIe Interface failed with "Could not get the link status.", because it needs channel 0 of the device,
+  which the transport holds for RMAP. The transport now closes channel 0, runs the link control in a child process
+  (`refsys.far_end_link`) and opens channel 0 again after it; the device frees the channel some 0.5 s after the end of
+  the child process, and the transport tries for up to 5 s.
+- `run.log`: the result line of a failed test case carries its reason, as the report does.
+
 ### Versions
 
 - Open Logic FT 4.8.0-ft.2 (was 4.7.0-ft.12), the fault-tolerant fork based on Open Logic 4.8.0. Of the Open Logic

@@ -136,6 +136,10 @@ def test_stop_at_first_failure_runs_no_later_test_case(tmp_path):
     assert [r["test"] for r in records["not_run"]] == [f"TC-RS-HW-{n:02d}" for n in (3, 4, 5, 6, 7, 19, 22, 23, 18)]
     reason = "not run: TC-RS-HW-02 failed (--stop-at-first-failure)"
     assert all(r["reason"] == reason for r in records["not_run"]) and records["stop_at_first_failure"]
+    # the result line of a failed test case in run.log carries its reason, as the report does
+    log = (run / "run.log").read_text(encoding="utf-8")
+    assert " result FAIL: TC-RS-HW-02 FAIL " in log
+    assert " checks passed: TC-RS-HW-02: fault of the framework test\n" in log
     report = (run / "report_spfi_encrypt.md").read_text(encoding="utf-8")
     assert f"| TC-RS-HW-03 | Not run | {reason} |" in report
     assert "This run stopped at its first failure (--stop-at-first-failure)." in report
