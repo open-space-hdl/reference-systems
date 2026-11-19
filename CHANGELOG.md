@@ -97,10 +97,18 @@ software of v0.2.1 is part of this release. The HDL changes, so a device image o
 
 ### Verification
 
-- Host tests: 584 passed, 24 skipped, with pytest 9.1.1 and with 9.0.2.
-- Stimulus guard (`RS_STIMULUS_GUARD=1`): the stimuli of the 22 groups of system simulations are unchanged with the
-  cores of this release.
-- GHDL analyses all sources of the three systems (`python run.py --compile`).
+- System GHDL regression: 22 of 22 groups of system simulations pass with the cores of this release (sysclk 150 MHz,
+  profile `sim`, seed 1): 18 groups in CI (81 of 81 test cases) and the four longest on a host (14 of 14).
+- Host tests: 591 passed, 24 skipped, with pytest 9.1.1 and with 9.0.2.
+- Stimulus guard (`RS_STIMULUS_GUARD=1`): the stimuli of the 22 groups are unchanged on the release head, so the
+  regression holds for the systems saved with the catalog of the core releases and for the far-end link reset in a
+  child process.
+- GHDL analyses all sources of the three systems (`python run.py --compile`); the exported top levels equal the
+  export of the Composer at `tools/composer_ref.txt` (`tools/check_hdl.py`), and the pins of the system files equal
+  the submodules (`tools/check_pins.py`).
+- Vivado rtl elaboration of the three systems with both reference clocks (si570, 8a34001): 6 of 6 without an error,
+  with the warning classes of v0.2.0.
+- GTY xsim: not run, the PHY path and its inputs are unchanged since v0.2.0.
 
 ## v0.2.1 (2026-11-18)
 
