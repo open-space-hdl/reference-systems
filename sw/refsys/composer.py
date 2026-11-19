@@ -67,6 +67,14 @@ class SystemFile:
                 windows[c["to"].split(".")[0]] = int(m[3]) * size
         return windows
 
+    def reset_group(self, source: str) -> list[str]:
+        """The members of the reset group whose source is the reset output "<instance>.<interface>" (resetGroups of
+        a file of format version 3: instance IDs; the block catalog selects the reset port of each member)."""
+        found = [g for g in self.data.get("resetGroups", []) if g["source"] == source]
+        if len(found) != 1:
+            raise KeyError(f"{len(found)} reset groups with the source {source} in {self.name}")
+        return list(found[0]["members"])
+
     def tie_off(self, signal: str, field: str):
         """Value of a field of a constant that the resolved netlist ties to a signal (for example the key slot of
         a framer, signal "frm0_Cfg_Slot_s", field "slot")."""

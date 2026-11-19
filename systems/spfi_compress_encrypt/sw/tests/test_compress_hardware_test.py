@@ -54,9 +54,11 @@ def test_procedure_passes_against_the_model():
     m, ctx = model(), context()
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
-    per_channel = len(LAB.kinds) + 5 + LAB.stream
-    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
-    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2
+    # TC-RS-HW-06, 08 and 09, and the two rounds of TC-RS-HW-19, 20 and 22 each
+    per_channel = len(LAB.kinds) + 5 + LAB.stream + 6
+    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel;
+    # TC-RS-HW-21: one image of each channel with the runtime configuration (TC-RS-HW-23 runs with a context of its own)
+    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2 + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
     assert ctx.rate.endswith("from the first submission to the last packet received: the far end is the system model, "
                              "whose time is no rate of the system")
@@ -121,7 +123,7 @@ def test_register_banks_of_the_exported_header_match_the_system():
     core_ids = {s.node: systest.SPP.REGMAP_ID, s.rmap: systest.OMAP.REGMAP_ID, s.port: systest.OFB.REGMAP_ID}
     core_ids |= {c.core: systest.OCR.REGMAP_ID for c in s.channels}
     core_ids |= {c.compressor: ht.OCP.REGMAP_ID for c in s.channels}
-    assert s.ids == core_ids
+    assert s.ids == core_ids | {s.reset: systest.PRST_ID_VALUE}
     # channels of the ECC monitor: the framers, then the compressors, then the FIFOs, as many as Channels_g
     assert s.ecc_names == ([f"FRM{k}_ECC_{m}" for k in range(4) for m in range(2)] + [f"OCP{k}_ECC" for k in range(4)]
                            + [f"RXF{k}_ECC" for k in range(4)])
@@ -352,12 +354,12 @@ def test_tc10_detects_a_faulty_runtime_configuration(mutation, message):
 
 
 def test_the_decoder_of_spfi_compress_encrypt_answers_decerr_above_its_ports():
-    """The decoder has 12 ports of 64 KiB: the port indices 12 to 15 have no port and answer DECERR, the map repeats
-    every 0x100000 bytes."""
+    """The decoder has 13 ports of 64 KiB, the last one the pipeline reset controller: the port indices 13 to 15
+    have no port and answer DECERR, the map repeats every 0x100000 bytes."""
     m = model()
     node = SYSTEM.base("spp0") + systest.SPP.ID
-    assert SYSTEM.decoded_bytes() == 0x100000 and SYSTEM.unmapped_address() == 0xC0000
-    assert m._bus_read(0xC0000) is None and m._bus_read(0xFFFFC) is None and not m._bus_write(0xC0000, 1)
+    assert SYSTEM.decoded_bytes() == 0x100000 and SYSTEM.unmapped_address() == 0xD0000
+    assert m._bus_read(0xD0000) is None and m._bus_read(0xFFFFC) is None and not m._bus_write(0xD0000, 1)
     assert m._bus_read(0x100000 + node) == SYSTEM.ids["spp0"]
 
 
@@ -365,8 +367,8 @@ def test_tc15_gives_the_status_1_at_the_unmapped_address_of_spfi_compress_encryp
     """The steps of TC-RS-HW-15 (refsys.rmaptest) on a system with an address outside its register windows: the
     write there gets the status 1 and no read one map further on is made."""
     class Logged(sm.SystemModel):
-        def _bus_write(self, address, value):
-            done = super()._bus_write(address, value)
+        def _bus_write(self, address, value, strobes=0xF):
+            done = super()._bus_write(address, value, strobes)
             self.writes.append((address, done))
             return done
 
@@ -383,7 +385,7 @@ def test_tc15_gives_the_status_1_at_the_unmapped_address_of_spfi_compress_encryp
     systest.tc01_link(regs, ctx)
     systest.baseline(regs, ctx)
     rmaptest.tc15_rmap_errors(regs, ctx, SYSTEM.unmapped_address())
-    assert (0xC0000, False) in m.writes
+    assert (0xD0000, False) in m.writes
     assert not [a for a in m.reads if a >= SYSTEM.decoded_bytes()]
 
 
@@ -399,3 +401,40 @@ def test_a_second_run_on_the_same_device_passes():
     assert sum("show the values of an image of an earlier run: NX " in t for t in second) == 2
     assert sum("the values of the generics are committed" in t for t in second) == 2
     assert any(t.startswith("spp0 sends the next Space Packet of APID") and not t.endswith(" 0") for t in second)
+
+
+class BwAccesses(sm.SystemModel):
+    """The system model that notes the writes and reads of the bandwidth flags of the SpaceFibre port."""
+
+    def __init__(self):
+        super().__init__(ht.Setup(), system=SYSTEM, system_file=SYSTEM_FILE)
+        port = SYSTEM.base(SYSTEM.port)
+        self.flags = {port + getattr(systest.OFB, name): name for name in systest.BW_FLAGS}
+        self.log = []
+
+    def _bus_read(self, address):
+        if address in self.flags:
+            self.log.append(("read", self.flags[address]))
+        return super()._bus_read(address)
+
+    def _bus_write(self, address, value, strobes=0xF):
+        if address in self.flags:
+            self.log.append(("write", self.flags[address], value))
+        return super()._bus_write(address, value, strobes)
+
+
+@pytest.mark.parametrize("profile", ["sim", "lab"])
+@pytest.mark.parametrize("test", ["TC-RS-HW-19", "TC-RS-HW-22"])
+def test_the_sim_profile_clears_the_bandwidth_flags_before_their_first_read(test, profile):
+    """Known issue of OpenFibre v0.1.4 in simulation (systest.BW_FLAGS): TC-RS-HW-19 and 22 are the first test cases
+    of a run that read VC_BW_OVER and VC_BW_UNDER; in the sim profile both are written with ones before the first
+    read, once per run; in the lab profile they are only read."""
+    m = BwAccesses()
+    results = run(m, context(profile=ht.PROFILES[profile]), ht.select_tests([test]))
+    assert list(results)[-1] == test and not any(results.values()), results
+    writes = [("write", name, 0xFFFFFFFF) for name in systest.BW_FLAGS]
+    if profile == "sim":
+        assert m.log[:2] == writes and ("read", "VC_BW_OVER") in m.log[2:]
+        assert [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] == writes
+    else:
+        assert not [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] and m.log[0][0] == "read"

@@ -1,5 +1,115 @@
 # Changelog
 
+## v0.3.0 (2026-11-19)
+
+The pipeline reset in all three systems: a command over RMAP resets the processing path with the link up, tested at
+rest, in the middle of an image and during traffic (TC-RS-HW-19 to 23). Every core moves to Open Logic FT 4.8.0-ft.2:
+OpenRMAP v0.1.2, OpenSPP v0.2.1, OpenFibre v0.1.5, OpenCrypto v0.1.1 and OpenCompact v0.3.2. The hardware test
+software of v0.2.1 is part of this release. The HDL changes, so a device image of v0.2.x does not serve v0.3.0.
+
+### Added
+
+- **Pipeline reset** in all three systems: the pipeline reset controller `prst0` (`olo_ft_reset_ctrl_axi` of Open Logic
+  FT) on a new last port of the AXI4-Lite decoder resets the processing path on command over RMAP, without a new
+  device image and with the link up. Its output is the source of the reset group `pipe` of the Composer file: `spp0`
+  takes it on its data path reset `DpRst`, the FIFOs, compressors, chunkers, framers and AES-GCM cores of the system on
+  `Rst`; the SpaceFibre port and its adapter, the N-Char bridge, the RMAP target, the decoder and the ECC monitor keep
+  the system reset. The system requirements PR-01 to PR-12 are in the README of every system. `prst0` sits at
+  0x00080000 in spfi_compress and spfi_encrypt and at 0x000C0000 in spfi_compress_encrypt; the decoders of
+  spfi_compress and spfi_encrypt now take 20 address bits, so their maps repeat every 0x100000 bytes and the port
+  indices above the last window answer with an error response.
+- Hardware test: every run starts with the pipeline reset (TC-RS-HW-01; `--no-pipeline-reset` skips it, for diagnosis
+  only), TC-RS-HW-02 checks `prst0`, and TC-RS-HW-19 tests the reset at rest in all three systems: values left inside
+  and outside the processing path, the writes that `prst0` ignores, the reset values of every member, everything
+  outside unchanged, a second command, then traffic with the Packet Sequence Counts from 0. In the encrypting systems
+  the keys are loaded again with an invocation counter above every counter used before the reset. The second run of
+  TC-RS-HW-18 skips the pipeline reset. The procedures have a new section "Pipeline reset", and "Repeated runs" needs a
+  new device image only after a stop that may have left state outside the processing path.
+
+- TC-RS-HW-20 to 23: the pipeline reset in the middle of an image (spfi_compress, spfi_compress_encrypt), with
+  misconfigured compressors (the same two systems), during traffic (all three) and a fresh run of TC-RS-HW-02 to 07
+  after it (all three). What comes back around a reset during traffic is judged per output APID against what the data
+  sent can give: complete images exactly, an image in flight as far as its samples taken fill its chunks, at most one
+  Space Packet cut by the reset (a proper prefix and the byte 0x00 of the EEP beat of OpenSPP), nothing after it. In
+  the encrypting systems the keys are loaded again after a reset during traffic with the counter after the last chunk
+  before the traffic plus the largest number of chunks that the data sent can give; the bound of one compressed image
+  over the ranges of the runtime configuration comes from the model of OpenCompact. A received packet carries its end
+  marker as the transport reports it: the system model and the system testbench report it, the run against the
+  device does not, and the test judges the content.
+
+### Changed
+
+- The recovery after a failure of v0.2.1 (it reads both channels until they are quiet, checks the health of the system
+  and records and clears the error registers) also makes a pipeline reset and, once TC-RS-HW-05 has passed,
+  configures the system again (the hook `reconfigure` of every system). The encrypting systems load their keys at a
+  counter `RECOVERY_COUNTER_GAP` above the last one.
+- TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
+  the read of the identification of `spp0` one map further on.
+- The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the
+  members of the reset group.
+
+### Fixed
+
+- The far-end link reset of TC-RS-HW-12 and of the recovery after a failure: on the test equipment the link control of
+  the STAR-Ultra PCIe Interface failed with "Could not get the link status.", because it needs channel 0 of the device,
+  which the transport holds for RMAP. The transport now closes channel 0, runs the link control in a child process
+  (`refsys.far_end_link`) and opens channel 0 again after it; the device frees the channel some 0.5 s after the end of
+  the child process, and the transport tries for up to 5 s.
+- `run.log`: the result line of a failed test case carries its reason, as the report does.
+
+### Versions
+
+- Open Logic FT 4.8.0-ft.2 (was 4.7.0-ft.12), the fault-tolerant fork based on Open Logic 4.8.0. Of the Open Logic
+  files that the systems use, only `olo_axi_master_full` (the memory master of OpenRMAP) changes: the size width of a
+  command at 8-bit AXI data; at the 32-bit data of `rmap0` its constants and functions give the values of
+  4.7.0-ft.12. The compile orders list six new files of the fixed-point library (`olo_fix_log2`, `olo_fix_dds`,
+  `olo_fix_cic_intp_tdm_par`, `olo_fix_fir_dec_par_chtdm` and two private files of `olo_fix_log2`), which no unit of
+  the systems names. Every core of the systems is verified with 4.8.0-ft.2.
+- OpenRMAP v0.1.2 (was v0.1.1): the size width of a command of the memory master of the target is two bits fewer than
+  the address at every data width (`memSizeBits`, at most 24). At the 32-bit data and 32-bit addresses of `rmap0` it
+  stays 24 bits.
+- OpenSPP v0.2.1 (was v0.2.0): Open Logic FT 4.8.0-ft.2; the sources are those of v0.2.0.
+- OpenFibre v0.1.5 (was v0.1.4): `VC_BW_OVER` and `VC_BW_UNDER` of `ofb_mib` are defined from the reset. The `sim`
+  profile of the hardware tests still clears both flags before their first read in a run (`systest.clear_bw_flags`),
+  so the stimuli of the system simulations stay the same.
+- OpenCrypto v0.1.1 (was v0.1.0): register stages on the read paths of the key memories, the job FIFO, the data FIFO
+  and before the packer of the dense output, for the setup timing at 200 MHz. The key table resolves one context with
+  a generated IV per three clock cycles (was two); a job leaves the key table two clock cycles later, a data beat
+  reaches the combiner one clock cycle later, and the dense output adds two clock cycles of latency (was one). Ports,
+  generics, stream formats, the register map and the erasure of the key table after a reset (`NumKeys_g` + 3 clock
+  cycles, PR-05) are those of v0.1.0. No check, wait or bound of the hardware tests and of the system model depends on
+  these latencies: the waits poll a status within limits far above them.
+- OpenCompact v0.3.2 (was v0.3.1): the predictor gives the registers that the runtime configuration and parameters
+  disable a constant value, and the coders and the predictor read their memories at a defined address before the first
+  image after a reset; the compressed images and the throughput are those of v0.3.1. The user guide states the output
+  of `ocp_channel` at a reset during an image (requirement CH-RS-02): the words that the output has not taken are
+  discarded, and the packet ends without `Out_Last`.
+- Top levels generated by Open Space Composer 0.11.3-beta; the system files have the format version 3 (reset groups).
+
+### Known issues
+
+- The hardware test of the systems is not complete; the systems are verified by simulation (TRL 3). No implemented
+  build of the systems is part of this release.
+- The AMD transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`); the xsim runner
+  elaborates and simulates such a run again, at most three times in total, and reports every repetition.
+- OpenFibre: the CDR lock bit of LANE_STATUS is no usable indication with the GTY configuration of the VCK190 designs;
+  the hardware test records it without an expected value.
+
+### Verification
+
+- System GHDL regression: 22 of 22 groups of system simulations pass with the cores of this release (sysclk 150 MHz,
+  profile `sim`, seed 1): 18 groups in CI (81 of 81 test cases) and the four longest on a host (14 of 14).
+- Host tests: 591 passed, 24 skipped, with pytest 9.1.1 and with 9.0.2.
+- Stimulus guard (`RS_STIMULUS_GUARD=1`): the stimuli of the 22 groups are unchanged on the release head, so the
+  regression holds for the systems saved with the catalog of the core releases and for the far-end link reset in a
+  child process.
+- GHDL analyses all sources of the three systems (`python run.py --compile`); the exported top levels equal the
+  export of the Composer at `tools/composer_ref.txt` (`tools/check_hdl.py`), and the pins of the system files equal
+  the submodules (`tools/check_pins.py`).
+- Vivado rtl elaboration of the three systems with both reference clocks (si570, 8a34001): 6 of 6 without an error,
+  with the warning classes of v0.2.0.
+- GTY xsim: not run, the PHY path and its inputs are unchanged since v0.2.0.
+
 ## v0.2.1 (2026-11-18)
 
 A hotfix of the hardware test software, after the lab run of spfi_compress on 2026-11-17. The HDL, the Composer files,

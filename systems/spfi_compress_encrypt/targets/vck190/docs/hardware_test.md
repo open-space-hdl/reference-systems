@@ -22,19 +22,18 @@ test needs and describes what differs.
 | STAR-Ultra PCIe in a test computer, STAR-System installed on that computer with its Python package and the Python package of the STAR-Ultra PCIe Interface (the link control of its SpaceFibre ports) | Far end, test computer |
 | Straight QSFP cable (four lanes) | QSFP1 of the VCK190 to port 1 of the STAR-Ultra |
 | Build computer with AMD Vivado 2025.2 (device support and a synthesis licence for the XCVC1902), Python 3.10 or later and Git | Export (section 3), build and programming |
-| The repository at v0.2.1 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.1.1, or cloned from GitHub (section 3) | Sources of the build and of the test script |
+| The repository at v0.3.0 with its submodules on the build computer and on the test computer: exported by the Python package openspacehdl 0.2.0, or cloned from GitHub (section 3) | Sources of the build and of the test script |
 | Python 3.10 or later with pytest and `pycryptodome` (installed with openspacehdl), and Git, on the test computer | Export (section 3), test script and the reference model of OpenCompact |
 
 ## 3. Installation from the openspacehdl package
 
-The release 0.1.1 of the Python package openspacehdl carries this repository at v0.2.1, with every core it pins, as
-Git bundles with their history. v0.2.1 changes the test software only: its HDL, Composer files and cores are those of
-v0.2.0, and a device image built from v0.2.0 stays valid. On the build computer and on the test computer (Python 3.10
-or later, Git on the `PATH`), in PowerShell or cmd:
+The release 0.2.0 of the Python package openspacehdl carries this repository at v0.3.0, with every core it pins, as
+Git bundles with their history. On the build computer and on the test computer (Python 3.10 or later, Git on the
+`PATH`), in PowerShell or cmd:
 
 ```shell
 python -m venv --system-site-packages C:\osh\venv
-C:\osh\venv\Scripts\python -m pip install openspacehdl==0.1.1
+C:\osh\venv\Scripts\python -m pip install openspacehdl==0.2.0
 C:\osh\venv\Scripts\openspacehdl export --git C:\osh\src
 ```
 
@@ -55,24 +54,24 @@ records, outside the exported tree.
 
 A computer without network access takes the package and its dependencies from a computer with network access, the
 same version of Windows and the same version of Python: the set of files depends on the version of Python, and
-`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.1.1 -d <dir>` (with
+`pycryptodome` is a binary for 64-bit Windows. There, `py -3.14 -m pip download openspacehdl==0.2.0 -d <dir>` (with
 the version of Python of the offline computer) writes the wheels to `<dir>`. Compare the SHA-256 of
-`openspacehdl-0.1.1-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
-with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.1.1`. The export is
+`openspacehdl-0.2.0-py3-none-any.whl` with the one on the GitHub release of the package, copy `<dir>`, and install
+with `C:\osh\venv\Scripts\python -m pip install --no-index --find-links <dir> openspacehdl==0.2.0`. The export is
 the same. The SHA-256 of the file:
 
 ```shell
 # PowerShell
-Get-FileHash <dir>\openspacehdl-0.1.1-py3-none-any.whl -Algorithm SHA256
+Get-FileHash <dir>\openspacehdl-0.2.0-py3-none-any.whl -Algorithm SHA256
 # cmd
-certutil -hashfile <dir>\openspacehdl-0.1.1-py3-none-any.whl SHA256
+certutil -hashfile <dir>\openspacehdl-0.2.0-py3-none-any.whl SHA256
 ```
 
 With network access, a clone of the release from GitHub serves as well, with pytest and `pycryptodome` installed in
 the Python of the test computer (`python -m pip install "pytest>=9.0,<10" "pycryptodome>=3.23,<5"`):
 
 ```shell
-git clone -b v0.2.1 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
+git clone -b v0.3.0 https://github.com/open-space-hdl/reference-systems.git C:\osh\src\reference-systems
 cd C:\osh\src\reference-systems
 git submodule update --init
 git -C cores/open-logic-ft submodule update --init 3rdParty/en_cl_fix
@@ -201,18 +200,22 @@ python -B -m pytest systems/spfi_compress_encrypt/sw/hwtest --target device --de
   1. it reads both channels until they are quiet;
   2. it checks that the RMAP target answers and the link is initialised with all lanes. If not, the STAR-Ultra resets
      the link once and the check runs again; a system that fails it again stops the run;
-  3. it records and clears the error registers.
+  3. it records and clears the error registers;
+  4. it makes a pipeline reset;
+  5. when TC-RS-HW-05 has passed, it configures the system again as TC-RS-HW-05 does, with every key loaded again at
+     a counter above every counter used.
 
-  The system has no pipeline reset in this release: what a failure leaves in the processing path (an image in a
-  compressor, a configuration) stays and can make the next test case fail as well; a new device image starts it
-  clean. A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of
-  every recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
+  A test case whose prerequisites did not pass is not run, with the reason. The report lists the steps of every
+  recovery. `--stop-at-first-failure` stops at the first failure instead and reports the rest as not run.
 - TC-RS-HW-09 also records the measured rate.
 - `--seed` (default 1) sets the keys and the images. `--tc TC-RS-HW-nn` runs one test case and the test cases it
   builds on.
 - Before it sends the images of a test case, the test computes their compressed images with the reference model of
   OpenCompact, a few seconds per image.
 - `hardware_test.py --device`, the command of earlier releases, runs the same pytest tests.
+- Every run starts with the pipeline reset (section "Pipeline reset"): TC-RS-HW-01 writes the key to `prst0.CTRL`
+  after the check of the link, waits for the end of the reset and records `prst0.STATUS.COUNT`. `--no-pipeline-reset`
+  skips it, for diagnosis only; the report of such a run says so.
 
 The expected compressed images come from the reference model of OpenCompact for the generics of the compressor of
 every channel in the Composer file; the expected images and counters after lost Space Packets come from the error
@@ -220,8 +223,8 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 
 | Test | Steps | Pass criterion |
 | --- | --- | --- |
-| TC-RS-HW-01 Link | As spfi_encrypt | Link initialised, all lanes of `ofb0` active |
-| TC-RS-HW-02 Identification | Read the identification register of every register window; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`) | `ID` of every register bank with an identification = its `SPFI_COMPRESS_ENCRYPT_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435003); `INFO` of `edac0` gives its channels and counter width; every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file; on `ocp0` and `ocp3` `IMAGE_X` to `LIMITS` give either those values or the values of an image of an earlier run on the same device (section "Repeated runs"), values that a COMMIT accepts, shown as for an image of them, and the values are recorded |
+| TC-RS-HW-01 Link | As spfi_encrypt, the pipeline reset included | Link initialised, all lanes of `ofb0` active; the pipeline reset as in section "Pipeline reset" |
+| TC-RS-HW-02 Identification | Read the identification register of every register window and `STATUS` of `prst0`; read the configuration registers of the status interface of `ocp0` to `ocp3` (`GENERICS` to `BLOCK`, and `LIMITS`) | `ID` of every register bank with an identification = its `SPFI_COMPRESS_ENCRYPT_<BANK>_ID`, `ocp0` to `ocp3` included (0x4F435003), `prst0` 0x52535401; `INFO` of `edac0` gives its channels and counter width; `prst0.STATUS.BUSY` 0 and `COUNT` the value that TC-RS-HW-01 recorded (in a run without its pipeline reset `COUNT` is recorded); every configuration register of a compressor, `LIMITS` included, gives the generics of that compressor in the Composer file; on `ocp0` and `ocp3` `IMAGE_X` to `LIMITS` give either those values or the values of an image of an earlier run on the same device (section "Repeated runs"), values that a COMMIT accepts, shown as for an image of them, and the values are recorded |
 | TC-RS-HW-03 RMAP | As spfi_encrypt | Every value reads back; the wrong key gives the status "invalid key" (3) |
 | TC-RS-HW-04 Commands of several words | As spfi_encrypt | Both reads of 16 bytes give the words of the single reads; the test slot holds the written fixed field and invocation counter |
 | TC-RS-HW-05 Configuration | Receive APID table of `spp0` (APID 0x010 + i to port i, continuity check on, `VALID` 0); the send APID table entry of every output APID read (`TX_TABLE_APID`, `TX_TABLE_ENTRY`); `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3` read, and when they do not hold the values of the reset, the values of the generics written and committed; slot 0 of every AES-GCM core loaded with the key and IV values of its channel and queried; the packet, loss and encryption counters and the image, SDU and memory error counters of every compressor cleared | Table entries read back with the port, the enable and the continuity check; no table overrun; no double error in a send table entry, whose `COUNT` is recorded as the Packet Sequence Count from which the Space Packets of the APID continue in this run; a COMMIT of the values of the generics, when one is needed, gives `STATUS.CFG_PENDING` 1 and is recorded; every slot is valid with generated IVs and holds the fixed field and invocation counter of its channel |
@@ -230,15 +233,22 @@ cases of the OpenCompact channel (OpenCompact, specification of `ocp_channel`, s
 | TC-RS-HW-08 Lost data | Counters cleared, then per channel five images: (a) image 1 without its 25th Space Packet (of 49), image 2 intact; (b) image 3 without its last Space Packet, images 4 and 5 intact. The script leaves the Space Packets out and skips their sequence counts | (a) The Space Packet after the gap carries the Data Loss Indicator; image 1 ends after the samples of Space Packets 1 to 24 and 26 with an error, Space Packets 27 to 49 are discarded; image 2 equals the model. (b) Space Packet 1 of image 4 carries the Data Loss Indicator; its first 144 samples complete image 3, which ends with an error and equals the model of these samples; the rest of image 4 is discarded and gives no output; image 5 equals the model. Per channel `IMAGES_DONE` 2, `IMAGES_ABORTED` 2, `SDU_ERRORS` 2, `SDUS_DISCARDED` 23 + 48 = 71; `RX_LOSS` of `spp0` 8; the aborted image 1 has the complete header and the start of the codewords of its samples, fill bits up to a multiple of 4 bytes |
 | TC-RS-HW-09 Sustained rate | Counters cleared, then eight images per channel, all channels at once, as fast as the test equipment sends | No loss, every compressed image equals the model, the counters match. The rate is recorded: the images, the expected compressed images and the link packets are built before the transfer, which alone is timed, from the submission of its first operation to the arrival of its last packet; the received packets are converted and checked after it. The record gives the rate of the samples and of the link packets in both directions. The system takes at most 9.6 Gbit/s of samples for compressed images of at most 32 bits per sample ([README](../../../README.md#throughput), section Throughput); a lower rate is that of the test equipment and the host |
 | TC-RS-HW-10 Runtime configuration | `ocp0` and `ocp3` have the runtime configuration and the runtime parameters (`RuntimeConfig_g`, `RuntimeParams_g`), `ocp1` and `ocp2` do not. Counters cleared. Read `CONTROL` to `NEXT_LIMITS` and `NEXT_SAMPLES` to `NEXT_BLOCK` of `ocp0` and `ocp3`; write `NEXT_X` to `NEXT_BLOCK` and `CONTROL.COMMIT` of `ocp1` and `ocp2`. Then 22 images on each of channels 0 and 3, every one after its values in `NEXT_X` to `NEXT_LIMITS` (one command), `NEXT_SAMPLES` to `NEXT_BLOCK` (one command) and `CONTROL.COMMIT`: the seeded sequence of the runtime parameter testbench of OpenCompact (first the bounds of every dimension, 1 or 2 to 64 and 48, of the error limit value of channel 3, 0 to 1023, and of every parameter in use, then images at random, then an image of the maximum dimensions with log2 t_inc 4 and vmin = vmax = -6), then the values of the README. After the first COMMIT, COMMITs with one value out of range: NX 1 (channel 0 only), NX 65, NY 0, NZ 49, the absolute error limit value 1024 (channel 3 only), log2 t_inc 3, vmax below vmin, gamma* equal to gamma0, Umax 33, K 15 (channel 0 only) and M above NZ (channel 0, when NZ is below 48), each followed by a write of 1 to `STATUS.CFG_ERROR`. With the first image, one image of the generics on each of channels 1 and 2 | `ocp0` and `ocp3` read the values of the reset (`CONTROL` and `STATUS` 0, `NEXT_X` to `NEXT_Z` 64, 64 and 48, `NEXT_LIMITS` 0 and 12, `NEXT_SAMPLES` to `NEXT_BLOCK` the parameters of the generics; `STATUS.CFG_PENDING` 1 when TC-RS-HW-05 committed the values of the generics and no image has started since); `ocp1` and `ocp2` read 0 in the eleven registers and keep `IMAGE_X` to `LIMITS`. Every valid COMMIT gives `STATUS.CFG_PENDING` 1; every COMMIT with a value out of range gives `STATUS.CFG_ERROR` 1 with `CFG_PENDING` still 1, and the register reads back the value written; every chunk authenticates and decrypts with the key of its channel, and every compressed image equals the image of the model for its values, header included; after every image `IMAGE_X` to `IMAGE_Z`, `SAMPLES`, `ORDER`, `WEIGHTS`, `ADAPTIVE`, `BLOCK` and `LIMITS` show its values and `STATUS` is 0. The counters match: `IMAGES_DONE` 22 on channels 0 and 3 and 1 on channels 1 and 2, no error |
+| TC-RS-HW-19 Pipeline reset at rest | One image per channel (for `ocp0` and `ocp3` after a COMMIT of the values of the generics when TC-RS-HW-10 left others). Left in the processing path: a COMMIT of other valid values on `ocp0` and `ocp3`, the receive APID table entry of APID 0x030 (enabled, port 1, continuity check), the count 0x123 in the send APID table entry of APID 0x031, `CONFIG.ROUND_ROBIN` 1 of `spp0`, the loaded key slots. Left outside it: `WIN_CTRL` (disabled), `WIN_BASE` and `WIN_LAST` of window 3 of `rmap0`, `IRQ_ENA` of `edac0` 1, `DL_BC_INTERVAL` of `ofb0` 0x123; the lanes, `TGT_CNT_OK` of `rmap0` and the error registers of `ofb0`, `rmap0` and `edac0` read. Writes that `prst0` ignores: another value at `CTRL`, the two low bytes of the key at `CTRL` (byte enables 0011), the key at `STATUS`. Channel 1 read for 0.5 s and every key slot queried; the pipeline reset and the checks, a second pipeline reset and the checks again. Window 3, `IRQ_ENA` and `DL_BC_INTERVAL` restored; the configuration of TC-RS-HW-05 written again, every key loaded again with the counter after its last chunk; one image per channel | Before: `IMAGES_DONE` of every compressor and `RX_PACKETS` and `TX_PACKETS` of `spp0` above 0; no packet on channel 1, and the query of every slot reads the counter after the last chunk received. Each ignored write is answered with the status 0; `COUNT` and the table entry stay. After each reset: `COUNT` one more than before; both table entries hold the path defaults (enabled, port or destination 0, count 0), so does the send APID table entry of every output APID; `CONFIG`, `MAX_LENGTH` and the generics registers of `spp0` their values of the reset, `RX_PACKETS`, `TX_PACKETS` and `RX_LOSS` 0; every compressor counts 0 and its configuration registers, `IMAGE_X` to `LIMITS` included, give its generics, `CONTROL` to `NEXT_BLOCK` of `ocp0` and `ocp3` the values of the reset without a pending configuration; every key slot erased (the query reads 0), `ENCRYPTIONS` and every error counter of every AES-GCM core 0; every error register of `spp0` and of the compressors reads 0. Outside: window 3, `IRQ_ENA` and `DL_BC_INTERVAL` as written, the link initialised with every lane active and the lanes as before, the counters of `TGT_CNT_OK` not below their values before, every error register of `ofb0`, `rmap0` and `edac0` as before. Afterwards the Packet Sequence Count of every output APID is 0, every compressed image equals the model, the first invocation counter of every channel is the one loaded after the reset, above every counter used before it, and the counters match |
+| TC-RS-HW-20 Pipeline reset in the middle of an image | One scene image per channel (on all four channels; in the `sim` profile of the system testbench a small image on `ocp0` and `ocp3` after a COMMIT of its values); the far end sends the first half of the SDUs of each image (24 of 49 in the lab), waits until `RX_PACKETS` of `spp0` counts them all and reads channel 1 until it is quiet; every key slot queried; the pipeline reset, and channel 1 read until it is quiet again; then the configuration of TC-RS-HW-05 with every key loaded again at its bound, and one image per channel (with small images after a COMMIT of their values) | Before the reset every Space Packet that came back is the next authenticated chunk of the compressed image of its channel, at most as many as the compressed image of the samples sent fills; the query of every slot at most its bound; after the reset no Space Packet of the half images follows, except the next chunk cut by the reset (recorded). Every compressor counts 0 and holds its reset values, every key slot is erased; afterwards the Packet Sequence Count of every output APID is 0, every compressed image equals the model, the first invocation counter of every channel is its bound, above every counter before the reset, and the counters match |
+| TC-RS-HW-21 Pipeline reset with misconfigured compressors | On `ocp0` and `ocp3` a COMMIT of other valid values, then a COMMIT with a value out of range (the first one of TC-RS-HW-10) without the clear of `CFG_ERROR`; channel 1 read for 0.5 s and every key slot queried; the pipeline reset; the configuration of TC-RS-HW-05 with every key loaded again; one image of the generics on `ocp0` and `ocp3` | Before the reset `STATUS` shows `CFG_ERROR` and `CFG_PENDING`, the query of every slot reads the counter after its last chunk; after it `STATUS` reads 0, `CONTROL` to `NEXT_BLOCK` the values of the reset and `IMAGE_X` to `LIMITS` the generics; each image equals the model image of the generics, not of the values committed before the reset |
+| TC-RS-HW-22 Pipeline reset during traffic | One scene image per channel as in TC-RS-HW-20, the channels interleaved SDU by SDU; the far end sends the first k of the n SDUs, k from the seed and recorded, every key slot is queried and the pipeline reset follows at once, while the channels compress and encrypt; the far end then sends nothing and reads channel 1 until it is quiet; `DL_STATUS`, `ML_STATUS`, the lanes and the counters of `spp0` read; a second pipeline reset; the configuration of TC-RS-HW-05 with every key loaded again at its bound, and one image per channel | Per output APID every Space Packet that came back is the next one that the data sent can give (the chunks of a complete image exactly, those of an image in flight as far as its samples taken fill them), the last one possibly cut by the reset (recorded), none after it; the query of every slot at most its bound; RMAP answers, the link is initialised with every lane active; the counters of `spp0` are recorded (Space Packets in flight at the command are dropped or go to receive port 0). After the second reset the reset values as in TC-RS-HW-19; afterwards the Packet Sequence Counts start at 0, every compressed image equals the model, the first invocation counter of every channel is its bound, above every counter before the first reset, the counters match, and every error register of `ofb0`, `rmap0` and `edac0` holds its value from before the traffic |
+| TC-RS-HW-23 Fresh after the pipeline reset | Channel 1 read for 0.5 s and every key slot queried; the pipeline reset, then TC-RS-HW-02 to 07 again as a run that starts from the reset values, its keys loaded at the counters after the last chunks before the reset; the image-size test cases TC-RS-HW-08 to 10 are covered by the normal run and add nothing after the reset | As after a new device image: TC-RS-HW-02 finds the generics in `IMAGE_X` to `LIMITS` of `ocp0` and `ocp3`, TC-RS-HW-05 finds the values of the reset in `CONTROL` to `NEXT_BLOCK` and commits nothing, and every output APID starts at the Packet Sequence Count 0; every test case passes; the records carry the name TC-RS-HW-23 and that of their test case |
+| TC-RS-HW-18 Repeated run | The test cases of this run before TC-RS-HW-18 run again on the same device, without the pipeline reset of TC-RS-HW-01 and without a new device image, as a second run of the script (`sw/refsys/systest.py`, `repeat_run`) | Every test case passes again; the records of the second run carry the name TC-RS-HW-18 and that of their test case |
 
 The key registers are write-only. TC-RS-HW-04 and TC-RS-HW-05 check the IV values through the slot query;
 TC-RS-HW-06 checks the keys, since every chunk must authenticate and decrypt with the key of its channel.
 
 ### Repeated runs
 
-A run need not start from the reset. TC-RS-HW-18 runs the test cases of the run again on the same device, without a
-reset or a new device image, as a second run of the script does, and every one must pass again: the second run finds
-what the first one left in the system.
+Every run starts with the pipeline reset, which returns the processing path to its reset state. TC-RS-HW-18 runs the
+test cases of the run again on the same device without it and without a new device image, as a second run of the
+script does, and every one must pass again: the second run finds what the first one left in the system. The same
+holds for a run of single test cases (`--tc`) without TC-RS-HW-01:
 
 - Send side: the Space Packet node keeps the Packet Sequence Count of every APID in its send APID table until its
   reset. TC-RS-HW-05 reads the count of every output APID, records it, and the Space Packets of the run must continue
@@ -251,9 +261,68 @@ what the first one left in the system.
   them, and records it. `IMAGE_X` to `LIMITS` show the values of the last image until the next image starts:
   TC-RS-HW-02 accepts there the values of an image of the earlier run, values in range, and records them.
 
-The system has no reset of its data path that the script could command. After a run that stopped early, program the
-device again before the next run: the stop may leave an image half sent in a compressor, chunks in the buffers of the
-Space Packet node.
+After a run that stopped early, the next run needs no new device image when the stop left state only in the
+processing path (an image half sent in a compressor, chunks in the buffers of the Space Packet node): its pipeline
+reset clears it. Program the device again when RMAP no longer answers.
+
+### Pipeline reset
+
+`prst0` (`olo_ft_reset_ctrl_axi` of Open Logic FT) resets the processing path on command: `spp0` through its data path
+reset `DpRst`, the FIFOs `rxf0` to `rxf3`, the compressors `ocp0` to `ocp3`, the framers `frm0` to `frm3` and the
+AES-GCM cores `ocr0` to `ocr3` (the reset group of the Composer file). A write of the key 0x50495045 with all four byte
+enables to `CTRL` (offset 0x04) is a command; any other write does nothing. The reset lasts 16 clock cycles and starts
+after the write response of the command. `STATUS` (offset 0x08) shows `BUSY` and `COUNT`, the commands since the system
+reset. The link, the RMAP target, the decoder and the ECC monitor are not reset: the link stays up and the reply of the
+command arrives.
+
+The software (`sw/refsys/systest.py`, `pipeline_reset`) reads `STATUS`, writes the key with a verified write of one
+32-bit word and checks its reply, polls `STATUS` until `BUSY` is 0, checks that `COUNT` is one more than before and
+records it, then polls `TABLE_STATUS` of `spp0` until both APID tables are initialised again and `STATUS.BUSY` of every
+AES-GCM core until it is 0. After the reset the receive table routes every APID to receive port 0, as after the system
+reset, and the counts of the send table start at 0: send no Space Packet on virtual channel 1 from the command until the
+routing is written again (TC-RS-HW-05 or the test case that resets); the far end is part of the test setup, so this
+procedure controls it. A Space Packet that arrives during the reset is dropped; one that arrives after the release and
+before the receive table is written goes to receive port 0. The rest of a Space Packet that the reset interrupted is
+checked after the release as a packet of its own; it is usually discarded and counted once, and goes to receive port 0
+if it happens to form a valid packet. A second pipeline reset with the link quiet returns the pipeline to its reset
+state.
+
+TC-RS-HW-20 and 22 reset the processing path while it works. What comes back around such a reset is judged per output
+APID against what the data sent can give: the chunks of a complete image exactly, those of an image in flight as far as
+its samples taken fill them, and at most one Space Packet cut by the reset, the last one: a proper prefix of the next
+chunk and the byte 0x00 of the EEP beat of `spp0`. The device run does not report the end marker; the test judges the
+content.
+
+The reset erases every key slot with its IV state, as every reset of the AES-GCM core does (OpenCrypto user guide,
+KT-IV-03). The software loads every key again with an invocation counter above every counter used with it before the
+reset. At rest, before the command, it checks that channel 1 stays quiet for 0.5 s and that the query of every slot
+reads exactly the counter after the last chunk received, and after the reset it loads the key with that counter: the
+first chunk after the reload carries it, one more than the last chunk before the reset.
+
+When the reset comes during traffic (TC-RS-HW-20 and 22), no status can show the encryption quiet. The software then
+loads the key with the counter after the last chunk before the traffic plus the largest number of chunks that the data
+sent can give, ceil(B / 4096) for every complete compressed image of B bytes and ceil(W / 4096) for an image in flight,
+W the bound of one compressed image of the channel over the ranges of its runtime configuration; it counts from the data
+and not from a rate and a time, and it checks that the query of the slot before the command reads at most that counter.
+Either way every counter used before the reset is smaller, and the first chunk after the reload carries the new counter.
+
+The keys of the test software are test keys, never used for real data. They come from the seed of the run, so that a run
+is reproducible from its seed: runs with the same seed, and the second run of TC-RS-HW-18, use the same keys and start
+counters again. The rule above holds within one run.
+
+| Requirement (system README) | Shown by |
+| --- | --- |
+| PR-01 command register, PR-09 key and ignored writes | TC-RS-HW-19 (the ignored writes, the command); every run (TC-RS-HW-01) |
+| PR-02 the processing path is reset | TC-RS-HW-19 to 22 (`spp0` and the compressors read their reset values, every key slot is erased and every AES-GCM core counts 0, also after a reset in the middle of an image and during traffic; the FIFOs and framers pass the images after it) |
+| PR-03 the rest is not reset | TC-RS-HW-19 (the link, the lanes, window 3, `IRQ_ENA`, `DL_BC_INTERVAL`, the counters and error registers of `ofb0`, `rmap0` and `edac0`) |
+| PR-04 one reset signal of 16 cycles | The generated top level (one signal `prst0_RstOut_s` to every member); the length: the testbench of the entity in Open Logic FT |
+| PR-05 `BUSY` and the end of the reset | Every pipeline reset (TC-RS-HW-01, 19 to 23): `BUSY` 0, the APID tables initialised and every AES-GCM core idle before the next step |
+| PR-06 `COUNT` | TC-RS-HW-01, 02, 19 to 23 |
+| PR-07 a packet open on the link ends with an EEP | TC-RS-HW-20 and 22 record a Space Packet cut by the reset and check that nothing follows it (RMAP cannot place the command inside a packet); the testbench of OpenSPP covers `DpRst` while a packet is open |
+| PR-08 two commands give one reset state | TC-RS-HW-19 and 22 (two commands, `COUNT` two more, the reset values after the second); a command during a running reset: the testbench of the entity |
+| PR-10 the system reset resets the pipeline | The generated top level (`prst0.Rst` on the system reset); a run after a new device image reads `COUNT` 1 after TC-RS-HW-01 |
+| PR-11 the far end is quiet from the command until the routing is written | This section; the test cases send no Space Packet in between; TC-RS-HW-22 resets while Space Packets may still arrive and returns the reset state with a second reset, the link quiet |
+| PR-12 the keys loaded again above every counter used | TC-RS-HW-19, 21, 23 (at rest: the counter of every slot before the reset, the reload with it, the first chunk after it); TC-RS-HW-20 and 22 (during traffic: the bound of the data sent, the query of every slot at most the bound, the first chunk after the reload) |
 
 ### When the link does not come up
 

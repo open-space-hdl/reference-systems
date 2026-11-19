@@ -29,7 +29,8 @@ The system is defined by [spfi_encrypt.composer.json](spfi_encrypt.composer.json
 | `spp0` | `openspp.spp_core` | Space Packet node on virtual channel 1, 4 send and 4 receive ports, 8 KiB buffers |
 | `frm0` to `frm3` | `opencrypto.ocr_framer` | Cuts the user data of a received Space Packet into chunks and creates one encryption per chunk |
 | `ocr0` to `ocr3` | `opencrypto.ocr_core` | AES-GCM cores, 128-bit data path, one per encryption channel |
-| `dec0` | `olo.olo_axi_lite_decoder` | Splits the AXI4-Lite master of `rmap0` into 8 register windows |
+| `dec0` | `olo.olo_axi_lite_decoder` | Splits the AXI4-Lite master of `rmap0` into 9 register windows |
+| `prst0` | `olo.olo_ft_reset_ctrl_axi` | Pipeline reset controller: resets the processing path on command ([pipeline reset](#pipeline-reset)) |
 | `edac0` | `olo.olo_ft_ecc_monitor_axi` | Counts the corrected and uncorrectable errors of the 8 framer memories |
 | `auto_rst_sys` | `olo.olo_base_reset_gen` | Synchronous reset of the system clock domain (triplicated synchronisers) |
 
@@ -54,6 +55,31 @@ the blocks with a synchronous reset. `ofb0` and `pa0` take the asynchronous `Rst
 one reset generator per clock domain, `pa0` releases it with a reset generator in its free-running clock and resets
 the transceivers and their reset controller with it. `ofb0` holds its link in Near-End Reset until the transmitters of
 `pa0` are ready (`Stat_TxReady` of `pa0` to `Phy_TxReady` of `ofb0`).
+
+## Pipeline reset
+
+`prst0` (`olo.olo_ft_reset_ctrl_axi` of Open Logic FT) resets the processing path on command, without a new device image
+and with the link up. Its output `RstOut` is the source of the reset group `pipe` of the Composer file (`resetGroups`):
+the members are `spp0`, the framers `frm0` to `frm3` and the AES-GCM cores `ocr0` to `ocr3`. `spp0` takes the group
+reset on its data path reset `DpRst`; its link output stage keeps the system reset and ends a packet open on the link
+with an EEP. `pa0`, `ofb0`, `nchar0`, `rmap0`, `dec0`, `edac0` and `prst0` keep the system reset. The register map of
+`prst0` (`ID`, `CTRL`, `STATUS`) is in its documentation in Open Logic FT; the hardware test procedure, section
+"Pipeline reset", has the steps of the software and the test cases that show every requirement.
+
+| ID | Requirement |
+| --- | --- |
+| PR-01 | A write of the key with all four byte enables to `prst0.CTRL`, reachable over RMAP, shall command a reset of the processing path. Any other write shall do nothing (PR-09). |
+| PR-02 | The pipeline reset shall reset `spp0` (data path, register file and both APID tables with every per-APID sequence state, through `DpRst`), the framers `frm0` to `frm3` and the AES-GCM cores `ocr0` to `ocr3` (every key slot erased with its IV state). |
+| PR-03 | The pipeline reset shall not touch `ofb0` and `pa0` (the link and the lanes stay up, no lane reset, no link reset), `nchar0`, `rmap0` (logical address, key, windows, counters), `dec0`, `edac0` (its counters keep the memory errors of the reset blocks) and `prst0` itself. |
+| PR-04 | Every member shall see the same reset, asserted and released in the same clock cycle (one register, `prst0.RstOut`, drives them all); a commanded reset shall last `RstPulseCycles_g` = 16 cycles. |
+| PR-05 | `prst0.STATUS.BUSY` shall read 1 while the reset is asserted. The processing path is ready when `BUSY` is 0, `TABLE_STATUS.TX_BUSY` and `RX_BUSY` of `spp0` are 0 (the initialisation of the tables, 2048 cycles after the release), and `STATUS.BUSY` of every AES-GCM core is 0 (the erasure of the key table, `NumKeys_g` + 3 cycles). |
+| PR-06 | `prst0.STATUS.COUNT` shall count every command since the system reset, also one that restarts a running reset (16 bits, saturating at 0xFFFF), so that a record shows how many commands the device took. |
+| PR-07 | A packet that `spp0` is sending on the link when the pipeline reset comes shall end with an EEP. No byte of a packet that started before the reset shall follow the EEP. |
+| PR-08 | A command while the reset is asserted shall restart the count without a gap: the reset ends 16 cycles after the write response of the last command, and the processing path ends in the same state as after one command. |
+| PR-09 | The key shall be the 32-bit value 0x50495045 (ASCII "PIPE"; on the RMAP link the bytes 45 50 49 50). A write of another value, of the key with a flipped bit, with a missing byte enable, to another address, and of all zeros or all ones shall not reset the processing path. |
+| PR-10 | The system reset shall also reset the processing path (`prst0.RstOut` is the registered OR of its `Rst`, the system reset, and the commanded pulse), and `prst0` itself is reset only by the system reset. A command whose write response falls in the system reset is discarded. |
+| PR-11 | From the command until the software has written the receive table again, the far end shall not send on the virtual channel of the data path. A Space Packet that arrives during the reset is dropped; one that arrives after the release and before the receive table is written goes to receive port 0 (the path default of the APID tables, `RxPathDefault_g`). The rest of a Space Packet that the reset interrupted is checked after the release as a packet of its own; it is usually discarded and counted once, and goes to receive port 0 if it happens to form a valid packet. A second pipeline reset with the link quiet returns the pipeline to its reset state; the procedure states this rather than the hardware preventing it. The far end is part of the test setup, so the procedure controls it. |
+| PR-12 | The software shall load every key again after a pipeline reset with an invocation counter strictly greater than every counter used with that key before the reset, and the first IV that the far end receives after the reload shall be greater than the last one before the reset. |
 
 ## Lane initialisation
 
@@ -96,7 +122,7 @@ but the bring-up of the link runs with the reset values.
 ## Register map
 
 `dec0` gives every register port a window of 64 KiB (`PortAddrWidth_g = 16`). Addresses are RMAP memory addresses of
-`rmap0`; the map repeats every 512 KiB.
+`rmap0`; the map repeats every 1 MiB, and the port indices 9 to 15 answer with an error response.
 
 | Address | Block | Registers |
 | --- | --- | --- |
@@ -108,6 +134,7 @@ but the bring-up of the link runs with the reset values.
 | 0x0005_0000 | `ocr3` | AES-GCM core of channel 3 |
 | 0x0006_0000 | `rmap0` | RMAP target: logical addresses, key, windows |
 | 0x0007_0000 | `ofb0` | SpaceFibre port: lanes, data link, virtual channels |
+| 0x0008_0000 | `prst0` | Pipeline reset controller: `ID`, `CTRL`, `STATUS` in 4 KiB, repeated in the window |
 
 The register maps of the blocks are in the user guides of
 [OpenSPP](https://openspacehdl.org/openspp/), [OpenCrypto](https://openspacehdl.org/opencrypto/),

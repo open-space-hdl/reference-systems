@@ -34,9 +34,11 @@ BENCH = sysvectors.Bench(
     name="spfi_encrypt",
     ht=ht,
     model=lambda ctx: SystemModel(ctx.setup),
-    context=lambda seed, profile, size: ht.make_context(seed, size or ht.PROFILES[profile].packets),
+    context=lambda seed, profile, size: ht.make_context(seed, size or ht.PROFILES[profile].packets,
+                                                        clear_bw_flags=ht.PROFILES[profile].clear_bw_flags),
     fields=lambda ctx: {"packets": ctx.packets},
-    restore=lambda vectors: ht.make_context(vectors["seed"], vectors["packets"]),
+    restore=lambda vectors: ht.make_context(vectors["seed"], vectors["packets"],
+                                            clear_bw_flags=ht.PROFILES[vectors["profile"]].clear_bw_flags),
     describe=lambda vectors: f"{vectors['packets']} Space Packets in TC-RS-HW-06",
 )
 

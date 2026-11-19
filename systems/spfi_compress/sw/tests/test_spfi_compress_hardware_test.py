@@ -17,7 +17,8 @@ import pytest
 
 from refsys import errorstate, ocp, ocptest, rmap, systest
 from refsys.composer import SystemFile, instance_of
-from refsys.transport import FarEndReset
+from refsys.spp import SpacePacket, cptp_encode
+from refsys.transport import FarEndReset, Packet
 
 import ocp_configs  # noqa: E402 - tools of cores/opencompact, on the path through refsys.ocp
 
@@ -64,10 +65,12 @@ def test_procedure_passes_against_the_model():
     m, ctx = model(), context()
     results = run(m, ctx)
     assert list(results) == [ht.test_name(t) for t in ht.TESTS] and not any(results.values())
-    # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two), 14 (three) and 16
-    per_channel = len(LAB.kinds) + 5 + LAB.stream + 7
-    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel
-    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2
+    # TC-RS-HW-06, 08 and 09, and one image per channel in each round of TC-RS-HW-12, 13 (two), 14 (three), 16, 19
+    # (two), 20 (two) and 22 (two)
+    per_channel = len(LAB.kinds) + 5 + LAB.stream + 13
+    # TC-RS-HW-10: the plan of the two channels with the runtime configuration, one image of each other channel;
+    # TC-RS-HW-21: one image of each channel with the runtime configuration (TC-RS-HW-23 runs with a context of its own)
+    runtime = sum(len(ocptest.image_plan(ctx, ch)) for ch in ocptest.split_channels(SYSTEM)[0]) + 2 + 2
     assert ctx.images == 4 * per_channel + runtime and not m.pending
     assert ctx.rate.endswith("from the first submission to the last packet received: the far end is the system model, "
                              "whose time is no rate of the system")
@@ -172,7 +175,7 @@ def test_register_banks_of_the_exported_header_match_the_system():
     # identifications: the register map identifications of the pinned cores, so that a new version of a register map
     # shows up here before the system is tested
     core_ids = {s.node: systest.SPP.REGMAP_ID, s.rmap: systest.OMAP.REGMAP_ID, s.port: systest.OFB.REGMAP_ID}
-    core_ids |= {c.compressor: ht.OCP.REGMAP_ID for c in s.channels}
+    core_ids |= {c.compressor: ht.OCP.REGMAP_ID for c in s.channels} | {s.reset: systest.PRST_ID_VALUE}
     assert s.ids == core_ids
     # channels of the ECC monitor: the compressors, then the FIFOs, as many as Channels_g
     assert s.ecc_names == [f"OCP{k}_ECC" for k in range(4)] + [f"RXF{k}_ECC" for k in range(4)]
@@ -608,10 +611,32 @@ class Faulty(sm.SystemModel):
             return FarEndReset(False, "far end of the system model: link ready while held in reset")
         return super().far_end_link_reset()
 
-    def _bus_read(self, address):
-        if self.mutation == "no_alias" and address >= self.decoded_bytes:
-            return None                                  # a decoder that answers DECERR above its ports
-        return super()._bus_read(address)
+    def _bus_write(self, address, value, strobes=0xF):
+        if self.mutation == "alias" and address % self.decoded_bytes >= 0x90000:
+            address -= 0x80000                           # a decoder of 8 ports that ignores the bit above them
+        key = SYSTEM.reset_key
+        if self.mutation == "half_key" and strobes == 0x3 and value == key & 0xFFFF:
+            value, strobes = key, 0xF                    # a controller that takes a command of two bytes
+        if (self.mutation == "no_count" and address == SYSTEM.base("prst0") + systest.PRST_CTRL and value == key
+                and self.reset_count):
+            self.reset_count -= 1                        # a controller that does not count its commands
+        return super()._bus_write(address, value, strobes)
+
+    def _pipeline_reset(self):
+        tables, channels, runtime = (dict(self.rx_table), dict(self.tx_table)), dict(self.channels), dict(self.runtime)
+        window = {a: v for a, v in self.regs.items() if TARGET + OMAP.WIN_CTRL(3) <= a <= TARGET + OMAP.WIN_LAST(3)}
+        super()._pipeline_reset()
+        if self.mutation == "tables_kept":
+            self.rx_table, self.tx_table = tables
+        if self.mutation == "window_reset":
+            for address in window:
+                self.regs[address] = 0                   # a reset that reaches a window of the RMAP target
+        if self.mutation == "pending_kept":
+            self.channels, self.runtime = channels, runtime  # compressors that keep a pending configuration
+        if self.mutation == "late_packet" and self.reset_count >= 2:
+            # a Space Packet that the link output stage sends after the reset, not the next one of its APID
+            packet = SpacePacket(apid=SYSTEM.channels[0].output_apid, data=bytes(16), sequence_count=5)
+            self.pending.append(Packet(cptp_encode(packet.encode(), self.setup.far_end_tla), "EOP"))
 
     def _rmap(self, packet):
         cmd = bytes(packet[len(self.setup.rmap_path):])
@@ -631,6 +656,21 @@ class Faulty(sm.SystemModel):
         return out
 
 
+def test_the_bound_of_an_image_is_that_of_the_throughput_budget():
+    # W of the counter bound after a reset during traffic (ocp.worst_image_bytes): the bound over the ranges of the
+    # runtime parameters on the channels with them, the bound of the generics on the others
+    for ch in LAB_SYSTEM.channels:
+        want = RUNTIME_BOUNDS[ch.compressor][0] if ch.compressor in RUNTIME_BOUNDS else ocp.ocp_model.max_image_bytes(
+            ch.cfg)
+        assert ocp.worst_image_bytes(ch.cfg, ch.generics) == want, ch.compressor
+
+
+def test_tc23_finds_counts_that_the_pipeline_reset_kept():
+    # after traffic the send APID table holds counts above 0; a reset that keeps the tables leaves them
+    results = run(Faulty("tables_kept"), context(), ht.select_tests(["TC-RS-HW-06", "TC-RS-HW-23"]))
+    assert "after the pipeline reset, expected 0" in (results["TC-RS-HW-23"] or ""), results
+
+
 @pytest.mark.parametrize("mutation, test, message", [
     ("baseline", "TC-RS-HW-01", "error registers that do not clear: ofb0.DL_RETRIES"),
     ("generics", "TC-RS-HW-02", "rmap0 GENERICS"),
@@ -642,9 +682,17 @@ class Faulty(sm.SystemModel):
     ("no_single", "TC-RS-HW-14", "ofb0.ECC_COUNT(2)"),
     ("no_drop", "TC-RS-HW-14", "expected 0x0000001B under"),
     ("header_crc", "TC-RS-HW-15", "header CRC error: TGT_LAST"),
-    ("no_alias", "TC-RS-HW-15", "a read with an AXI error ends its reply with an EEP"),
+    ("alias", "TC-RS-HW-15", "write at 0x00090000, outside the register windows"),
     ("oversize", "TC-RS-HW-16", "Space Packet of 8193 bytes: LAST_ERROR"),
     ("crc_count", "TC-RS-HW-12", "error registers that the test case does not target: ofb0.DL_CRC16_COUNT"),
+    ("tables_kept", "TC-RS-HW-19", "receive APID table entry of APID 0x030"),
+    ("half_key", "TC-RS-HW-19", "prst0: the low half of the key at CTRL changes STATUS.COUNT"),
+    ("window_reset", "TC-RS-HW-19", "rmap0 window after the pipeline reset"),
+    ("pending_kept", "TC-RS-HW-19", "ocp0 CONTROL to NEXT_LIMITS"),
+    ("no_count", "TC-RS-HW-19", "prst0 STATUS.COUNT 1 after the command, 1 before it"),
+    ("late_packet", "TC-RS-HW-20", "after the pipeline reset: Space Packet 0 of 26 bytes (end marker EOP) is not"),
+    ("late_packet", "TC-RS-HW-22", "TC-RS-HW-22: Space Packet 0 of 26 bytes (end marker EOP) is not"),
+    ("pending_kept", "TC-RS-HW-21", "ocp0 CONTROL to NEXT_LIMITS"),
 ])
 def test_the_trl4_test_cases_detect_a_faulty_system(mutation, test, message):
     results = run(Faulty(mutation), context(), ht.select_tests([test]))
@@ -669,16 +717,17 @@ def test_tc17_finds_an_error_counted_after_the_baseline():
         ht.tc17_end_of_run(regs, ctx)
 
 
-def test_every_address_reaches_a_register_window_of_spfi_compress():
-    """The decoder has 8 ports of 64 KiB and ignores the address bits above them: the map repeats every 0x80000
-    bytes, as the address map states, and no address answers DECERR."""
+def test_the_decoder_of_spfi_compress_answers_decerr_above_its_ports():
+    """The decoder has 9 ports of 64 KiB, the last one the pipeline reset controller: the port indices 9 to 15 have
+    no port and answer DECERR, and the map repeats every 0x100000 bytes, as the address map states."""
     m = model()
-    assert SYSTEM.decoded_bytes() == 0x80000 and SYSTEM.unmapped_address() is None
+    assert SYSTEM.decoded_bytes() == 0x100000 and SYSTEM.unmapped_address() == 0x90000
     address_map = (Path(ht.SYSTEM_FILE).parent / "hdl" / "spfi_compress_address_map.md").read_text(encoding="utf-8")
-    assert "the map repeats every 0x00080000 bytes" in address_map
-    assert m._bus_read(0x80000 + NODE + SPP.ID) == m._bus_read(0xFFF80000 + NODE + SPP.ID) == SYSTEM.ids["spp0"]
+    assert "the map repeats every 0x00100000 bytes" in address_map
+    assert m._bus_read(0x90000) is None and m._bus_read(0xFFFFC) is None and not m._bus_write(0x90000, 1)
+    assert m._bus_read(0x100000 + NODE + SPP.ID) == m._bus_read(0xFFF00000 + NODE + SPP.ID) == SYSTEM.ids["spp0"]
     scratch = TARGET + OMAP.WIN_BASE(SYSTEM.rmap_windows - 1)
-    assert m._bus_write(0x80000 + scratch, 0x1234) and m._bus_read(scratch) == 0x1234
+    assert m._bus_write(0x100000 + scratch, 0x1234) and m._bus_read(scratch) == 0x1234
 
 
 def test_the_error_registers_of_spfi_compress():
@@ -705,10 +754,10 @@ class Accesses(sm.SystemModel):
             self.log.append(("read", self.flags[address]))
         return super()._bus_read(address)
 
-    def _bus_write(self, address, value):
+    def _bus_write(self, address, value, strobes=0xF):
         if address in self.flags:
             self.log.append(("write", self.flags[address], value))
-        return super()._bus_write(address, value)
+        return super()._bus_write(address, value, strobes)
 
 
 @pytest.mark.parametrize("profile", ["sim", "lab"])
@@ -721,6 +770,16 @@ def test_the_sim_profile_clears_the_bandwidth_flags_before_their_first_read(prof
         assert m.log[:2] == writes and ("read", "VC_BW_OVER") in m.log[2:]
     else:
         assert not [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF] and m.log[0][0] == "read"
+
+
+def test_the_bandwidth_flags_are_cleared_once_per_run():
+    """In the sim profile TC-RS-HW-01 clears the bandwidth flags; TC-RS-HW-19, which reads them again with the error
+    registers outside the processing path, writes them no more (systest.clear_bw_flags)."""
+    m = Accesses()
+    results = run(m, context(profile=ht.PROFILES["sim"]), ht.select_tests(["TC-RS-HW-19"]))
+    assert list(results)[-1] == "TC-RS-HW-19" and not any(results.values()), results
+    ones = [a for a in m.log if a[0] == "write" and a[2] == 0xFFFFFFFF]
+    assert ones == [("write", name, 0xFFFFFFFF) for name in ht.BW_FLAGS] and m.log[:2] == ones
 
 
 def second_run_records(ctx) -> list[str]:

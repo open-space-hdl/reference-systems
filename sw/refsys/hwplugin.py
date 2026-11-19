@@ -22,11 +22,12 @@ end. Python writes its bytecode next to the sources unless it runs with -B; the 
 
 After a failure the run goes on: before the next test case the recovery (systest.recover) reads the channels until
 they are quiet, checks the health of the system (RMAP answers, the link is initialised with all lanes; once a far-end
-link reset if not) and clears the error registers. The systems of this release have no pipeline reset: a failure that
-leaves an image in the processing path can make the next test case fail as well. A test case whose prerequisites
-(REQUIRES) did not pass is not run; a system that stays unhealthy stops the run, and the rest is not run.
---stop-at-first-failure stops at the first failure instead. --image names the programmed device image: its name,
-SHA-256 and the build_info.txt next to it are recorded.
+link reset if not), clears the error registers, resets the pipeline and configures the system again (the hook
+reconfigure of the system, when its test case CONFIGURE has passed). A test case whose prerequisites (REQUIRES) did not
+pass is not run; a system that stays unhealthy stops the run, and the rest is not run. --stop-at-first-failure stops
+at the first failure instead. --no-pipeline-reset skips the pipeline reset at the start of the run (TC-RS-HW-01), so
+that the run starts from what an earlier run left in the processing path (diagnosis only; the report says so).
+--image names the programmed device image: its name, SHA-256 and the build_info.txt next to it are recorded.
 --tc selects test cases together with those they build on; -k is refused, since it would drop them.
 """
 
@@ -70,6 +71,8 @@ def pytest_addoption(parser: pytest.Parser) -> None:
                 help="run only this test case and those it builds on (repeatable), for example TC-RS-HW-08")
     g.addoption("--stop-at-first-failure", action="store_true",
                 help="stop at the first failure: the later test cases are not run (default: recover and go on)")
+    g.addoption("--no-pipeline-reset", action="store_true",
+                help="skip the pipeline reset at the start of the run in TC-RS-HW-01 (diagnosis only)")
 
 
 def hardware(config: pytest.Config) -> bool:
@@ -128,8 +131,10 @@ def pytest_configure(config: pytest.Config) -> None:
     config.stash[LOG_KEY] = log
     config.stash[SINKS_KEY] = sinks
     config.stash[STATE_KEY] = {"failed": None, "outcomes": {}, "stop": config.getoption("stop_at_first_failure"),
-                               "recover_after": None, "unhealthy": None}
+                               "recover_after": None, "unhealthy": None,
+                               "no_pipeline_reset": config.getoption("no_pipeline_reset")}
     SESSION["log"] = log
+    SESSION["errors"] = {}
     log.begin("")
     log.emit("env", f"results in {run}", results=str(run))
     if not sys.flags.dont_write_bytecode:
@@ -139,6 +144,7 @@ def pytest_configure(config: pytest.Config) -> None:
 
 def pytest_unconfigure(config: pytest.Config) -> None:
     SESSION.pop("log", None)
+    SESSION.pop("errors", None)
     for sink in config.stash.get(SINKS_KEY, []):
         sink.close()
 
@@ -227,6 +233,7 @@ class HardwareRun:
         self.ctx = module.context(config.getoption("seed"), self.profile)
         self.ctx.log = self.log
         self.ctx.requirements = getattr(self.ht, "REQUIREMENTS", {})
+        self.ctx.pipeline_reset = not self.state["no_pipeline_reset"]
         if self.target == "model":
             self.transport = module.model(self.ctx)
         else:
@@ -256,7 +263,9 @@ class HardwareRun:
         try:
             systest.run_one(self.regs, self.ctx, test)
         except BaseException as err:
-            self.results.append((name, str(err) or type(err).__name__))
+            reason = str(err) or type(err).__name__
+            self.results.append((name, reason))
+            SESSION.setdefault("errors", {})[name] = reason
             self.state["outcomes"][name] = "failed"
             self.state["failed"] = self.state["failed"] or name
             self.state["recover_after"] = name
@@ -272,8 +281,11 @@ class HardwareRun:
         self.ctx.current = name
         self.log.begin(name)
         self.log.step(f"recovery after {failed} failed, before {name}")
+        configure = getattr(self.ht, "CONFIGURE", None)
+        reconfigure = getattr(self.ht, "reconfigure", None)
+        configured = configure is not None and self.state["outcomes"].get(systest.test_name(configure)) == "passed"
         try:
-            systest.recover(self.regs, self.ctx, failed)
+            systest.recover(self.regs, self.ctx, failed, reconfigure if configured else None)
         except Exception as err:  # noqa: BLE001 - the run stops with the reason
             self.state["unhealthy"] = f"the recovery after {failed} failed: {err}"
             self.skip(name, f"not run: {self.state['unhealthy']}")
@@ -297,7 +309,8 @@ class HardwareRun:
                   "requirements": getattr(self.ht, "REQUIREMENTS", {}),
                   "requirements_note": getattr(self.ht, "REQUIREMENTS_NOTE", ""),
                   "not_run": [{"test": n, "reason": r} for n, r in self.not_run],
-                  "stop_at_first_failure": self.state["stop"]}
+                  "stop_at_first_failure": self.state["stop"],
+                  "no_pipeline_reset": self.state["no_pipeline_reset"]}
         path = systest.write_records(run, self.system, "device" if self.target == "device" else "system model",
                                      self.profile, self.ctx, self.results, self.started, extra)
         render = load_renderer()
@@ -323,7 +336,8 @@ def hw(request: pytest.FixtureRequest, record_testsuite_property):
     for name, value in (("system", run.system), ("target", run.target), ("profile", run.profile),
                         ("seed", request.config.getoption("seed")),
                         ("commit", (git("rev-parse", "HEAD") or "").strip()),
-                        ("stop_at_first_failure", run.state["stop"])):
+                        ("stop_at_first_failure", run.state["stop"]),
+                        ("no_pipeline_reset", run.state["no_pipeline_reset"])):
         record_testsuite_property(name, value)
     yield run
     run.close()
@@ -331,7 +345,8 @@ def hw(request: pytest.FixtureRequest, record_testsuite_property):
 
 # --- results ---------------------------------------------------------------------------------------------------------
 def pytest_runtest_logreport(report: pytest.TestReport) -> None:
-    """One result line per test case in the step log, with its duration."""
+    """One result line per test case in the step log, with its duration; a failed test case with its reason, the
+    error of the report."""
     tc = next((k for k in report.keywords if k.startswith("TC-RS-HW-")), None)
     if tc is None or not (report.when == "call" or (report.when == "setup" and not report.passed)):
         return
@@ -342,8 +357,10 @@ def pytest_runtest_logreport(report: pytest.TestReport) -> None:
     if log.test != tc:
         log.begin(tc)
     checks = log.passed_checks(tc)
-    log.emit("result", f"{tc} {outcome.upper()} {report.duration:.1f} s, {checks} checks passed", outcome,
-             duration=report.duration, checks_passed=checks)
+    error = SESSION.get("errors", {}).get(tc) if outcome == "fail" else None
+    text = f"{tc} {outcome.upper()} {report.duration:.1f} s, {checks} checks passed" + (f": {error}" if error else "")
+    log.emit("result", text, outcome, duration=report.duration, checks_passed=checks,
+             **({"error": error} if error else {}))
 
 
 # the step log of the hardware test session (pytest_runtest_logreport has no access to the configuration)
@@ -366,6 +383,9 @@ def pytest_terminal_summary(terminalreporter, exitstatus: int, config: pytest.Co
     tr.section("hardware test")
     if config.stash[STATE_KEY]["stop"]:
         tr.write_line("--stop-at-first-failure: the test cases after the first failure did not run")
+    if config.stash[STATE_KEY]["no_pipeline_reset"]:
+        tr.write_line("--no-pipeline-reset: the run did not start with the pipeline reset; this run is for diagnosis, "
+                      "not evidence")
     for tc, result, duration, reason in rows:
         tr.write_line(f"{tc:<13} {result:<8} {duration:8.1f} s  {reason}")
     tr.write_line(f"outputs: {config.stash[RUN_KEY]}")

@@ -57,12 +57,13 @@ SYSTEM_DIR = Path(__file__).resolve().parents[1]
 ROOT = SYSTEM_DIR.parents[1]
 sys.path.insert(0, str(ROOT / "sw"))
 
-from refsys import ecctest, errorstate, ocp, ocptest, rmaptest, spptest, systest  # noqa: E402
+from refsys import ecctest, errorstate, ocp, ocptest, resettest, rmaptest, spptest, systest  # noqa: E402
 from refsys.composer import SystemFile, instance_of  # noqa: E402
 from refsys.regs import RegisterMap  # noqa: E402
 from refsys.spp import PRIMARY_HEADER_BYTES, SEQ_UNSEGMENTED, SpacePacket, cptp_decode, cptp_encode  # noqa: E402
 from refsys.systest import (  # noqa: E402, F401
-    OFB, OMAP, SPP, Registers, Setup, TestFailed, check, consecutive, drain, hex_words, tc11_port_registers, test_name)
+    OFB, OMAP, SPP, WIN_CTRL_WRITTEN, WIN_ENABLE, Registers, Setup, TestFailed, check, consecutive, drain, hex_words,
+    tc11_port_registers, test_name)
 
 OCP = RegisterMap(systest.CORES / "opencompact" / "sw" / "ocp_regs.h", "OCP")
 SYSTEM_FILE = SYSTEM_DIR / "spfi_compress.composer.json"
@@ -79,11 +80,6 @@ DATA_LOSS = 1 << 12
 # The configuration registers of the status interface of a compressor, read with one command in TC-RS-HW-04
 OCP_CONFIG = ("ID", "GENERICS", "IMAGE_X", "IMAGE_Y", "IMAGE_Z", "SAMPLES", "ORDER", "CODER", "PREDICTOR", "WEIGHTS",
               "ADAPTIVE", "BLOCK")
-# The fields of WIN_CTRL of the RMAP target that TC-RS-HW-04 writes: all but ENABLE (OpenRMAP register map)
-WIN_CTRL_WRITTEN = (OMAP.field("WIN_CTRL", "LAST_EXT", 0xFF) | OMAP.field("WIN_CTRL", "BASE_EXT", 0xFF)
-                    | sum(OMAP.field("WIN_CTRL", f, 1) for f in ("READ", "WRITE", "VERIFIED_ONLY", "RMW", "SINGLE")))
-WIN_ENABLE = OMAP.field("WIN_CTRL", "ENABLE", 1)
-
 # Assumed lowest rate of the test equipment, for the time-outs of the exchanges of images (bytes per second)
 EQUIPMENT_RATE = 20e6
 
@@ -97,8 +93,8 @@ class Profile:
     bounds (refsys.ocptest.image_plan). The test cases that check the data path after a provoked event
     (traffic_round) send one image per channel, or with small only one image of at most small samples (NX, NY, NZ)
     on each channel with the runtime configuration. With clear_bw_flags TC-RS-HW-01 clears VC_BW_OVER and VC_BW_UNDER
-    of the SpaceFibre port before their first read (BW_FLAGS). The hardware test runs the lab profile, the system
-    simulation the sim profile."""
+    of the SpaceFibre port before their first read (systest.clear_bw_flags). The hardware test runs the lab profile,
+    the system simulation the sim profile."""
 
     name: str
     kinds: tuple[str, ...]
@@ -113,11 +109,8 @@ PROFILES = {p.name: p for p in (Profile("lab", ocp.KINDS, 8),
                                 Profile("sim", ("scene",), 2, split_lost=True, runtime_full=False,
                                         small=(64, 16, 8), clear_bw_flags=True))}
 
-# Known issue of OpenFibre v0.1.4 in simulation: VC_BW_OVER and VC_BW_UNDER hold 'U' until the status of the core has
-# crossed into the management clock domain, which happens only after the lane clock of the simulated transceiver
-# starts; a read puts 'U' into the reply and its CRC. Writing ones clears both flags (write-one-to-clear). On hardware
-# the flags start at 0, and the lab profile reads them as they are.
-BW_FLAGS = ("VC_BW_OVER", "VC_BW_UNDER")
+# Known issue of OpenFibre v0.1.4 in simulation: the bandwidth flags of the SpaceFibre port (systest.BW_FLAGS)
+BW_FLAGS = systest.BW_FLAGS
 
 
 @dataclass
@@ -319,13 +312,13 @@ def expected_image(ch: Channel, output: ocp.Output) -> bytes:
     return data
 
 
-def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) -> dict[int, list[bytes]]:
-    """Sends the SDUs of every channel, the channels interleaved SDU by SDU, and returns per channel the compressed
-    images that it sent back; checks every Space Packet against the model of the channel."""
+def sdu_packets(ctx: Context, streams: dict[int, list[Sdu]], limit: int | None = None) -> tuple[list[bytes], dict]:
+    """The link packets of the SDUs of every channel, the channels interleaved SDU by SDU (only the first limit SDUs
+    of that order with a limit), and per channel the outputs that the model of the channel gives for them."""
     s, setup = ctx.system, ctx.setup
     order = [sdu for group in itertools.zip_longest(*(streams[p] for p in sorted(streams))) for sdu in group if sdu]
     packets, outputs = [], {p: [] for p in streams}
-    for sdu in order:
+    for sdu in order[:limit]:
         ch = s.channels[sdu.port]
         apid = setup.input_apid_base + ch.port
         count = (ctx.input_count.get(apid, 0) + sdu.gap) & 0x3FFF
@@ -342,6 +335,14 @@ def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) ->
         outputs[sdu.port] += ctx.models[sdu.port].sdu(sdu.data, user)
         ctx.traffic.sdus += 1
         ctx.traffic.losses += loss
+    return packets, outputs
+
+
+def send_images(regs: Registers, ctx: Context, streams: dict[int, list[Sdu]]) -> dict[int, list[bytes]]:
+    """Sends the SDUs of every channel, the channels interleaved SDU by SDU, and returns per channel the compressed
+    images that it sent back; checks every Space Packet against the model of the channel."""
+    s, setup = ctx.system, ctx.setup
+    packets, outputs = sdu_packets(ctx, streams)
     images = {p: [(o, expected_image(s.channels[p], o)) for o in outs] for p, outs in outputs.items()}
     expected = sum(len(chunks_of(data, s.channels[p].chunk_bytes)) for p, outs in images.items() for _, data in outs)
     size = sum(len(p) for p in packets) + sum(len(data) for outs in images.values() for _, data in outs)
@@ -494,12 +495,9 @@ def tc01_link(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-01: the link is up with all lanes, the SpaceFibre port answers over RMAP, the lanes are recorded
     (sw/refsys/systest.py); then the baseline of the error and memory error registers of every block: recorded,
     cleared and read again as 0 (refsys.errorstate). In a profile with clear_bw_flags VC_BW_OVER and VC_BW_UNDER are
-    cleared before the baseline reads them (BW_FLAGS)."""
+    cleared before the baseline reads them (systest.clear_bw_flags)."""
     systest.tc01_link(regs, ctx)
-    if ctx.profile.clear_bw_flags:
-        base = ctx.system.base(ctx.system.port)
-        for name in BW_FLAGS:
-            regs.write(base + getattr(OFB, name), 0xFFFFFFFF)
+    systest.clear_bw_flags(regs, ctx)
     systest.baseline(regs, ctx)
 
 
@@ -860,9 +858,235 @@ def tc16_space_packet_errors(regs: Registers, ctx: Context) -> None:
 def tc15_rmap_errors(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-15: the RMAP target against commands that it refuses, discards or treats specially: the reply, TGT_LAST
     and the counters of every case, window 0 restricted and restored through window 3 (sw/refsys/rmaptest.py). The
-    decoder of spfi_compress has 8 ports, so every address reaches a register window and the map repeats every
-    0x80000 bytes: a read at 0x80000 returns the identification of spp0."""
+    decoder of spfi_compress has 9 ports and decodes 20 address bits: a write at 0x90000, after the last register
+    window, ends with the status 1 of an AXI error (systest.System.unmapped_address)."""
     rmaptest.tc15_rmap_errors(regs, ctx, ctx.system.unmapped_address())
+
+
+def after_pipeline_reset(regs: Registers, ctx: Context) -> None:
+    """The configuration of TC-RS-HW-05 again after a pipeline reset, which returned it to its reset values: input
+    APID i goes to receive port i with the continuity check, the Packet Sequence Count of every output APID is 0
+    (systest.read_start_counts), the counters are cleared."""
+    ctx.pending_loss.clear()
+    systest.route_inputs(regs, ctx, continuity=True)
+    systest.read_start_counts(regs, ctx)
+    check(not any(ctx.output_count.values()), f"Packet Sequence Counts of the output APIDs after the pipeline reset: "
+          f"{ctx.output_count}")
+    clear_status(regs, ctx)
+
+
+def tc19_pipeline_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-19: pipeline reset at rest (sw/refsys/resettest.py). A round of images (traffic_round) leaves counts
+    in the Space Packet node and the compressors; a COMMIT of other valid values leaves a pending configuration in
+    every compressor with the runtime configuration; an entry of each APID table and CONFIG.ROUND_ROBIN are left in
+    the node, the last window of the RMAP target, IRQ_ENA of the ECC monitor and DL_BC_INTERVAL of the SpaceFibre port
+    outside the processing path. The writes that the pipeline reset controller ignores change neither STATUS.COUNT
+    nor the table entry. The command resets the processing path: the Space Packet node and every compressor hold
+    their reset values (no pending configuration, IMAGE_X to LIMITS the generics), their error registers read 0,
+    nothing outside changed; a second command counts once more and leaves the reset values. After the configuration
+    of TC-RS-HW-05 a round of images equals the model, with the Packet Sequence Counts of the output APIDs from 0."""
+    s = ctx.system
+    runtime, _ = ocptest.split_channels(s)
+    for ch in traffic_round(regs, ctx):
+        count = regs.read(s.base(ch.compressor) + OCP.IMAGES_DONE)
+        check(count > 0, f"{ch.compressor} IMAGES_DONE is 0 before the pipeline reset")
+    for ch in runtime:
+        ocptest.commit(regs, ctx, ch, ocptest.other_values(ch))
+    resettest.leave_in_node(regs, ctx)
+    left = resettest.leave_outside(regs, ctx)
+    resettest.ignored_writes(regs, ctx)
+    for label in (" of TC-RS-HW-19", " of TC-RS-HW-19, second command"):
+        systest.pipeline_reset(regs, ctx, label)
+        ocptest.reset_models(ctx)
+        resettest.check_node_reset(regs, ctx)
+        for ch in s.channels:
+            ocptest.check_pipeline_reset(regs, ctx, ch)
+        resettest.check_members_errors(regs, ctx)
+        resettest.check_outside(regs, ctx, left)
+    resettest.restore_outside(regs, ctx, left)
+    after_pipeline_reset(regs, ctx)
+    traffic_round(regs, ctx)
+
+
+def link_packets(ctx: Context, ch: Channel, images: list[bytes]) -> list[bytes]:
+    """The link packets in which the system sends the chunks of these compressed images of a channel: a CPTP packet
+    of a Space Packet with the APID of the channel per chunk, the Packet Sequence Counts from the next one of the APID
+    (ctx.output_count), as the model of the system builds them."""
+    apid = ch.output_apid
+    count = ctx.output_count.get(apid, 0)
+    out = []
+    for data in (d for d in images if d):              # an image in flight may fill no chunk yet
+        for part in chunks_of(data, ch.chunk_bytes):
+            out.append(cptp_encode(SpacePacket(apid=apid, data=part, sequence_count=count).encode(),
+                                   ctx.setup.far_end_tla))
+            count = (count + 1) & 0x3FFF
+    return out
+
+
+def in_flight(ch: Channel, cfg: dict, samples: list[int], taken: int) -> bytes:
+    """The bytes that the chunks of an image in flight can carry when the compressor has taken its first taken
+    samples: the full chunks of the compressed image of all its samples, as many as the compressed image of the
+    samples taken fills (ocp.aborted_image); the chunker sends a chunk only when it is full or the image ends."""
+    full = ocp.compress(cfg, ocp.from_input_order(cfg, samples))
+    part = ocp.aborted_image(cfg, list(samples[:taken]))
+    if part is None:
+        raise TestFailed("the model of OpenCompact gives no aborted image (compress_aborted): the test cannot bound "
+                         "the chunks of an image in flight")
+    return full[:len(part) // ch.chunk_bytes * ch.chunk_bytes]
+
+
+def reset_images(regs: Registers, ctx: Context) -> tuple[list[Channel], dict[int, tuple]]:
+    """The images of TC-RS-HW-20 and 22, one per channel: in a profile with small images only on the channels with the
+    runtime configuration, each a scene image of at most Profile.small samples after a COMMIT of its values (as
+    traffic_round); else a scene image of the generics on every channel. Returns the channels and per channel the
+    configuration, the samples and the SDUs of its image."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    channels = runtime if ctx.profile.small else ctx.system.channels
+    images = {}
+    for ch in channels:
+        if ctx.profile.small:
+            values = ocp.build_values(ch.cfg, ocp.runtime_params(ch.generics))
+            nx, ny, nz = (min(a, b) for a, b in zip(ctx.profile.small, (values.nx, values.ny, values.nz)))
+            ocptest.commit(regs, ctx, ch, ocp.resized(values, nx, ny, nz))
+            cfg = ctx.models[ch.port].next_cfg
+            samples = ocp.input_order(cfg, ocp.test_image(cfg, "scene", f"{ctx.seed} {ch.port} {ctx.images}"))
+        else:
+            cfg = ch.cfg
+            samples = image_samples(ctx, ch, "scene", ctx.images)
+        ctx.images += 1
+        images[ch.port] = (cfg, samples, image_sdus(ctx, ch, samples))
+    return channels, images
+
+
+def taken_samples(cfg: dict, sdus: list[Sdu]) -> int:
+    """The samples in these SDUs (every SDU holds whole samples of ceil(D/8) bytes)."""
+    return sum(len(sdu.data) for sdu in sdus) // ((cfg["large_d"] + 7) // 8)
+
+
+def tc20_reset_mid_image(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-20: pipeline reset in the middle of an image (sw/refsys/resettest.py). Every channel of the images of
+    TC-RS-HW-20 and 22 (reset_images) gets the first half of the SDUs of its image; once the Space Packet node has
+    received them all (RX_PACKETS) the channel of the Space Packets is read until it is quiet: what came back are the
+    first chunks of the compressed image, as many as the samples sent fill. Then the pipeline reset, and the channel
+    is read until it is quiet again: no Space Packet of the half images follows, except the next chunk cut by the
+    reset (its prefix and the byte of the EEP beat, recorded). Every compressor counts 0 and holds its reset values;
+    after the configuration of TC-RS-HW-05 a round of images equals the model, with the Packet Sequence Counts from
+    0."""
+    s = ctx.system
+    clear_status(regs, ctx)
+    channels, images = reset_images(regs, ctx)
+    halves = {port: sdus[:max(1, len(sdus) // 2)] for port, (_, _, sdus) in images.items()}
+    packets, outputs = sdu_packets(ctx, halves)
+    check(not any(outputs.values()), "the model of a channel gives an image for half of its SDUs")
+    regs.transport.transmit(ctx.setup.spp_channel, packets)
+    regs.wait(s.base(s.node) + SPP.RX_PACKETS, 0xFFFFFFFF, len(packets))
+    expected = {}
+    for ch in channels:
+        cfg, samples, _ = images[ch.port]
+        expected[ch.output_apid] = link_packets(ctx, ch, [in_flight(ch, cfg, samples,
+                                                                   taken_samples(cfg, halves[ch.port]))])
+    seen = resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), expected, "before the pipeline reset",
+                                   cut=False)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-20")
+    rest = {apid: links[seen[apid]:] for apid, links in expected.items()}
+    resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), rest, "after the pipeline reset")
+    ocptest.reset_models(ctx)
+    for ch in s.channels:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    after_pipeline_reset(regs, ctx)
+    traffic_round(regs, ctx)
+
+
+def tc22_reset_during_traffic(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-22: pipeline reset during traffic (sw/refsys/resettest.py). The images of TC-RS-HW-20 and 22
+    (reset_images), the channels interleaved SDU by SDU; the far end sends the first k of the n SDUs, k from the seed,
+    and the command follows at once, while the channels compress. The far end then sends nothing until the
+    configuration is written again (PR-11) and reads the channel of the Space Packets until it is quiet: what came
+    back is per APID a prefix of what the data sent can give (complete images exactly, an image in flight as far as
+    its samples taken), the last packet possibly cut by the reset (recorded). RMAP answers and the link is up; the
+    counters of the Space Packet node and of the compressors are recorded (Space Packets in flight at the command are
+    dropped or go to receive port 0). A second pipeline reset with the link quiet: the reset values as in TC-RS-HW-19;
+    after the configuration of TC-RS-HW-05 a round of images equals the model, with the Packet Sequence Counts from 0;
+    every error register still holds its baseline (systest.caused)."""
+    s = ctx.system
+    clear_status(regs, ctx)
+    channels, images = reset_images(regs, ctx)
+    streams = {port: sdus for port, (_, _, sdus) in images.items()}
+    total = sum(len(sdus) for sdus in streams.values())
+    k = random.Random(f"{ctx.seed} TC-RS-HW-22").randrange(1, total)
+    packets, outputs = sdu_packets(ctx, streams, limit=k)
+    order = [sdu for group in itertools.zip_longest(*(streams[p] for p in sorted(streams))) for sdu in group if sdu]
+    sent = {port: [sdu for sdu in order[:k] if sdu.port == port] for port in streams}
+    systest.record(ctx, f"TC-RS-HW-22: the pipeline reset after {k} of {total} SDUs")
+    regs.transport.transmit(ctx.setup.spp_channel, packets)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-22, during traffic")
+    expected = {}
+    for ch in channels:
+        cfg, samples, sdus = images[ch.port]
+        done = [expected_image(ch, o) for o in outputs[ch.port]]
+        taken = taken_samples(cfg, sent[ch.port])
+        flight = [in_flight(ch, cfg, samples, taken)] if not done and taken else []
+        expected[ch.output_apid] = link_packets(ctx, ch, done + flight)
+    resettest.judge_traffic(ctx, systest.receive_quiet(regs, ctx), expected, "TC-RS-HW-22")
+    systest.check_link_state(regs, ctx)
+    node = s.base(s.node)
+    systest.record(ctx, f"after the pipeline reset during traffic: {s.node} " + ", ".join(
+        f"{name} {regs.read(node + getattr(SPP, name))}" for name in ("RX_PACKETS", "TX_PACKETS", "RX_LOSS")))
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-22, second command")
+    ocptest.reset_models(ctx)
+    resettest.check_node_reset(regs, ctx)
+    for ch in s.channels:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    resettest.check_members_errors(regs, ctx)
+    after_pipeline_reset(regs, ctx)
+    traffic_round(regs, ctx)
+    systest.caused(regs, ctx, "TC-RS-HW-22")
+
+
+def tc21_misconfigured_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-21: pipeline reset with misconfigured compressors (sw/refsys/ocptest.py): every compressor with the
+    runtime configuration holds a pending COMMIT of other valid values and a refused COMMIT with a value out of range
+    (STATUS.CFG_ERROR and CFG_PENDING 1). After the pipeline reset STATUS reads 0, CONTROL to NEXT_BLOCK their values
+    of the reset and IMAGE_X to LIMITS the generics; after the configuration of TC-RS-HW-05 one image on each of these
+    channels equals the model image of the generics, not of the values committed before the reset."""
+    runtime, _ = ocptest.split_channels(ctx.system)
+    check(bool(runtime), "no compressor has the runtime configuration (RuntimeConfig_g)")
+    for ch in runtime:
+        ocptest.leave_refused(regs, ctx, ch)
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-21")
+    ocptest.reset_models(ctx)
+    for ch in runtime:
+        ocptest.check_pipeline_reset(regs, ctx, ch)
+    after_pipeline_reset(regs, ctx)
+    streams = {}
+    for ch in runtime:
+        streams[ch.port] = image_sdus(ctx, ch, image_samples(ctx, ch, "scene", ctx.images))
+        ctx.images += 1
+    send_images(regs, ctx, streams)
+    check_status(regs, ctx)
+
+
+# the state of a run that the test cases of TC-RS-HW-23 continue: the models of the channels, the counts of the input
+# and output APIDs, the losses and the traffic since the counters were cleared
+RUN_STATE = ("models", "cleared", "input_count", "output_count", "pending_loss", "traffic")
+
+
+def tc23_fresh_after_reset(regs: Registers, ctx: Context) -> None:
+    """TC-RS-HW-23: fresh after a pipeline reset: the pipeline reset, then TC-RS-HW-02 to 07 again as a run that starts
+    from the reset values (systest.fresh_run): the compressors show the values of their generics and take no COMMIT,
+    the Packet Sequence Counts of the output APIDs start at 0, every image equals the model and the counters match, as
+    after a new device image."""
+    systest.pipeline_reset(regs, ctx, " of TC-RS-HW-23")
+    fresh = make_context(ctx.seed, ctx.profile, ctx.setup, ctx.system, ctx.sdu_bytes)
+    tests = [tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression, tc07_counters]
+    try:
+        systest.fresh_run(regs, ctx, fresh, tests)
+    finally:
+        ctx.image_records += fresh.image_records
+        ctx.decoded += fresh.decoded
+        ctx.undecoded += fresh.undecoded
+        for name in RUN_STATE:
+            setattr(ctx, name, getattr(fresh, name))
 
 
 def tc17_end_of_run(regs: Registers, ctx: Context) -> None:
@@ -891,8 +1115,9 @@ def tc18_repeated_run(regs: Registers, ctx: Context) -> None:
 
 TESTS = [tc01_link, tc02_identification, tc03_rmap, tc04_multi_word, tc05_configure, tc06_compression,
          tc07_counters, tc08_lost_data, tc09_rate, tc10_runtime_config, tc11_port_registers,
-         tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors, tc13_lane_removal,
-         tc17_end_of_run, tc18_repeated_run]
+         tc12_far_end_link_reset, tc14_memory_errors, tc15_rmap_errors, tc16_space_packet_errors,
+         tc19_pipeline_reset, tc20_reset_mid_image, tc21_misconfigured_reset, tc22_reset_during_traffic,
+         tc23_fresh_after_reset, tc13_lane_removal, tc17_end_of_run, tc18_repeated_run]
 
 # Requirements of the cores that the test cases confirm on the board, as section 10 of the hardware test procedure
 # lists them (coverage of the cores): <core>:<group>-<ids>, the IDs written as the procedure writes them. Requirements
@@ -946,21 +1171,45 @@ REQUIREMENTS = {
     "TC-RS-HW-14": ("OFB:DL-RE-03", "OFB:DL-ER-03", "OFB:DL-SQ-02", "OFB:CORE-ED-01/02", "ORMAP:TG-EX-06",
                     "ORMAP:MG-ED-01/02", "SPP:RE-FT-01", "SPP:SE-AS-05") + _OFB_MG + _SPP_MG,
     "TC-RS-HW-15": ("ORMAP:TG-RX-02/03/06", "ORMAP:TG-TX-02", "ORMAP:TG-AU-01..08", "ORMAP:TG-EX-02/03/05/07/08",
+                    "ORMAP:TG-EX-06",
                     "ORMAP:CO-DM-04") + _ORMAP_MG,
     "TC-RS-HW-16": ("SPP:RE-RC-02", "SPP:RE-DM-01", "SPP:RE-DM-02", "SPP:EN-RX-03", "SPP:SE-MX-01",
                     "SPP:CO-SY-01/02/04/08", "SPP:TB-FN-01") + _SPP_MG,
     "TC-RS-HW-17": _OFB_MG,
+    "TC-RS-HW-19": ("SPP:CO-RS-01/02/12", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:MB-RS-01") + _SPP_MG + _OCP_MB,
+    "TC-RS-HW-20": ("SPP:CO-RS-01/02/12", "SPP:CO-RS-09..11", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:IA-ER-04",
+                    "OCP:MB-RS-01"),
+    "TC-RS-HW-21": ("OCP:CH-RS-01", "OCP:MB-RS-01") + _OCP_MB,
+    "TC-RS-HW-22": ("SPP:CO-RS-01/02/12", "SPP:CO-RS-09..11", "OCP:CO-RS-01", "OCP:CH-RS-01", "OCP:IA-ER-04")
+    + _SPP_MG,
+    "TC-RS-HW-23": ("SPP:CO-RS-01/02/12", "OCP:CH-RS-01", "OCP:MB-RS-01") + _OCP_MB,
 }
 
 # Test cases that a test case builds on; they run before it when it is selected on its own. The checks of the error
 # registers build on the baseline of TC-RS-HW-01
+# The test case that configures the system: after it passed, the recovery after a failure (systest.recover) ends
+# with reconfigure
+CONFIGURE = tc05_configure
+
+
+def reconfigure(regs: Registers, ctx: Context) -> None:
+    """The end of the recovery after a failure (systest.recover), after its pipeline reset: the models of the
+    compressors start again from the reset (ocptest.reset_models), then the configuration of TC-RS-HW-05
+    (after_pipeline_reset)."""
+    ocptest.reset_models(ctx)
+    after_pipeline_reset(regs, ctx)
+
+
 REQUIRES = {tc03_rmap: [tc01_link], tc06_compression: [tc05_configure],
             tc07_counters: [tc05_configure, tc06_compression], tc08_lost_data: [tc05_configure],
             tc09_rate: [tc05_configure], tc10_runtime_config: [tc05_configure],
             tc12_far_end_link_reset: [tc01_link, tc05_configure], tc13_lane_removal: [tc01_link, tc05_configure],
             tc14_memory_errors: [tc01_link, tc05_configure],
             tc15_rmap_errors: [tc01_link], tc16_space_packet_errors: [tc01_link, tc05_configure],
-            tc17_end_of_run: [tc01_link], tc18_repeated_run: [tc01_link, tc05_configure]}
+            tc19_pipeline_reset: [tc01_link, tc05_configure], tc20_reset_mid_image: [tc01_link, tc05_configure],
+            tc21_misconfigured_reset: [tc01_link, tc05_configure], tc22_reset_during_traffic: [tc01_link, tc05_configure],
+            tc23_fresh_after_reset: [tc01_link], tc17_end_of_run: [tc01_link],
+            tc18_repeated_run: [tc01_link, tc05_configure]}
 
 
 def select_tests(names: list[str] | None = None) -> list:
@@ -980,7 +1229,7 @@ def make_context(seed: int, profile: Profile, setup: Setup = Setup(), system: Sy
     systest.check_apids(system, setup)
     longest = system.rx_buffer_bytes - PRIMARY_HEADER_BYTES
     ctx = Context(system=system, setup=setup, seed=seed, profile=profile, sdu_bytes=min(sdu_bytes or longest, longest),
-                  window_words=window_words(random.Random(seed)))
+                  window_words=window_words(random.Random(seed)), clear_bw_flags=profile.clear_bw_flags)
     ctx.models = {c.port: ocp.Channel(c.cfg, c.marks, ocp.runtime_config(c.generics)) for c in system.channels}
     ctx.cleared = {port: ocp.Counts() for port in ctx.models}
     return ctx

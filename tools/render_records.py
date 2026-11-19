@@ -137,6 +137,9 @@ def render(data: dict, digests: bool = False) -> str:
     lines = ["### Run", ""] + run_table(data)
     if data.get("stop_at_first_failure"):
         lines += ["", "This run stopped at its first failure (--stop-at-first-failure)."]
+    if data.get("no_pipeline_reset"):
+        lines += ["", "This run did not start with the pipeline reset (--no-pipeline-reset): a run for diagnosis, not "
+                      "evidence."]
     lines += ["", "### Results per test case", "", summary(data), ""] + results_table(data)
     if snapshots_list(data):
         lines += ["", "### State after a failure", ""] + snapshots_list(data)
