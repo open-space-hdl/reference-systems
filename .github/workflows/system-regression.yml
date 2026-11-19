@@ -1,0 +1,153 @@
+name: System regression
+
+# The GHDL system simulations of the evidence of a release: one job per group of the stimulus guard
+# (sw/tests/data/stimulus_sha256.json), each with exactly the test cases of its group, at the system clock of 150 MHz,
+# profile sim, seed 1, as the local runs (systems/<system>/sim/run_ghdl.py with RS_GHDL_OUT). REGRESSION_GROUPS names
+# the groups of the CI; a group whose run does not fit into a job of a GitHub runner runs locally. Every job uploads
+# results.xml, report.txt and run.log of its group; the job summary lists the exit code and the counts per group and
+# checks that the head is the code of the evidence (EVIDENCE_CODE) outside Markdown and .github.
+
+on:
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: "Groups to run, separated by commas (default: REGRESSION_GROUPS)"
+        required: false
+        default: ""
+
+env:
+  REGRESSION_GROUPS: "sce_23,sc_23,sc_01_07,sc_10_17,sc_21,sce_21,sc_repeat,sce_repeat,sc_19,sce_20,sce_22,sc_22,sc_20,se_repeat,se_19,se_22,se_23,se_01_07"
+  EVIDENCE_CODE: 48d2d232c22e8092a2b1ff1b6b0de9a0d27fe6c3
+
+concurrency:
+  group: system-regression-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      groups: ${{ steps.groups.outputs.groups }}
+    steps:
+      - name: Groups of this run
+        id: groups
+        env:
+          REQUESTED: ${{ inputs.groups }}
+        run: |
+          list="${REQUESTED:-$REGRESSION_GROUPS}"
+          groups=$(python3 -c 'import json, sys; print(json.dumps([g.strip() for g in sys.argv[1].split(",") if g.strip()]))' "$list")
+          echo "groups=$groups" >> "$GITHUB_OUTPUT"
+          echo "Groups: $groups"
+
+  group:
+    name: group ${{ matrix.group }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 355
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ${{ fromJSON(needs.plan.outputs.groups) }}
+    env:
+      GROUP: ${{ matrix.group }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          submodules: true
+      - name: Check out en_cl_fix of Open Logic
+        # compile_order.txt of Open Logic lists the files of its submodule; the submodules of the cores are not needed
+        run: git -C cores/open-logic-ft submodule update --init --depth 1 3rdParty/en_cl_fix
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install Python packages
+        # vunit_hdl 5.0.0.dev7 is an sdist whose build needs pkg_resources (setuptools < 81)
+        run: |
+          python -m pip install "setuptools<81" wheel "setuptools_scm>=8"
+          python -m pip install --no-build-isolation -r requirements.txt
+      - name: Set up GHDL
+        uses: ghdl/setup-ghdl@v1
+        with:
+          version: latest
+          backend: mcode
+      - name: Test cases of the group
+        id: cases
+        run: |
+          echo "head $(git rev-parse HEAD), $(ghdl --version | head -n 1)"
+          python -B -c "import json, sys; g = json.load(open('sw/tests/data/stimulus_sha256.json', encoding='utf-8'))[sys.argv[1]]; print('system=' + g['system']); print('tests=' + g['tests'])" "$GROUP" | tee -a "$GITHUB_OUTPUT"
+      - name: Simulation
+        id: sim
+        env:
+          SYSTEM: ${{ steps.cases.outputs.system }}
+          TESTS: ${{ steps.cases.outputs.tests }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          set +e
+          # shellcheck disable=SC2086 (the test cases are separate arguments)
+          RS_GHDL_OUT="$out" python -B -u "systems/$SYSTEM/sim/run_ghdl.py" --sysclk-mhz 150 $TESTS < /dev/null 2>&1 \
+            | tee "$out/run.log"
+          rc=${PIPESTATUS[0]}
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+          echo "run_ghdl.py exit code $rc"
+      - name: Results of the group
+        if: always()
+        env:
+          SYSTEM: ${{ steps.cases.outputs.system }}
+          RC: ${{ steps.sim.outputs.rc }}
+        run: |
+          out="$RUNNER_TEMP/out"
+          art="$RUNNER_TEMP/artifact"
+          mkdir -p "$out" "$art"
+          python -B .github/scripts/regression_junit.py "$out" "$GROUP" "$SYSTEM" "${RC:-1}" | tee "$art/counts.txt"
+          cp "$out/results.xml" "$art/"
+          if [ -f "$out/run.log" ]; then cp "$out/run.log" "$art/"; fi
+          report=$(ls "$out"/runs/*/report.txt 2> /dev/null | head -n 1)
+          if [ -n "$report" ]; then cp "$report" "$art/report.txt"; fi
+          git rev-parse HEAD > "$art/head.txt"
+      - name: Upload the results of the group
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: regression-${{ matrix.group }}
+          path: ${{ runner.temp }}/artifact/
+      - name: Exit code of the simulation
+        run: exit "${{ steps.sim.outputs.rc }}"
+
+  summary:
+    needs: [plan, group]
+    if: always() && needs.plan.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+      - name: Download the results of the groups
+        uses: actions/download-artifact@v7
+        with:
+          pattern: regression-*
+          path: artifacts
+      - name: Exit code and counts per group
+        env:
+          GROUP_LIST: ${{ needs.plan.outputs.groups }}
+        run: python -B .github/scripts/regression_summary.py artifacts "$GROUP_LIST"
+      - name: The head is the code of the evidence outside Markdown and .github
+        if: always()
+        run: |
+          if git diff --quiet "$EVIDENCE_CODE" HEAD -- . ':(exclude)*.md' ':(exclude).github'; then
+            line="Head $(git rev-parse --short HEAD) equals the code of the evidence ${EVIDENCE_CODE:0:7} outside Markdown and .github."
+            echo "$line" | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            line="Head $(git rev-parse --short HEAD) differs from the code of the evidence ${EVIDENCE_CODE:0:7} outside Markdown and .github."
+            echo "$line" | tee -a "$GITHUB_STEP_SUMMARY"
+            git diff --stat "$EVIDENCE_CODE" HEAD -- . ':(exclude)*.md' ':(exclude).github'
+            exit 1
+          fi

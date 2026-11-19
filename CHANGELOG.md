@@ -1,6 +1,11 @@
 # Changelog
 
-## Unreleased
+## v0.3.0 (2026-11-19)
+
+The pipeline reset in all three systems: a command over RMAP resets the processing path with the link up, tested at
+rest, in the middle of an image and during traffic (TC-RS-HW-19 to 23). Every core moves to Open Logic FT 4.8.0-ft.2:
+OpenRMAP v0.1.2, OpenSPP v0.2.1, OpenFibre v0.1.5, OpenCrypto v0.1.1 and OpenCompact v0.3.2. The hardware test
+software of v0.2.1 is part of this release. The HDL changes, so a device image of v0.2.x does not serve v0.3.0.
 
 ### Added
 
@@ -34,79 +39,76 @@
 
 ### Changed
 
-- Log of the hardware test:
-  - A passing check makes no event; the result of a test case counts its passing checks.
-  - A wait for a register value is one event with its polls and the time it took. Its failure names the register and
-    its fields, the value read, the time and the polls, in place of a raw address.
-  - After a failure the test reads the state of the system and records it: the link, every lane and the error
-    registers that hold a value (section "State after a failure" of the report).
-  - `run.log` holds every event but the register reads and writes; `steps.jsonl` keeps all of them.
-  - The packets discarded from a channel and the retries of RMAP after a link reset are notes in the log instead of
-    console output.
-- The hardware test needs no operator. In TC-RS-HW-12 the STAR-Ultra resets the link of its SpaceFibre port by itself
-  through the library of the STAR-Ultra PCIe Interface: the port is held in link reset for 0.1 s, then released, and
-  the test waits until its link is ready again. The test records what the port showed and checks that its link was
-  down while held. The operator step, its prompt and the pytest marker `operator` are gone.
-  - `--far-end-port` names the SpaceFibre port of the STAR-Ultra that is cabled to the board (default 1).
-  - `--check-environment` checks the Python package of the STAR-Ultra PCIe Interface and its library together with
-    the package of STAR-System.
-  - The stimuli of the system simulations are unchanged.
-- After a failure the hardware test goes on. Before the next test case the recovery (`systest.recover`) does the
-  following:
-  1. it reads both channels until they are quiet;
-  2. it checks the health of the system: RMAP answers and the link is initialised with all lanes. If the check fails,
-     the far end resets the link once and the check runs again; a system that stays unhealthy stops the run;
-  3. it records and clears the error registers;
-  4. it makes a pipeline reset;
-  5. once TC-RS-HW-05 has passed, it configures the system again (the hook `reconfigure` of every system). The
-     encrypting systems load their keys at a counter `RECOVERY_COUNTER_GAP` above the last one.
-
-  A test case whose prerequisites did not pass is still not run. The report lists every recovery. `--keep-going` is
-  replaced by `--stop-at-first-failure`, which keeps the old behaviour.
-- The rate of TC-RS-HW-09 is that of the transfer alone. The transport prepares a transfer before it is timed
-  (`prepare`: one transmit operation with every packet as a stream item, one receive operation) and runs it then
-  (`run_prepared`). The timed part runs from the submission of the first operation to the arrival of the last packet;
-  the received packets are converted after it. The images, the expected compressed images of the reference model and
-  the packets are built before, and the checks come after. The record gives the rate of the samples and of the link
-  packets in both directions, and against the system model it says that the time is that of the model. The earlier
-  rate timed the model, the transfer and the checks together.
-  - TC-RS-HW-09 of spfi_compress no longer claims OpenFibre CORE-PF-01. The system takes less than the capacity of the
-    link, and section 10 of its procedure lists the requirement as not exercised.
-- What a run records as its evidence:
-  - `--image` names the programmed device image. The run records its name and SHA-256 and the `build_info.txt` of its
-    build, and the report shows them. A run against the device without `--image` is reported as having no identified
-    device image.
-  - The report counts the test cases by result. Its table of requirements is headed "Requirements exercised per test
-    case" and says that every requirement is verified against its own criterion by the regression of its core.
-  - A test case that provokes errors records them in three parts: the expected ones, the allowed ones that moved, and
-    the others. The values that TC-RS-HW-01 reads before the baseline clears them are marked as no pass criterion.
-  - TC-RS-HW-02 records the values that a compressor at the values of its generics shows.
-  - The state of the working tree counts the changed entries; the ignored ones (`__pycache__` of a run without `-B`)
-    are recorded and counted apart.
+- The recovery after a failure of v0.2.1 (it reads both channels until they are quiet, checks the health of the system
+  and records and clears the error registers) also makes a pipeline reset and, once TC-RS-HW-05 has passed,
+  configures the system again (the hook `reconfigure` of every system). The encrypting systems load their keys at a
+  counter `RECOVERY_COUNTER_GAP` above the last one.
 - TC-RS-HW-15 of spfi_compress gets the status 1 for a write at 0x90000, after the last register window, in place of
   the read of the identification of `spp0` one map further on.
 - The system model models `prst0` (its register block, `COUNT`, the byte enables of a write) and the reset of the
   members of the reset group.
 
+### Fixed
+
+- The far-end link reset of TC-RS-HW-12 and of the recovery after a failure: on the test equipment the link control of
+  the STAR-Ultra PCIe Interface failed with "Could not get the link status.", because it needs channel 0 of the device,
+  which the transport holds for RMAP. The transport now closes channel 0, runs the link control in a child process
+  (`refsys.far_end_link`) and opens channel 0 again after it; the device frees the channel some 0.5 s after the end of
+  the child process, and the transport tries for up to 5 s.
+- `run.log`: the result line of a failed test case carries its reason, as the report does.
+
 ### Versions
 
-- Top levels generated by Open Space Composer 0.11.3-beta with the block catalog cf2616554595
-  (`tools/composer_ref.txt`); the system files have the format version 3 (reset groups).
-- Open Logic FT 4.7.0-ft.12 (was 4.7.0-ft.11): adds `olo_ft_reset_ctrl_axi`; no file that the systems compiled
-  before changes.
-- OpenSPP v0.2.0 (was v0.1.0): the data path reset `DpRst` of `spp_core`; `M_Link` gets one more clock cycle of
-  latency (the register stage `spp_link_output`) with the same throughput; the new sources `spp_link_output.vhd` and
-  the three `spp_packetizer` files in the compile orders.
-- OpenCompact v0.3.1 (was v0.3.0): tools and documentation only, the sources are those of v0.3.0.
+- Open Logic FT 4.8.0-ft.2 (was 4.7.0-ft.12), the fault-tolerant fork based on Open Logic 4.8.0. Of the Open Logic
+  files that the systems use, only `olo_axi_master_full` (the memory master of OpenRMAP) changes: the size width of a
+  command at 8-bit AXI data; at the 32-bit data of `rmap0` its constants and functions give the values of
+  4.7.0-ft.12. The compile orders list six new files of the fixed-point library (`olo_fix_log2`, `olo_fix_dds`,
+  `olo_fix_cic_intp_tdm_par`, `olo_fix_fir_dec_par_chtdm` and two private files of `olo_fix_log2`), which no unit of
+  the systems names. Every core of the systems is verified with 4.8.0-ft.2.
+- OpenRMAP v0.1.2 (was v0.1.1): the size width of a command of the memory master of the target is two bits fewer than
+  the address at every data width (`memSizeBits`, at most 24). At the 32-bit data and 32-bit addresses of `rmap0` it
+  stays 24 bits.
+- OpenSPP v0.2.1 (was v0.2.0): Open Logic FT 4.8.0-ft.2; the sources are those of v0.2.0.
+- OpenFibre v0.1.5 (was v0.1.4): `VC_BW_OVER` and `VC_BW_UNDER` of `ofb_mib` are defined from the reset. The `sim`
+  profile of the hardware tests still clears both flags before their first read in a run (`systest.clear_bw_flags`),
+  so the stimuli of the system simulations stay the same.
+- OpenCrypto v0.1.1 (was v0.1.0): register stages on the read paths of the key memories, the job FIFO, the data FIFO
+  and before the packer of the dense output, for the setup timing at 200 MHz. The key table resolves one context with
+  a generated IV per three clock cycles (was two); a job leaves the key table two clock cycles later, a data beat
+  reaches the combiner one clock cycle later, and the dense output adds two clock cycles of latency (was one). Ports,
+  generics, stream formats, the register map and the erasure of the key table after a reset (`NumKeys_g` + 3 clock
+  cycles, PR-05) are those of v0.1.0. No check, wait or bound of the hardware tests and of the system model depends on
+  these latencies: the waits poll a status within limits far above them.
+- OpenCompact v0.3.2 (was v0.3.1): the predictor gives the registers that the runtime configuration and parameters
+  disable a constant value, and the coders and the predictor read their memories at a defined address before the first
+  image after a reset; the compressed images and the throughput are those of v0.3.1. The user guide states the output
+  of `ocp_channel` at a reset during an image (requirement CH-RS-02): the words that the output has not taken are
+  discarded, and the packet ends without `Out_Last`.
+- Top levels generated by Open Space Composer 0.11.3-beta; the system files have the format version 3 (reset groups).
 
 ### Known issues
 
-- OpenFibre v0.1.4 in simulation: `VC_BW_OVER` and `VC_BW_UNDER` of the SpaceFibre port hold 'U' until they are
-  cleared, and a read of them leaves the RMAP reply on the link without end. In the `sim` profile the hardware tests
-  of all three systems clear both flags before their first read in a run (`systest.clear_bw_flags`): spfi_compress in
-  TC-RS-HW-01, spfi_encrypt and spfi_compress_encrypt in TC-RS-HW-19 and 22. Every test case that can be the first
-  one of a run to read the flags needs this step. The `lab` profile reads them as they are; the hardware is not
-  affected.
+- The hardware test of the systems is not complete; the systems are verified by simulation (TRL 3). No implemented
+  build of the systems is part of this release.
+- The AMD transceiver model sometimes fails to power up in an elaborated snapshot (`DIV_VAL_CHK`); the xsim runner
+  elaborates and simulates such a run again, at most three times in total, and reports every repetition.
+- OpenFibre: the CDR lock bit of LANE_STATUS is no usable indication with the GTY configuration of the VCK190 designs;
+  the hardware test records it without an expected value.
+
+### Verification
+
+- System GHDL regression: 22 of 22 groups of system simulations pass with the cores of this release (sysclk 150 MHz,
+  profile `sim`, seed 1): 18 groups in CI (81 of 81 test cases) and the four longest on a host (14 of 14).
+- Host tests: 591 passed, 24 skipped, with pytest 9.1.1 and with 9.0.2.
+- Stimulus guard (`RS_STIMULUS_GUARD=1`): the stimuli of the 22 groups are unchanged on the release head, so the
+  regression holds for the systems saved with the catalog of the core releases and for the far-end link reset in a
+  child process.
+- GHDL analyses all sources of the three systems (`python run.py --compile`); the exported top levels equal the
+  export of the Composer at `tools/composer_ref.txt` (`tools/check_hdl.py`), and the pins of the system files equal
+  the submodules (`tools/check_pins.py`).
+- Vivado rtl elaboration of the three systems with both reference clocks (si570, 8a34001): 6 of 6 without an error,
+  with the warning classes of v0.2.0.
+- GTY xsim: not run, the PHY path and its inputs are unchanged since v0.2.0.
 
 ## v0.2.1 (2026-11-18)
 

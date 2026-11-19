@@ -15,8 +15,13 @@ the far end (the operations of the device, the packets as stream items) is built
 received packets are converted after it, so that the time is that of the transfer alone (Timing).
 """
 
+import json
+import os
+import subprocess
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 
 class TransportError(Exception):
@@ -46,6 +51,18 @@ def end_of(packet: bytes) -> str | None:
 FAR_END_RESET_HOLD = 0.1
 FAR_END_LINK_TIMEOUT = 5.0
 
+# The STAR-Ultra PCIe Interface library does its link control through channel 0 of the device and keeps the channel
+# until its process ends; while another owner holds channel 0 its calls fail ("Could not get the link status."), and
+# while it holds channel 0 the channel does not open. StarSystemTransport holds every channel (channel 0 carries RMAP),
+# so its far_end_link_reset closes channel 0, runs the link control in a child process (python -m refsys.far_end_link)
+# and opens channel 0 again after the child has ended; the device frees the channel some 0.5 s after the end of the
+# child, so the opening is retried every CHANNEL_REOPEN_INTERVAL seconds for up to CHANNEL_REOPEN_TIMEOUT seconds.
+LINK_CONTROL_CHANNEL = 0
+CHANNEL_REOPEN_TIMEOUT = 5.0
+CHANNEL_REOPEN_INTERVAL = 0.25
+LINK_CONTROL_START_TIMEOUT = 60.0     # the start of the child process and of the far-end software, beyond the reset
+SW = Path(__file__).resolve().parents[1]
+
 
 @dataclass(frozen=True)
 class Timing:
@@ -67,6 +84,35 @@ class FarEndReset:
 
     down: bool
     text: str
+
+
+def link_reset(link, device: int, port: int, hold: float = FAR_END_RESET_HOLD,
+               timeout: float = FAR_END_LINK_TIMEOUT) -> FarEndReset:
+    """The link reset of SpaceFibre port `port` of the device `device` through `link`, the link control of the
+    STAR-Ultra PCIe Interface (StarUltraPCIeInterface): LINK_RESET held for hold seconds, then released, and the link
+    polled until it is ready with at least the active lanes it had before, within timeout seconds. The link state read
+    while LINK_RESET is held shows whether the reset reached the link (FarEndReset.down)."""
+    lanes = link.getActiveLanesCount(link.getLinkStatus(device, port))
+    link.enableLinkReset(device, port)
+    try:
+        time.sleep(hold)
+        held = link.getLinkStatus(device, port)
+    finally:
+        link.disableLinkReset(device, port)
+    start = time.monotonic()
+    while True:
+        status = link.getLinkStatus(device, port)
+        if link.isLinkReady(status) and link.getActiveLanesCount(status) >= lanes:
+            break
+        if time.monotonic() - start > timeout:
+            raise TransportError(f"the link of SpaceFibre port {port} of the device is not ready with {lanes} "
+                                 f"lanes {timeout} s after its link reset (link status 0x{status:08X})")
+        time.sleep(0.005)
+    down = not link.isLinkReady(held)
+    return FarEndReset(down, f"SpaceFibre port {port} of the device: {lanes} active lanes before the link reset, "
+                             f"{link.getActiveLanesCount(held)} and link {'not ' if down else ''}ready while it "
+                             f"was held for {hold:.3f} s, ready with {link.getActiveLanesCount(status)} lanes "
+                             f"{time.monotonic() - start:.3f} s after its release")
 
 
 class Transport:
@@ -146,7 +192,7 @@ class StarSystemTransport(Transport):
     """STAR-Dundee devices through the STAR-System software, which must be installed on the test computer with its
     Python packages. A channel number is a channel of the device; spfi_port, the SpaceFibre port of the device that is
     cabled to the system (1 or 2), whose link far_end_link_reset resets through the STAR-Ultra PCIe Interface
-    library."""
+    library, in a child process with channel 0 of the device closed (LINK_CONTROL_CHANNEL)."""
 
     def __init__(self, device_name: str, spfi_port: int = 1):
         from STAR_system import STAR_enums as enums
@@ -162,9 +208,11 @@ class StarSystemTransport(Transport):
                    for d in STARSystem().getDeviceListForType(enums.STAR_DEVICE_TYPE.STAR_DEVICE_STAR_ULTRA_PCIE)}
         if device_name not in devices:
             raise TransportError(f"device {device_name!r} not found; available: {', '.join(devices) or 'none'}")
-        self._device_id = devices[device_name].deviceID
+        self._device = devices[device_name]
+        self._device_name = device_name
+        self._device_id = self._device.deviceID
         self._spfi_port = spfi_port
-        self._channels = devices[device_name].getChannels()
+        self._channels = self._device.getChannels()
         for channel in self._channels:
             channel.openChannelToDevice(enums.STAR_CHANNEL_DIRECTION.INOUT)
 
@@ -228,34 +276,51 @@ class StarSystemTransport(Transport):
 
     def far_end_link_reset(self, hold: float = FAR_END_RESET_HOLD,
                            timeout: float = FAR_END_LINK_TIMEOUT) -> FarEndReset:
-        """The link reset of the SpaceFibre port of the device: LINK_RESET held for hold seconds, then released, and
-        the link polled until it is ready with at least the active lanes it had before, within timeout seconds. The
-        link state read while LINK_RESET is held shows whether the reset reached the link (FarEndReset.down)."""
-        from STAR_Ultra.interface import StarUltraPCIeInterface
-
-        link = StarUltraPCIeInterface()
-        device, port = self._device_id, self._spfi_port
-        lanes = link.getActiveLanesCount(link.getLinkStatus(device, port))
-        link.enableLinkReset(device, port)
+        """The link reset of the SpaceFibre port of the device (link_reset), run in a child process
+        (refsys.far_end_link) while channel LINK_CONTROL_CHANNEL, which the link control needs, is closed. The channel
+        is opened again afterwards, also when the link reset fails. No transfer may be pending on the channel."""
+        self._channels[LINK_CONTROL_CHANNEL].close()
         try:
-            time.sleep(hold)
-            held = link.getLinkStatus(device, port)
+            return self._link_control(hold, timeout)
         finally:
-            link.disableLinkReset(device, port)
-        start = time.monotonic()
+            self._reopen(LINK_CONTROL_CHANNEL)
+
+    def _link_control(self, hold: float, timeout: float) -> FarEndReset:
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in (str(SW), os.environ.get("PYTHONPATH")) if p))
+        try:
+            done = subprocess.run([sys.executable, "-B", "-m", "refsys.far_end_link", self._device_name,
+                                   str(self._spfi_port), repr(hold), repr(timeout)],
+                                  capture_output=True, text=True, env=env, check=False,
+                                  timeout=hold + timeout + LINK_CONTROL_START_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            raise TransportError("the link control of the far end did not end within "
+                                 f"{hold + timeout + LINK_CONTROL_START_TIMEOUT:.0f} s") from None
+        lines = done.stdout.strip().splitlines()
+        try:
+            answer = json.loads(lines[-1])
+        except (IndexError, ValueError):
+            raise TransportError(f"the link control of the far end ended without a result (exit {done.returncode}): "
+                                 f"{done.stderr.strip()[-500:]}") from None
+        if "error" in answer:
+            raise TransportError(f"the link control of the far end failed: {answer['error']}")
+        return FarEndReset(bool(answer["down"]), answer["text"])
+
+    def _reopen(self, index: int) -> None:
+        """Opens channel `index` of the device again with a new channel object, retried until the device frees it."""
+        deadline = time.monotonic() + CHANNEL_REOPEN_TIMEOUT
         while True:
-            status = link.getLinkStatus(device, port)
-            if link.isLinkReady(status) and link.getActiveLanesCount(status) >= lanes:
-                break
-            if time.monotonic() - start > timeout:
-                raise TransportError(f"the link of SpaceFibre port {port} of the device is not ready with {lanes} "
-                                     f"lanes {timeout} s after its link reset (link status 0x{status:08X})")
-            time.sleep(0.005)
-        down = not link.isLinkReady(held)
-        return FarEndReset(down, f"SpaceFibre port {port} of the device: {lanes} active lanes before the link reset, "
-                                 f"{link.getActiveLanesCount(held)} and link {'not ' if down else ''}ready while it "
-                                 f"was held for {hold:.3f} s, ready with {link.getActiveLanesCount(status)} lanes "
-                                 f"{time.monotonic() - start:.3f} s after its release")
+            channel = self._device.getChannels()[index]
+            try:
+                channel.openChannelToDevice(self._enums.STAR_CHANNEL_DIRECTION.INOUT)
+            except Exception as err:  # noqa: BLE001 - STARAPIError until the device frees the channel
+                if time.monotonic() >= deadline:
+                    raise TransportError(f"channel {index} of the device does not open again within "
+                                         f"{CHANNEL_REOPEN_TIMEOUT} s after the link control of the far end "
+                                         f"({err})") from None
+                time.sleep(CHANNEL_REOPEN_INTERVAL)
+                continue
+            self._channels[index] = channel
+            return
 
     @staticmethod
     def _cancel(operations) -> None:
