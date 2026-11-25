@@ -726,6 +726,23 @@ def lane_names(ctx: Context, lanes: list[int], *names: str) -> dict[str, int]:
     return out | {f"{port}.{name}": errorstate.ALL for name in names}
 
 
+# The causes of a retry of the Data Link layer: the bits of DL_ERRORS and their counters (OpenFibre register map)
+RETRY_CAUSES = {"CRC16": "DL_CRC16_COUNT", "CRC8": "DL_CRC8_COUNT", "FRAME": "DL_FRAME_COUNT",
+                "SEQUENCE": "DL_SEQ_COUNT"}
+
+
+def retry_causes(ctx: Context, dl_errors: int) -> dict[str, int]:
+    """The causes of a retry that the word dl_errors of DL_ERRORS holds, as error registers that a test case may
+    move: their bits of DL_ERRORS and their counters, with any value. A restart of the lanes replaces the words in
+    flight by RXERR, and the Data Link layer recovers the frame with a retry (OpenFibre user guide, section 10)."""
+    port = ctx.system.port
+    causes = [bit for bit in RETRY_CAUSES if OFB.get("DL_ERRORS", bit, dl_errors)]
+    if not causes:
+        return {}
+    return ({f"{port}.DL_ERRORS": sum(OFB.field("DL_ERRORS", bit, 1) for bit in causes)}
+            | {f"{port}.{RETRY_CAUSES[bit]}": errorstate.ALL for bit in causes})
+
+
 def tc12_far_end_link_reset(regs: Registers, ctx: Context) -> None:
     """TC-RS-HW-12: link reset from the far end, no traffic in flight. The test equipment resets the link of its
     SpaceFibre port by itself (transport.far_end_link_reset): it holds the port in link reset, releases it and waits
@@ -733,9 +750,12 @@ def tc12_far_end_link_reset(regs: Registers, ctx: Context) -> None:
     (the reset reached the link). The script waits until the RMAP target answers again. The SpaceFibre port reports
     the far-end link reset (DL_ERRORS.FAR_END_LINK_RESET, DL-LR-03) and the initialised link with all lanes; the lanes
     are recorded. A round of images (traffic_round) equals the model, the counters match. Before the error registers
-    are cleared: DL_ERRORS holds FAR_END_LINK_RESET only; the lane registers (events, timeouts and receiver resets,
-    RXERR_COUNT), ML_MISALIGNED and DL_RETRIES of the restart may hold any value and are recorded; every other error
-    register is still 0."""
+    are cleared: DL_ERRORS holds FAR_END_LINK_RESET, and besides it only the causes of a retry (CRC16, CRC8, FRAME,
+    SEQUENCE) that it held when the link was back, before the images; the counters of these causes, the lane registers
+    (events, timeouts and receiver resets, RXERR_COUNT), ML_MISALIGNED, ML_ALIGN_TIMEOUTS and DL_RETRIES of the restart
+    may hold any value and are recorded; every other error register is still 0. The lanes of the link reach Active at
+    different times, so the alignment watchdog of the port can restart them once during the link start
+    (ML_ALIGN_TIMEOUTS), which can cut a frame in flight that the Data Link layer then sends again."""
     s = ctx.system
     far_end = regs.transport.far_end_link_reset()
     systest.record(ctx, f"far-end link reset: {far_end.text}")
@@ -744,12 +764,15 @@ def tc12_far_end_link_reset(regs: Registers, ctx: Context) -> None:
     systest.await_rmap(regs, ctx)
     port = s.base(s.port)
     reset = OFB.field("DL_ERRORS", "FAR_END_LINK_RESET", 1)
-    regs.wait(port + OFB.DL_ERRORS, reset, reset)
+    restart = regs.wait(port + OFB.DL_ERRORS, reset, reset)
+    systest.record(ctx, f"after the far-end link reset, before the images: {s.port} DL_ERRORS 0x{restart:08X} "
+                   f"({OFB.decode('DL_ERRORS', restart, nonzero=True)})")
     systest.check_link_state(regs, ctx)
     systest.lane_records(regs, ctx, "after the far-end link reset: ")
     traffic_round(regs, ctx)
     systest.caused(regs, ctx, "TC-RS-HW-12", expected={f"{s.port}.DL_ERRORS": reset},
-                   allowed=lane_names(ctx, list(range(s.lanes)), "ML_MISALIGNED", "DL_RETRIES"))
+                   allowed=lane_names(ctx, list(range(s.lanes)), "ML_MISALIGNED", "ML_ALIGN_TIMEOUTS", "DL_RETRIES")
+                   | retry_causes(ctx, restart))
 
 
 def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
@@ -758,8 +781,9 @@ def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
     other lanes); ML_STATUS shows the other lanes sending and receiving, aligned, and the lane leaves the Active
     state. A round of images (traffic_round) on these lanes equals the model. The lane gets TX_EN and RX_EN again and
     rejoins: Active, ML_STATUS with all lanes. Another round of images equals the model. Before the error registers
-    are cleared: ML_MISALIGNED, DL_RETRIES and the registers of the lane may hold any value and are recorded; every
-    other error register is still 0. A run that stops here may leave the lane out: program the device again."""
+    are cleared: ML_MISALIGNED, DL_RETRIES with its cause of a realignment (DL_ERRORS.SEQUENCE and DL_SEQ_COUNT,
+    OpenFibre user guide, section 10) and the registers of the lane may hold any value and are recorded; every other
+    error register is still 0. A run that stops here may leave the lane out: program the device again."""
     s = ctx.system
     port = s.base(s.port)
     lane = s.lanes - 1
@@ -787,7 +811,8 @@ def tc13_lane_removal(regs: Registers, ctx: Context) -> None:
     regs.wait(port + OFB.ML_STATUS, fields, lanes_up(all_lanes))
     traffic_round(regs, ctx)
     systest.lane_records(regs, ctx, "after the rejoin: ")
-    systest.caused(regs, ctx, "TC-RS-HW-13", allowed=lane_names(ctx, [lane], "ML_MISALIGNED", "DL_RETRIES"))
+    systest.caused(regs, ctx, "TC-RS-HW-13", allowed=lane_names(ctx, [lane], "ML_MISALIGNED", "DL_RETRIES")
+                   | retry_causes(ctx, OFB.field("DL_ERRORS", "SEQUENCE", 1)))
 
 
 def tc14_memory_errors(regs: Registers, ctx: Context) -> None:

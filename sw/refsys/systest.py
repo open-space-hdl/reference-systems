@@ -587,14 +587,15 @@ def caused(regs: Registers, ctx: Context, label: str, expected: dict[str, int] |
     """The end of a test case that provokes errors on purpose: the error registers it targets hold the expected
     values (expected: the error bits of the register, by name), those it may move hold any value in their allowed
     bits (allowed: bits by name, errorstate.ALL for any value), and every other error register is still 0 (a leaky
-    counter at most its baseline). The values are recorded, then every error register is cleared. Returns the values
-    read."""
+    counter at most its baseline). A register can be in both: its allowed bits may then be set besides the expected
+    value (the bits of DL_ERRORS that a restart of the link sets besides FAR_END_LINK_RESET). The values are
+    recorded, then every error register is cleared. Returns the values read."""
     items = ctx.system.error_registers()
     by_name = {r.name: r for r in items if isinstance(r, errorstate.Register)}
     state = errorstate.read_state(regs, items)
     record(ctx, f"{label} error registers: {error_record(state, expected or {}, allowed or {})}")
     for name, value in (expected or {}).items():
-        got = state[name] & by_name[name].errors
+        got = state[name] & by_name[name].errors & ~(allowed or {}).get(name, 0)
         check(got == value, f"{name} 0x{state[name]:08X}, expected 0x{value:08X} in its error bits")
     targeted = dict(allowed or {}) | {name: errorstate.ALL for name in expected or {}}
     problems = errorstate.unexpected(items, state, targeted, ctx.baseline)
@@ -607,7 +608,8 @@ def error_record(state: dict[str, int], expected: dict[str, int], allowed: dict[
     """The error registers at the end of a test case that provokes errors (caused), for its record: those it expects
     to hold a value, those it allows to move that do, and the others that hold a value (none when it passes)."""
     expects = ", ".join(f"{name} 0x{state.get(name, 0):08X}" for name in expected) or "none"
-    moved = ", ".join(f"{name} 0x{state[name]:08X}" for name in allowed if state.get(name)) or "none"
+    moved = ", ".join(f"{name} 0x{state[name]:08X}" for name in allowed
+                      if state.get(name) and name not in expected) or "none"
     others = errorstate.nonzero({n: v for n, v in state.items() if n not in expected and n not in allowed})
     return f"expected {expects}; allowed to move: {moved}; others: {others}"
 
