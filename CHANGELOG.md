@@ -1,5 +1,30 @@
 # Changelog
 
+## v0.3.1 (2026-11-25)
+
+A hotfix of the hardware test software of spfi_compress after the lab run of v0.3.0. The HDL, the Composer files, the
+cores and their pins are those of v0.3.0: a device image built from v0.3.0 serves v0.3.1, and the system simulations
+of v0.3.0 stay the evidence (the hardware tests make the RMAP requests and exchanges of v0.3.0).
+
+### Fixed
+
+- TC-RS-HW-12 (far-end link reset) failed on hardware on error registers that a restart of the link moves by design.
+  The lanes reach Active at different times, so the alignment watchdog of OpenFibre expired once during the link start
+  (`ML_ALIGN_TIMEOUTS` 1 in both runs, as after the power-up link start of TC-RS-HW-01), and in one run a frame was cut
+  and sent again (`DL_ERRORS.FRAME`, `DL_FRAME_COUNT` and `DL_RETRIES` 1). The images after the reset were equal to the
+  model in both runs. TC-RS-HW-12 now accepts `ML_ALIGN_TIMEOUTS` and the causes of a retry (`CRC16`, `CRC8`, `FRAME`,
+  `SEQUENCE` of `DL_ERRORS` and their counters), but a cause only when `DL_ERRORS` held it when the link was back,
+  before the images: a cause that appears during the images still fails the test case. The second run of TC-RS-HW-12
+  in TC-RS-HW-18 follows.
+- TC-RS-HW-13 (lane removal) accepted a retry but not its cause: it now accepts the sequence error of the
+  realignment with `DL_RETRIES` (`DL_ERRORS.SEQUENCE`, `DL_SEQ_COUNT`).
+- `systest.caused`: a register that a test case expects can also have allowed bits besides the expected value.
+
+### Changed
+
+- TC-RS-HW-12 records `DL_ERRORS` as it was when the link was back, before the images.
+- The procedures name v0.3.1 and the release 0.2.1 of the Python package openspacehdl.
+
 ## v0.3.0 (2026-11-19)
 
 The pipeline reset in all three systems: a command over RMAP resets the processing path with the link up, tested at

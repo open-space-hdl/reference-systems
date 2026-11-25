@@ -8,7 +8,7 @@ board top level per target with its constraints and build script, and a hardware
 
 ## Status
 
-Release v0.3.0 ([CHANGELOG.md](CHANGELOG.md)) with three systems. Every system has its generated top level, its core
+Release v0.3.1 ([CHANGELOG.md](CHANGELOG.md)) with three systems. Every system has its generated top level, its core
 versions and the checks of both, a system testbench and a first board target. The hardware test of the systems is
 open.
 
