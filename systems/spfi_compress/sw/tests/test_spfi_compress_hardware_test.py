@@ -609,7 +609,18 @@ class Faulty(sm.SystemModel):
             return FarEndReset(True, "far end of the system model: link reset")
         if self.mutation == "far_end_held":              # the far end ignores its link reset
             return FarEndReset(False, "far end of the system model: link ready while held in reset")
-        return super().far_end_link_reset()
+        result = super().far_end_link_reset()
+        self.link_restarted = True
+        if self.mutation in ("restart_frame", "restart_protocol"):
+            # restart_frame: the first lab run of v0.3.0, the watchdog restarts the lanes once and cuts a frame
+            cause = "FRAME" if self.mutation == "restart_frame" else "PROTOCOL"
+            self.regs[PORT + OFB.DL_ERRORS] |= OFB.field("DL_ERRORS", cause, 1)
+            for name in ("DL_FRAME_COUNT", "DL_RETRIES", "ML_ALIGN_TIMEOUTS"):
+                self._count(PORT + getattr(OFB, name))
+            self._count(PORT + OFB.ML_MISALIGNED, 7)
+        if self.mutation == "restart_watchdog":          # the second lab run of v0.3.0: one watchdog expiry
+            self._count(PORT + OFB.ML_ALIGN_TIMEOUTS)
+        return result
 
     def _bus_write(self, address, value, strobes=0xF):
         if self.mutation == "alias" and address % self.decoded_bytes >= 0x90000:
@@ -653,6 +664,16 @@ class Faulty(sm.SystemModel):
         out = super()._spp(packet)
         if self.mutation == "crc_count" and out:
             self._count(PORT + OFB.DL_CRC16_COUNT)       # every round of images counts a CRC error
+        if self.mutation == "frame_in_traffic" and out and getattr(self, "link_restarted", False):
+            # a frame error during the images after the restart, not at the restart
+            self.regs[PORT + OFB.DL_ERRORS] |= OFB.field("DL_ERRORS", "FRAME", 1)
+            self._count(PORT + OFB.DL_FRAME_COUNT)
+        if self.mutation in ("rejoin_sequence", "rejoin_frame") and out and self.regs.get(PORT + OFB.ML_MISALIGNED):
+            # a retry after the rejoin of the lane in TC-RS-HW-13, with its cause
+            cause = "SEQUENCE" if self.mutation == "rejoin_sequence" else "FRAME"
+            self.regs[PORT + OFB.DL_ERRORS] |= OFB.field("DL_ERRORS", cause, 1)
+            self._count(PORT + getattr(OFB, {"SEQUENCE": "DL_SEQ_COUNT", "FRAME": "DL_FRAME_COUNT"}[cause]))
+            self._count(PORT + OFB.DL_RETRIES)
         return out
 
 
@@ -695,6 +716,31 @@ def test_tc23_finds_counts_that_the_pipeline_reset_kept():
     ("pending_kept", "TC-RS-HW-21", "ocp0 CONTROL to NEXT_LIMITS"),
 ])
 def test_the_trl4_test_cases_detect_a_faulty_system(mutation, test, message):
+    results = run(Faulty(mutation), context(), ht.select_tests([test]))
+    assert message in (results[test] or ""), results
+
+
+@pytest.mark.parametrize("mutation, test", [
+    ("restart_frame", "TC-RS-HW-12"),
+    ("restart_watchdog", "TC-RS-HW-12"),
+    ("rejoin_sequence", "TC-RS-HW-13"),
+])
+def test_the_restart_of_the_link_may_cost_a_watchdog_expiry_and_a_retry(mutation, test):
+    # the lab runs of v0.3.0: after the far-end link reset DL_ERRORS holds FRAME besides FAR_END_LINK_RESET, with
+    # DL_FRAME_COUNT, DL_RETRIES and ML_ALIGN_TIMEOUTS (run 1), or ML_ALIGN_TIMEOUTS alone (run 2); the rejoin of a
+    # lane may cost a retry with a sequence error (OpenFibre user guide, section 10)
+    results = run(Faulty(mutation), context(), ht.select_tests([test]))
+    assert results[test] is None, results
+
+
+@pytest.mark.parametrize("mutation, test, message", [
+    ("frame_in_traffic", "TC-RS-HW-12", "ofb0.DL_ERRORS 0x00000024, expected 0x00000020 in its error bits"),
+    ("restart_protocol", "TC-RS-HW-12", "ofb0.DL_ERRORS 0x00000030, expected 0x00000020 in its error bits"),
+    ("rejoin_frame", "TC-RS-HW-13", "error registers that the test case does not target: ofb0.DL_ERRORS 0x00000004"),
+])
+def test_only_the_retry_causes_of_the_restart_are_allowed(mutation, test, message):
+    # a cause of a retry that DL_ERRORS did not hold when the link was back (an error during the images), a link
+    # reset caused by a protocol error, and in TC-RS-HW-13 another cause than the sequence error of a realignment
     results = run(Faulty(mutation), context(), ht.select_tests([test]))
     assert message in (results[test] or ""), results
 
